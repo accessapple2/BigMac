@@ -606,6 +606,48 @@ def _is_human_player(player_id: str) -> bool:
         return False
 
 
+# HM-BENCH-ENTRY-GATE-2026-07-09: BENCH (rating D/E, per
+# engine.agent_ratings.lineup_advisor's threshold) was advisory-only --
+# displayed on the report card but never enforced, so a benched agent could
+# still open new positions freely. Live incident: Dax (crew_role='advisory',
+# halt_mode='active') opened an XLE position the same day her rating showed
+# BENCH. Deliberately asymmetric per the Captain's directive: this gates
+# entries (buy()) ONLY -- exits/stops/risk-reducing actions (sell()) are
+# NEVER touched by this check, and halt_mode stays fully independent (this
+# reads agent_ratings, never writes ai_players.halt_mode).
+_BENCH_RATINGS = frozenset({"D", "E"})
+
+
+def _bench_block_reason(player_id: str) -> str | None:
+    """Return the blocking reason string if player_id's most recent
+    alltime rating is BENCH-grade (D/E), else None.
+
+    Reads the last-saved snapshot from agent_ratings rather than calling
+    calculate_rating() fresh -- that function does a full trade-history
+    scan AND writes a new snapshot row on every call; forcing that on every
+    single buy() attempt would add write load to the exact DB hot path
+    this session's other fixes (HM-EVENT-TAPE-WAL-CONTENTION, HM-RIKER-
+    LOCK-RETRY) were about reducing, not growing. Never-rated players
+    (no agent_ratings row yet) fail open -- not found is not BENCH.
+    """
+    try:
+        conn = _conn()
+        try:
+            row = conn.execute(
+                "SELECT rating, rating_score FROM agent_ratings "
+                "WHERE player_id=? AND period='alltime' "
+                "ORDER BY timestamp DESC LIMIT 1",
+                (player_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        if row and row[0] in _BENCH_RATINGS:
+            return f"BENCH: rating {row[0]} ({row[1]:.0f}/100)"
+        return None
+    except Exception:
+        return None  # fail open — same posture as every other gate in this module
+
+
 def _detect_ghost_option(player_id: str, symbol: str, price: float,
                           reasoning: str, option_type, expiry_date):
     """Detect when a 'stock' trade is actually an option premium.
@@ -773,6 +815,15 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
         _last_rejection[player_id] = f"Halted ({_halt[1]}): {_halt[0] or 'no reason given'}"
         _log_gate_reject(player_id, symbol, "HALT",
                          f"halt_mode={_halt[1]} reason={_halt[0] or 'no reason given'}",
+                         signal_id=signal_id, price=price, confidence=confidence)
+        return None
+    # === BENCH GATE === (HM-BENCH-ENTRY-GATE-2026-07-09; independent of halt_mode)
+    _bench_reason = _bench_block_reason(player_id)
+    if _bench_reason:
+        console.log(f"[red]BENCH: {player_id} BUY {symbol} blocked — {_bench_reason}")
+        _last_rejection[player_id] = _bench_reason
+        _log_gate_reject(player_id, symbol, "BENCH",
+                         _bench_reason,
                          signal_id=signal_id, price=price, confidence=confidence)
         return None
     # === AUDITION SHADOW GATE === (HM-AUDITION-GATE-2026-07-05)
@@ -4534,6 +4585,15 @@ def short_sell(player_id: str, symbol: str, price: float, qty: float = None,
         _last_rejection[player_id] = f"Halted ({_halt[1]}): {_halt[0] or 'no reason given'}"
         _log_gate_reject(player_id, symbol, "HALT",
                          f"halt_mode={_halt[1]} reason={_halt[0] or 'no reason given'}",
+                         price=price, confidence=confidence)
+        return None
+    # === BENCH GATE === (HM-BENCH-ENTRY-GATE-2026-07-09, mirrors buy())
+    # A new short is a new position, same as buy() -- same rule applies.
+    _bench_reason = _bench_block_reason(player_id)
+    if _bench_reason:
+        console.log(f"[red]BENCH: {player_id} SHORT {symbol} blocked — {_bench_reason}")
+        _last_rejection[player_id] = _bench_reason
+        _log_gate_reject(player_id, symbol, "BENCH", _bench_reason,
                          price=price, confidence=confidence)
         return None
     # === AUDITION SHADOW GATE === (HM-AUDITION-GATE-2026-07-05, mirrors buy())
