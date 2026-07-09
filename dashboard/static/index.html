@@ -9884,13 +9884,52 @@ function cpRender(snap) {
   } catch(e) {}
 }
 
+// HM-COCKPIT-ERROR-STATE-2026-07-09: panels sat at their initial "—"
+// placeholder forever on fetch failure/timeout -- no console error, no
+// visible indication anything was wrong (another silent-failure shape).
+// Same standard as the rest of today's fixes: an explicit error state,
+// not an eternal loading indicator. Clears automatically on the next
+// successful cpRender() call.
+var _CP_TILE_TEXT_IDS = [
+  'cp-regime-name', 'cp-ladder-name', 'cp-ks-state', 'cp-wr-age',
+  'cp-fleet-active', 'cp-td-trades',
+];
+var _CP_TILE_DETAIL_IDS = [
+  'cp-regime-date', 'cp-ladder-detail', 'cp-ks-detail', 'cp-wr-detail',
+  'cp-fleet-detail', 'cp-td-detail',
+];
+var _CP_TBODY_COLSPANS = {
+  'cp-dispatcher-tbody': 4, 'cp-engine-tbody': 4, 'cp-decisions-tbody': 7,
+};
+function cpShowError(msg) {
+  var rf = document.getElementById('cockpit-last-refresh');
+  if (rf) rf.innerHTML = '<span style="color:var(--down);">⚠ fetch failed: ' + esc(String(msg)) + ' — retrying every 30s</span>';
+  _CP_TILE_TEXT_IDS.forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) { el.textContent = '⚠ error'; el.style.color = 'var(--down)'; }
+  });
+  _CP_TILE_DETAIL_IDS.forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.textContent = 'fetch failed';
+  });
+  Object.keys(_CP_TBODY_COLSPANS).forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) {
+      el.innerHTML = '<tr><td colspan="' + _CP_TBODY_COLSPANS[id] +
+        '" style="padding:8px 4px;color:var(--down);text-align:center;">⚠ fetch failed — retrying every 30s</td></tr>';
+    }
+  });
+}
+
 function cpLoad() {
   fetch('/api/cockpit/snapshot')
-    .then(function(r) { return r.json(); })
+    .then(function(r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
     .then(cpRender)
     .catch(function(e) {
-      var rf = document.getElementById('cockpit-last-refresh');
-      if (rf) rf.innerHTML = '<span style="color:var(--down);">load failed: ' + e + '</span>';
+      cpShowError(e && e.message ? e.message : e);
     });
   // HM-COCKPIT-SIGNAL-LOG 2026-05-22: parallel fetch for the persistent
   // signal log. Independent of the snapshot — failure here doesn't blank
