@@ -1387,7 +1387,33 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 _is_localhost(request),
             )
         from dashboard.cf_auth import try_cf_access, try_internal_token, get_cf_identity
-        if try_cf_access(request) or try_internal_token(request):
+        # HM-CF-AUTH-EVENTLOOP-SAFETY-2026-07-09: try_cf_access/get_cf_identity
+        # validate the CF Access JWT via PyJWKClient, which does a SYNCHRONOUS
+        # HTTP fetch of Cloudflare's certs endpoint (cached after the first
+        # success, but re-fetched on any cache miss/unknown kid) -- called here
+        # completely unguarded inside this async def dispatch. Any network hang
+        # reaching that endpoint (this box has already hit unrelated network
+        # flakiness today -- HM-NTFY-IPV6-NOROUTE) would block uvicorn's ENTIRE
+        # event loop, not just this one request: bound port, zero response to
+        # ANYTHING, indistinguishable from a full crash except the process is
+        # still alive -- matching a wedge pattern seen repeatedly this session
+        # that a plain restart kept masking before root cause was found. Not
+        # confirmed as THE cause (the certs endpoint responded fine when
+        # tested live), but this is a genuine architectural risk regardless --
+        # synchronous network I/O must never run directly on the event loop.
+        # asyncio.to_thread + a hard timeout make this structurally safe no
+        # matter what the network does; timeout fails closed (same as any
+        # other invalid-credential outcome -- 401 for API, /login for pages).
+        import asyncio as _cf_asyncio
+        try:
+            _cf_auth_ok = await _cf_asyncio.wait_for(
+                _cf_asyncio.to_thread(lambda: try_cf_access(request) or try_internal_token(request)),
+                timeout=5.0,
+            )
+        except Exception as _cf_auth_exc:
+            logger.warning("CF auth check failed/timed out: %r", _cf_auth_exc)
+            _cf_auth_ok = False
+        if _cf_auth_ok:
             # HM-CF-SESSION-IDENTITY-2026-07-09: proving a valid CF JWT/
             # internal token exists only answers "can this request proceed"
             # -- it doesn't tell downstream code (e.g. /api/me, which
@@ -1401,7 +1427,17 @@ class AuthMiddleware(BaseHTTPMiddleware):
             # handler sees it immediately (the cookie below only helps
             # requests after this one), and persist the cookie so future
             # requests don't need this path at all.
-            identity = get_cf_identity(request)
+            # Same event-loop-safety concern as the try_cf_access call above --
+            # get_cf_identity() re-decodes the JWT (PyJWKClient cache normally
+            # makes this fast, but must not be allowed to block indefinitely
+            # if it ever isn't).
+            try:
+                identity = await _cf_asyncio.wait_for(
+                    _cf_asyncio.to_thread(get_cf_identity, request), timeout=5.0
+                )
+            except Exception as _cf_id_exc:
+                logger.warning("get_cf_identity failed/timed out: %r", _cf_id_exc)
+                identity = None
             response = None
             if identity and not session_data:
                 request.state.cf_session_override = {
