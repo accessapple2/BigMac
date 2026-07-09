@@ -2537,6 +2537,35 @@ def _hm_an2_consume_signal_center(market_ctx: dict[str, Any]) -> None:
 # === /HM-AN2.C ===
 
 
+def _hard_stop_eligible_players() -> list[str]:
+    """Every player currently holding an open stock position.
+
+    HM-STOP-COVERAGE-GAP-2026-07-09: _check_hard_stops() used to iterate
+    only ACTIVE_SCANNERS + RULES_SCANNERS + ALPHA_SQUAD (10 hardcoded
+    players) -- any player outside that fixed union (e.g. ollie-auto,
+    alpaca-mirror, guardian-of-forever, qwen3-8b-flash) got ZERO stop-loss
+    coverage no matter how far a position ran against them. Querying the
+    DB for actual position-holders closes the gap without needing the
+    static lists to be kept in sync by hand. Human/mirror players (e.g.
+    alpaca-mirror) are safe to include here -- paper_trader.sell()'s own
+    _is_human_player guard already no-ops for them.
+    """
+    c = None
+    try:
+        c = _conn()
+        rows = c.execute(
+            "SELECT DISTINCT player_id FROM positions "
+            "WHERE asset_type='stock' AND qty > 0"
+        ).fetchall()
+        return [r[0] for r in rows]
+    except Exception as e:
+        logger.error(f"_hard_stop_eligible_players query failed: {e}")
+        return list(dict.fromkeys(ACTIVE_SCANNERS + RULES_SCANNERS + ALPHA_SQUAD))
+    finally:
+        if c is not None:
+            c.close()
+
+
 def _check_hard_stops() -> int:
     """
     Immediately sell any stock position down -8% or more.
@@ -2544,7 +2573,7 @@ def _check_hard_stops() -> int:
     Returns count of positions cut.
     """
     cut = 0
-    for player_id in ACTIVE_SCANNERS + RULES_SCANNERS + ALPHA_SQUAD:
+    for player_id in _hard_stop_eligible_players():
         try:
             from engine.paper_trader import get_portfolio, sell
             from engine.market_data import get_stock_price
