@@ -55,10 +55,11 @@ def _jwks_client(team_domain: str):
     return _jwks_clients[team_domain]
 
 
-def _valid_cf_jwt(token: str) -> bool:
-    """Return True if token is a valid CF Access JWT for ANY configured
-    application AUD (Bridge's CF_ACCESS_AUD, plus any comma-separated extras
-    in CF_ACCESS_AUD_EXTRA — HM-SWINGDESK-AUTH-2026-07-05).
+def _decode_cf_jwt(token: str) -> dict | None:
+    """Return the decoded claims if token is a valid CF Access JWT for ANY
+    configured application AUD (Bridge's CF_ACCESS_AUD, plus any
+    comma-separated extras in CF_ACCESS_AUD_EXTRA —
+    HM-SWINGDESK-AUTH-2026-07-05), else None.
 
     CF Access ties the JWT's `aud` claim to the specific Access APPLICATION
     the request was gated through, which is typically per-hostname — so
@@ -70,6 +71,11 @@ def _valid_cf_jwt(token: str) -> bool:
     weakened — each candidate aud is tried independently; PyJWT's
     audience= check still requires an exact match per attempt, so this is
     not equivalent to accepting any aud.
+
+    HM-CF-SESSION-IDENTITY-2026-07-09: returns the decoded claims dict (was
+    a bare bool) so callers can read the `email` claim CF Access stamps on
+    every JWT — needed to mint a local session with a real identity for
+    CF-authenticated page loads. See get_cf_identity() below.
     """
     team = os.environ.get("CF_ACCESS_TEAM_DOMAIN", "")
     aud  = os.environ.get("CF_ACCESS_AUD", "")
@@ -78,24 +84,49 @@ def _valid_cf_jwt(token: str) -> bool:
     if not team or not candidate_auds:
         # Not configured → we can't validate → fail closed
         logger.debug("cf_auth: CF_ACCESS_TEAM_DOMAIN or no aud candidates set; rejecting")
-        return False
+        return None
     client = _jwks_client(team)
     if not client:
-        return False
+        return None
     try:
         import jwt as _jwt
         signing_key = client.get_signing_key_from_jwt(token)  # type: ignore[union-attr]
         for candidate in candidate_auds:
             try:
-                _jwt.decode(token, signing_key.key, algorithms=["RS256"], audience=candidate)
-                return True
+                return _jwt.decode(token, signing_key.key, algorithms=["RS256"], audience=candidate)
             except Exception:
                 continue
         logger.debug("cf_auth: JWT rejected against all %d candidate aud(s)", len(candidate_auds))
-        return False
+        return None
     except Exception as exc:
         logger.debug("cf_auth: JWT rejected: %s", exc)
-        return False
+        return None
+
+
+def _valid_cf_jwt(token: str) -> bool:
+    """Return True if token is a valid CF Access JWT. See _decode_cf_jwt."""
+    return _decode_cf_jwt(token) is not None
+
+
+def get_cf_identity(request: "Any") -> dict | None:
+    """Return {"email": ...} from a valid CF Access JWT on this request, or
+    None if there's no valid JWT. Used to mint a local app session with a
+    real identity on first CF-authenticated page load (HM-CF-SESSION-
+    IDENTITY-2026-07-09) — try_cf_access() alone only proves SOME valid CF
+    identity exists, not WHO, which left /api/me and friends unable to
+    resolve a user even though AuthMiddleware had already let the request
+    through.
+    """
+    token = request.headers.get("cf-access-jwt-assertion", "")
+    if not token:
+        return None
+    claims = _decode_cf_jwt(token)
+    if not claims:
+        return None
+    email = claims.get("email", "")
+    if not email:
+        return None
+    return {"email": email}
 
 
 def try_cf_access(request: "Any") -> bool:

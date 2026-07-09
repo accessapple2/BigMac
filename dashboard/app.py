@@ -1037,7 +1037,19 @@ def _record_login_failure(ip: str, reason: str = ""):
 
 
 def _get_session_data(request: Request) -> dict | None:
-    """Return the full session payload or None."""
+    """Return the full session payload or None.
+
+    HM-CF-SESSION-IDENTITY-2026-07-09: checks request.state first for a
+    same-request CF-identity override (set by AuthMiddleware when it mints
+    a session from a CF Access JWT) before falling back to the cookie. The
+    cookie-mint happens on the RESPONSE, so without this override the very
+    request that just proved CF identity (e.g. the first /api/me call
+    after a hard reload) would still see no session -- the cookie only
+    helps requests AFTER this one.
+    """
+    override = getattr(request.state, "cf_session_override", None)
+    if override is not None:
+        return override
     token = request.cookies.get("trademinds_session")
     if not token:
         return None
@@ -1374,9 +1386,41 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 _is_via_cf_tunnel(request),
                 _is_localhost(request),
             )
-        from dashboard.cf_auth import try_cf_access, try_internal_token
+        from dashboard.cf_auth import try_cf_access, try_internal_token, get_cf_identity
         if try_cf_access(request) or try_internal_token(request):
-            return await call_next(request)
+            # HM-CF-SESSION-IDENTITY-2026-07-09: proving a valid CF JWT/
+            # internal token exists only answers "can this request proceed"
+            # -- it doesn't tell downstream code (e.g. /api/me, which
+            # literally answers "who is logged in") WHO the user is. That
+            # gap meant /api/me and /api/active-users kept 401ing after the
+            # page-route fix above (HM-CF-ACCESS-PAGE-ROUTES) even though
+            # the page itself now loaded fine — onAuthLost paused pollers
+            # and showed a permanent session-expired banner on every reload.
+            # Mint a real local session identity from the CF JWT's `email`
+            # claim: set it on request.state so THIS request's own route
+            # handler sees it immediately (the cookie below only helps
+            # requests after this one), and persist the cookie so future
+            # requests don't need this path at all.
+            identity = get_cf_identity(request)
+            response = None
+            if identity and not session_data:
+                request.state.cf_session_override = {
+                    "authenticated": True,
+                    "username": identity["email"],
+                    "role": "admin",
+                }
+                response = await call_next(request)
+                session_token = _signer.dumps({
+                    "authenticated": True,
+                    "username": identity["email"],
+                    "role": "admin",
+                })
+                response.set_cookie("trademinds_session", session_token,
+                                     max_age=_SESSION_MAX_AGE, httponly=True, samesite="strict")
+                _active_sessions[identity["email"]] = _time_module.time()
+            else:
+                response = await call_next(request)
+            return response
         if path.startswith("/api/"):
             return JSONResponse({"error": "Authentication required"}, status_code=401)
         return RedirectResponse(url="/login", status_code=303)
