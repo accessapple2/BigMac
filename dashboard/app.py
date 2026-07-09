@@ -14141,6 +14141,8 @@ def ratings_fleet():
                 r["sharpe_90d"] = 0.0
                 r["kelly_tier"] = "default"
         return report
+    except sqlite3.OperationalError as e:
+        return JSONResponse(status_code=503, content={"error": f"DB busy, retry: {e}"})
     except Exception as e:
         return {"error": str(e)}
 
@@ -20526,7 +20528,10 @@ async def indexes_delete(index_id: int):
 def sub_portfolios_list():
     """Return all sub-portfolios with current exposure and available budget."""
     from engine.sub_portfolio import list_sub_portfolios
-    return {"sub_portfolios": list_sub_portfolios()}
+    try:
+        return {"sub_portfolios": list_sub_portfolios()}
+    except sqlite3.OperationalError as e:
+        return JSONResponse(status_code=503, content={"error": f"DB busy, retry: {e}"})
 
 
 @app.post("/api/sub-portfolios/{name}/budget")
@@ -20633,7 +20638,10 @@ async def cash_log(limit: int = 20):
 def tax_opportunities(threshold_pct: float = None):
     """Positions eligible for tax-loss harvesting. ?threshold_pct=-3.0"""
     from engine.tax_harvester import scan_opportunities
-    return scan_opportunities(threshold_pct)
+    try:
+        return scan_opportunities(threshold_pct)
+    except sqlite3.OperationalError as e:
+        return JSONResponse(status_code=503, content={"error": f"DB busy, retry: {e}"})
 
 
 @app.post("/api/tax/harvest")
@@ -20650,17 +20658,23 @@ async def tax_harvest(req: Request):
 async def tax_history(limit: int = 50):
     """Past harvest events with loss amounts and estimated savings."""
     from engine.tax_harvester import get_harvest_history, get_ytd_summary
-    return {
-        "ytd":     get_ytd_summary(),
-        "history": get_harvest_history(limit),
-    }
+    try:
+        return {
+            "ytd":     get_ytd_summary(),
+            "history": get_harvest_history(limit),
+        }
+    except sqlite3.OperationalError as e:
+        return JSONResponse(status_code=503, content={"error": f"DB busy, retry: {e}"})
 
 
 @app.get("/api/tax/wash-sales")
 def tax_wash_sales():
     """Currently active wash-sale windows (30-day blocks)."""
     from engine.tax_harvester import get_active_wash_sales
-    return {"wash_sales": get_active_wash_sales()}
+    try:
+        return {"wash_sales": get_active_wash_sales()}
+    except sqlite3.OperationalError as e:
+        return JSONResponse(status_code=503, content={"error": f"DB busy, retry: {e}"})
 
 
 @app.post("/api/tax/mode")
@@ -20674,12 +20688,27 @@ async def tax_set_mode(req: Request):
 
 # ── VaR & Stress Testing endpoints ────────────────────────────────────────────
 
-@app.get("/api/risk/var")
 @timed_cache(3600)
-def risk_var():
-    """Calculate current portfolio VaR (95% and 99% confidence)."""
+def _risk_var_cached():
     from engine.risk_var import calculate_var
     return calculate_var()
+
+
+@app.get("/api/risk/var")
+def risk_var():
+    """Calculate current portfolio VaR (95% and 99% confidence).
+
+    HM-TAX-503-2026-07-09: the try/except must wrap the CACHED call, not
+    live inside the @timed_cache'd function itself -- timed_cache only
+    skips caching when func() raises, so catching the exception inside the
+    cached function and converting it to a 503 return value would have
+    cached that 503 for a full hour, turning one transient DB-lock blip
+    into an hour of false "service unavailable" for every caller.
+    """
+    try:
+        return _risk_var_cached()
+    except sqlite3.OperationalError as e:
+        return JSONResponse(status_code=503, content={"error": f"DB busy, retry: {e}"})
 
 
 @app.post("/api/risk/stress")

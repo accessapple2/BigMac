@@ -38,6 +38,7 @@ import os
 import sqlite3
 from engine.db_conn import get_conn
 import contextlib
+import threading
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -116,7 +117,32 @@ def _conn() -> sqlite3.Connection:
     return c
 
 
+# HM-TAX-INIT-ONCE-2026-07-09: _init_tables() was called unconditionally at
+# the top of every read-path function (get_ytd_summary, get_harvest_history,
+# scan_opportunities, get_active_wash_sales, etc.) -- a real write
+# transaction (CREATE TABLE + several INSERT OR IGNORE + commit) on every
+# single read, even though schema/seed-data only ever needs to run once per
+# process. Under concurrent load from the live trader process writing
+# trader.db, this incidental write blocked behind the busy_timeout and
+# surfaced as a 500 on /api/tax/history (uncaught) and apparent hangs on the
+# sibling endpoints (caught/logged there instead, same underlying wait).
+# Guarded so the DB work only actually runs once per process lifetime.
+_tables_initialized = False
+_init_lock = threading.Lock()
+
+
 def _init_tables() -> None:
+    global _tables_initialized
+    if _tables_initialized:
+        return
+    with _init_lock:
+        if _tables_initialized:  # re-check inside the lock (another thread may have won the race)
+            return
+        _init_tables_uncached()
+        _tables_initialized = True
+
+
+def _init_tables_uncached() -> None:
     with contextlib.closing(_conn()) as db:
         db.execute("""
             CREATE TABLE IF NOT EXISTS correlation_pairs (
