@@ -3136,6 +3136,37 @@ def _scan_rules_agent(player_id: str, market_ctx: dict[str, Any]) -> dict[str, A
         except Exception:
             pass  # fail open — paper_trader will reject a duplicate anyway
 
+        # HM-CAPITOL-DEDUP-SIGNAL-LEVEL-2026-07-09: the two checks above only
+        # look at the `trades` table -- an already-EXECUTED buy. If the same
+        # disclosure's buy keeps hitting a downstream guardrail
+        # (gate_result=TRADE_REJECTED), it never lands in `trades`, so those
+        # checks find nothing and the identical signal re-emits every scan
+        # cycle (confirmed live: 15x re-fire for one MU disclosure in a single
+        # session, ~2-15min apart, all TRADE_REJECTED). Dedup at the
+        # signal-EMISSION level instead: has THIS decision function already
+        # emitted a BUY for (player, symbol) today, regardless of what
+        # happened to it afterward? crew_decisions logs every decision via
+        # _log_decision() unconditionally, including gate-rejected ones, so
+        # it's the right source of truth for "did we already say this."
+        try:
+            _cap_c2 = _cap_sq.connect(_cap_db, timeout=5)
+            _cap_row2 = _cap_c2.execute(
+                "SELECT 1 FROM crew_decisions "
+                "WHERE player_id=? AND symbol=? AND action LIKE 'BUY%' "
+                "AND date(timestamp)=? LIMIT 1",
+                ("capitol-trades", symbol, str(_cap_date.today()))
+            ).fetchone()
+            _cap_c2.close()
+            if _cap_row2:
+                _log_decision(player_id, display_name, "PASS", symbol, 0,
+                              f"Capitol dedup: {symbol} signal already emitted today "
+                              f"(crew_decisions, regardless of execution outcome)",
+                              market_ctx, "DEDUP_SIGNAL_TODAY", False)
+                return {"player_id": player_id, "action": "PASS",
+                        "reason": f"Capitol dedup: {symbol} signal already emitted today"}
+        except Exception:
+            pass  # fail open — matches the existing dedup check's posture above
+
     # Submit trade
     conf_normalized = confidence / 100.0
     executed        = False
