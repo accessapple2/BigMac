@@ -47,8 +47,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import socket
 import sqlite3
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -113,6 +115,18 @@ def _log(msg: str) -> None:
 
 
 # ── NTFY (synchronous, returns success — needed for the .sent delivery audit) ─
+# HM-NTFY-IPV6-NOROUTE (2026-07-07, ported 2026-07-09): this box has no working
+# IPv6 route to ntfy.sh (see engine/alert_channels.py::_send_ntfy for the original
+# diagnosis) — force IPv4 for the duration of the call, same pattern, so this
+# script's push doesn't hit the same OSError(65, "No route to host") failure.
+_ntfy_ipv4_lock = threading.Lock()
+_orig_getaddrinfo = socket.getaddrinfo
+
+
+def _ipv4_only_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+    return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+
+
 def push_ntfy(title: str, body: str, priority: int = 4) -> bool:
     """POST one ntfy.sh message synchronously. Returns True on HTTP 200.
 
@@ -134,10 +148,15 @@ def push_ntfy(title: str, body: str, priority: int = 4) -> bool:
             "https://ntfy.sh", data=data,
             headers={"Content-Type": "application/json"}, method="POST",
         )
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            ok = resp.status == 200
-            _log(f"ntfy push [{resp.status}]: {title}")
-            return ok
+        with _ntfy_ipv4_lock:
+            socket.getaddrinfo = _ipv4_only_getaddrinfo
+            try:
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    ok = resp.status == 200
+                    _log(f"ntfy push [{resp.status}]: {title}")
+                    return ok
+            finally:
+                socket.getaddrinfo = _orig_getaddrinfo
     except Exception as e:
         _log(f"ntfy push FAILED ({type(e).__name__}: {e!r}): {title}")
         return False
