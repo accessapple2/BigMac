@@ -1352,20 +1352,32 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # BRIDGE_INTERNAL_TOKEN gives internal automation an explicit credential
         # instead of relying solely on the loopback bypass above.
         #
+        # HM-CF-ACCESS-PAGE-ROUTES-2026-07-09: this JWT check used to run ONLY
+        # for /api/ paths -- any page route (/, /classic, etc.) with no local
+        # session cookie fell straight to the /login redirect below WITHOUT
+        # ever checking the CF Access JWT, even though CF has already
+        # authenticated the browser and injected that exact header on every
+        # proxied request, not just API calls. That violated this file's own
+        # documented posture ("CF Access is the gate, the origin doesn't
+        # double-check") specifically for page loads -- a CF-authenticated
+        # browser still got bounced to the app's internal PIN login. Now
+        # checked for both branches; only the failure response differs
+        # (401 JSON for API, redirect-to-/login for pages).
+        #
         # Diagnostic: set LOG_BRIDGE_AUTH_HEADERS=1 to see auth decision inputs.
+        if os.environ.get("LOG_BRIDGE_AUTH_HEADERS"):
+            logger.info(
+                "AUTH_DECISION path=%s cf_jwt=%s x_int=%s via_cf=%s is_local=%s",
+                path,
+                bool(request.headers.get("cf-access-jwt-assertion")),
+                bool(request.headers.get("x-internal-token")),
+                _is_via_cf_tunnel(request),
+                _is_localhost(request),
+            )
+        from dashboard.cf_auth import try_cf_access, try_internal_token
+        if try_cf_access(request) or try_internal_token(request):
+            return await call_next(request)
         if path.startswith("/api/"):
-            if os.environ.get("LOG_BRIDGE_AUTH_HEADERS"):
-                logger.info(
-                    "AUTH_DECISION path=%s cf_jwt=%s x_int=%s via_cf=%s is_local=%s",
-                    path,
-                    bool(request.headers.get("cf-access-jwt-assertion")),
-                    bool(request.headers.get("x-internal-token")),
-                    _is_via_cf_tunnel(request),
-                    _is_localhost(request),
-                )
-            from dashboard.cf_auth import try_cf_access, try_internal_token
-            if try_cf_access(request) or try_internal_token(request):
-                return await call_next(request)
             return JSONResponse({"error": "Authentication required"}, status_code=401)
         return RedirectResponse(url="/login", status_code=303)
 
