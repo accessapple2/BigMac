@@ -8630,3 +8630,31 @@ gap in the safety-net function itself.
 the P0 "position-monitoring loop" item in the same session) and confirm
 whether `alpaca-mirror`'s internal `positions` table row self-corrects via
 its normal broker-sync job or needs a manual row cleanup.
+
+## HM-MCCOY-OLLAMA-CONTEXT-INVESTIGATION-2026-07-09 — follow-up, not yet started
+
+**Open question:** what caused McCoy's (`ollama-plutus`) local model to
+collapse to emitting exactly `confidence=0.85` on 100% of BUY_CALL signals
+starting 2026-07-08 (73/76 that day, 45/45 on 07-09), after previously
+varying naturally (0.8/0.82/0.87/0.89/0.9/0.95)? Timing coincides with an
+`engine/providers/ollama_provider.py` context/concurrency change dated
+2026-07-07 (`num_ctx=10240`, 2 concurrent workers) — plausible but
+**unconfirmed** root cause, flagged during the same-day investigation that
+also shipped `HM-DEGENERATE-CONFIDENCE-2026-07-09` (the detection mechanism
+for this pattern going forward, in `engine/crew_scanner.py`).
+
+**Scope for the follow-up:**
+- Diff the exact `ollama_provider.py` change from 2026-07-07 — what
+  changed about context window size, concurrency, or request batching.
+- Check whether other Ollama-backed agents sharing the same model/pair
+  (Dax/`ollama-qwen3`, since McCoy runs paired with Dax per
+  `SCAN_PAIRS`) show any correlated confidence-variance change, or if
+  this is isolated to McCoy's specific model (plutus).
+- Determine whether `num_ctx=10240` or the 2-worker concurrency setting
+  is more likely to cause a model to degenerate toward a single stable
+  output token sequence (context truncation cutting off the reasoning
+  that normally varies confidence, vs. two concurrent requests
+  interleaving/corrupting KV-cache state are different failure
+  mechanisms with different fixes).
+- Not urgent — `is_confidence_reliable('ollama-plutus')` now surfaces
+  the symptom automatically; this ticket is about the underlying cause.
