@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+import sys
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -20,6 +21,24 @@ from pathlib import Path
 import os
 
 import requests
+
+# HM-RIKER-SYNTHESIS-SYSPATH-2026-07-09: this script is invoked by cron as
+# `python3 /abs/path/to/engine/riker_synthesis.py` (crontab: */10 * * * *).
+# Running a script by path sets sys.path[0] to the SCRIPT'S OWN directory
+# (engine/), not the repo root and not cwd -- the crontab's `cd
+# /Users/bigmac/autonomous-trader &&` before the python3 call does NOT change
+# this (sys.path[0] is derived from the script location, unaffected by cwd).
+# The `from engine.db_conn import get_conn` line added in the HM-RIKER-LOCK-
+# RETRY-2026-07-09 fix therefore failed with ModuleNotFoundError on every
+# real cron invocation (`engine` package not importable from inside
+# engine/) even though it worked fine when smoke-tested interactively from
+# the repo root (`python3 -c "from engine.riker_synthesis import ..."`,
+# which had the repo root in sys.path already) -- exactly the "tested
+# invocation differs from the real one" gap. Broke the every-10-min cron
+# silently for ~5.5h (09:21 AZ through this fix) before being caught.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 from engine.db_conn import get_conn
 
