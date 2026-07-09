@@ -847,6 +847,12 @@ def start_event_detector() -> None:
                     f"{type(exc).__name__}: {exc!r}")
         return
 
+    # HM-EVENT-TAPE-STALENESS-WATCHDOG-2026-07-09: seed last_cycle_at at start
+    # time (not None) so the watchdog doesn't false-alarm with age=inf in the
+    # 30s window before the detector thread completes its first real cycle --
+    # same fix shape as main.py's HM-SCAN-LIVENESS-WATCHDOG seeding.
+    _stats["last_cycle_at"] = datetime.now(timezone.utc).isoformat()
+
     _running = True
     _detector_thread = threading.Thread(target=_run_detector_loop, daemon=True, name="event-tape-detector")
     _detector_thread.start()
