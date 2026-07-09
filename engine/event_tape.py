@@ -44,6 +44,8 @@ from datetime import datetime, timezone
 
 from rich.console import Console
 
+from engine.risk_manager import RiskManager
+
 console = Console()
 
 DB = "data/trader.db"
@@ -705,7 +707,6 @@ def _run_detector_loop() -> None:
     while _running:
         # Market-hours gate.
         try:
-            from engine.risk_manager import RiskManager
             if not RiskManager.is_market_hours():
                 # Sleep in small chunks so stop is responsive.
                 for _ in range(_DETECT_INTERVAL_SECS):
@@ -764,6 +765,56 @@ def _run_cleanup() -> None:
             time.sleep(1)
 
 
+# HM-EVENT-TAPE-STALENESS-WATCHDOG-2026-07-09: the detector thread went silently
+# dead for 21.5h+ (cycles=0 the entire time, no exception ever logged) with no
+# alarm anywhere to catch it -- discovered only by a manual dashboard read. This
+# watchdog alarms on CYCLE staleness (the loop not advancing), not event-count
+# staleness: _run_heartbeat's own docstring above already documents "no events
+# fire" as an expected, normal state during quiet market hours, so a
+# zero-events-based alarm would false-page on legitimately quiet stretches. Cycle
+# staleness is the metric that actually failed here and catches the real bug
+# class (thread wedged/deadlocked) without that false-positive risk.
+_STALENESS_THRESHOLD_SECS = 15 * 60   # 15 min, per HM-STOP-COVERAGE-GAP session ask
+_staleness_alert_sent = False
+
+
+def _check_detector_staleness() -> None:
+    """Alarm if the detector loop hasn't completed a cycle in >15min during
+    market hours. Edge-triggered (fires once, auto-clears on recovery) —
+    same pattern as main.py's HM-SCAN-LIVENESS-WATCHDOG."""
+    global _staleness_alert_sent
+    try:
+        if not RiskManager.is_market_hours():
+            return
+    except Exception:
+        return
+    last = _stats["last_cycle_at"]
+    if last is None:
+        age = float("inf")
+    else:
+        age = (datetime.now(timezone.utc) - datetime.fromisoformat(last)).total_seconds()
+    if age > _STALENESS_THRESHOLD_SECS:
+        if not _staleness_alert_sent:
+            try:
+                from engine.alert_channels import send_alert, AlertLevel
+                send_alert(
+                    f"Event-tape detector stalled — last completed cycle "
+                    f"{('never' if last is None else f'{age/60:.1f}min ago')} "
+                    f"(threshold {_STALENESS_THRESHOLD_SECS/60:.0f}min)",
+                    level=AlertLevel.WARNING,
+                    alert_type="event_tape_staleness",
+                    title="Event-tape detector stall",
+                    source="sys_event_tape_liveness",
+                )
+            except Exception as e:
+                console.log(f"[red][HM-EVENT-TAPE-STALENESS] send_alert failed: {e}")
+            console.log(f"[red][HM-EVENT-TAPE-STALENESS] ALERT — age={'inf' if last is None else f'{age:.0f}s'}")
+            _staleness_alert_sent = True
+    elif _staleness_alert_sent:
+        console.log(f"[green][HM-EVENT-TAPE-STALENESS] recovered — age={age:.0f}s")
+        _staleness_alert_sent = False
+
+
 def _run_heartbeat() -> None:
     """Per HM-EQ doctrine — proves the detector daemon is alive even when no
     events fire (e.g. quiet market hours)."""
@@ -774,6 +825,7 @@ def _run_heartbeat() -> None:
             f"by_type={_stats['by_type']} last_cycle={_stats['last_cycle_at']}"
         )
         console.log(msg)
+        _check_detector_staleness()
         for _ in range(_HEARTBEAT_INTERVAL_SECS):
             if not _running:
                 return
