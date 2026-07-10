@@ -24494,6 +24494,28 @@ async def options_book_summary():
             (tag, TROI_REAL_QUOTES_ERA_START),
         )
         info["today_pnl"] = c.fetchone()["pnl"]
+        # HM-P&L-RECONCILIATION 2026-07-10 (S6 Finding 4 sweep, part 2):
+        # total_trades/wins/losses on options_books are stored counters
+        # (engine/options_exec.py) with zero era-awareness -- they were
+        # never filtered by structure or CSP-era pricing. Same disease as
+        # realized_pnl above: fleet's stored 84/81/4 was ~96% synthetic-era
+        # CSP outcomes (only 21 of 105 actual closed trades are real-quotes-
+        # eligible). Override at read-time with a live-computed, era-scoped
+        # count -- does NOT touch the stored counters (those have a
+        # separate, unrelated open-vs-close counting inconsistency; not
+        # addressed here).
+        c.execute(
+            "SELECT COUNT(*) AS n, "
+            "SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) AS wins, "
+            "SUM(CASE WHEN pnl <= 0 THEN 1 ELSE 0 END) AS losses "
+            "FROM options_trades WHERE book_tag = ? AND status = 'closed' "
+            "AND (structure != 'csp' OR exit_date >= ?)",
+            (tag, TROI_REAL_QUOTES_ERA_START),
+        )
+        _wl_row = c.fetchone()
+        info["total_trades"] = _wl_row["n"] or 0
+        info["wins"] = _wl_row["wins"] or 0
+        info["losses"] = _wl_row["losses"] or 0
         # P0-A item 3, 2026-07-07: mtm_intrinsic existed as a schema column
         # and scripts/refresh_mtm_intrinsic.py existed to compute it, but
         # neither was cron-scheduled nor consumed anywhere -- "book equity"

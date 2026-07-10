@@ -460,6 +460,16 @@ sessions was extracted and lives in the "Doctrine Lessons" section above.
 - Honest abstention > false completion: say "unverified" rather than guess.
 - On retraction, state what was wrong and why.
 
+## Relay Doctrine (standing rule, 2026-07-10)
+At the end of every completed work block or directive, **before declaring
+done**: write `data/reports/relay/relay_<date>_<topic>.md` summarizing what
+shipped, what's open, and live-verification results — then commit and push
+it together with the work. Cloud Claude fetches these directly; no
+terminal copy/paste handoff. Applies to every session, not just
+P&L-reconciliation-style investigations. A "work block" is any unit of
+work that ends in a commit — if there's nothing to commit, there's nothing
+to relay.
+
 ## 2026-06-24 Structural Changes (canon)
 
 ### Gamma grounding (commit c8c021d, DAY0-gamma-grounding)

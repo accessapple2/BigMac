@@ -155,16 +155,18 @@ def test_options_book_summary_excludes_pre_real_quotes_csp_scoped_to_csp_only(tm
         status TEXT, pnl REAL, exit_date TEXT, mtm_intrinsic REAL
     )""")
     conn.execute("INSERT INTO options_books (book_tag, current_cash) VALUES ('fleet', 1000.0)")
-    # Pre-boundary CSP -- must be excluded.
+    # Pre-boundary CSP, win -- must be excluded from realized_pnl AND from
+    # total_trades/wins/losses.
     conn.execute("INSERT INTO options_trades (book_tag, agent_id, structure, status, pnl, exit_date) "
                  "VALUES ('fleet', 'options-sosnoff', 'csp', 'closed', 29868.74, '2026-07-01')")
-    # Post-boundary CSP -- must be included.
+    # Post-boundary CSP, win -- must be included.
     conn.execute("INSERT INTO options_trades (book_tag, agent_id, structure, status, pnl, exit_date) "
                  "VALUES ('fleet', 'options-sosnoff', 'csp', 'closed', 100.0, '2026-07-08')")
-    # Non-CSP structure, pre-boundary date -- must ALWAYS be included regardless
-    # of the CSP era boundary (proves the scoping doesn't leak into other strategies).
+    # Non-CSP structure, pre-boundary date, loss -- must ALWAYS be included
+    # regardless of the CSP era boundary (proves the scoping doesn't leak
+    # into other strategies, and that losses are counted too).
     conn.execute("INSERT INTO options_trades (book_tag, agent_id, structure, status, pnl, exit_date) "
-                 "VALUES ('fleet', 'someagent', 'bull_spread', 'closed', 500.0, '2026-06-01')")
+                 "VALUES ('fleet', 'someagent', 'bull_spread', 'closed', -500.0, '2026-06-01')")
     conn.commit()
     conn.close()
 
@@ -174,7 +176,14 @@ def test_options_book_summary_excludes_pre_real_quotes_csp_scoped_to_csp_only(tm
 
     assert result["ok"] is True
     fleet = result["books"]["fleet"]
-    assert fleet["realized_pnl"] == pytest.approx(600.0)  # 100 (post-CSP) + 500 (non-CSP) -- NOT 29868.74
+    # 100 (post-CSP) + -500 (non-CSP) -- NOT +29868.74 from the pre-boundary CSP.
+    assert fleet["realized_pnl"] == pytest.approx(-400.0)
+    # Stored options_books counters are absent entirely in this fixture (no
+    # total_trades/wins/losses columns on the table) -- proves these are
+    # computed live from options_trades, not passed through from storage.
+    assert fleet["total_trades"] == 2  # excludes the pre-boundary CSP
+    assert fleet["wins"] == 1          # the post-boundary CSP
+    assert fleet["losses"] == 1        # the non-CSP loss
 
 
 if __name__ == "__main__":
