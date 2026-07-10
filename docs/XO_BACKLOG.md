@@ -110,17 +110,35 @@ on close. `close_vertical_spread()` (`engine/alpaca_options.py`) submits a
 market order and returns immediately — no synchronous fill price. Getting
 real P&L requires polling `client.get_order_by_id().filled_avg_price` for
 the MLEG combo order (same mechanism `swingdesk/spread_executor.py::
-poll_fill()` already uses for single-leg fills), but **the sign
-convention for a multi-leg combo order's net `filled_avg_price` on close
-is unverified** — no historical example exists anywhere in this codebase
-of a real MLEG close being captured this way (the one pnl-populated
-legacy row, id=28, is a degenerate expired-OTM case where close cost is
-trivially $0, not a real fill). Alpaca's own docs don't spell out the
-convention either (checked). Guessing the sign risks writing a
-plausible-looking but backwards P&L number into the ledger — worse than
-the current `pnl IS NULL` state. Needs either an Alpaca support/docs
-confirmation or a deliberate live test-fire (Admiral-authorized) to
-observe the real sign before this gets wired up.
+poll_fill()` already uses for single-leg fills).
+
+**UPDATE 2026-07-10 (sign convention resolved, not yet live-verified):**
+the `alpaca-py` SDK's own docstring (`.venv/lib/python3.14/site-packages/
+alpaca/trading/requests.py:436-438`, `LimitOrderRequest`/
+`StopLimitOrderRequest.limit_price`) states verbatim: *"For the mleg
+order class, this is specified such that a positive value indicates a
+debit (representing a cost or payment to be made) while a negative value
+signifies a credit (reflecting an amount to be received)."* This is
+Alpaca's own documented convention (generated from their API schema),
+not community guesswork, and independently matches
+`swingdesk/spread_executor.py::build_mleg_order()`'s own docstring
+("Debit → positive limit_price"), which arrived at the same convention
+before this was found. `filled_avg_price` isn't separately documented
+with the same caveat, but it's the same priced field concept as
+`limit_price` (what you asked for vs. what you got) — a broker would not
+flip sign convention between the two. This resolves the formula:
+`close_cost = filled_avg_price * qty * 100`, `pnl = entry_credit_debit -
+close_cost` — identical to the formula `engine/options_exec.py::
+close_options_trade()` already uses, just with the previously-unverified
+input now resolved.
+
+**Residual gap, still real:** this is documented convention, not an
+empirically-observed real fill — no live MLEG close has been captured
+end-to-end to confirm it. Materially stronger evidence than before (an
+official, schema-derived doc citation vs. nothing), but implementing the
+pnl write should still ideally be checked against one real fill (or
+explicitly accepted on doc-confidence alone) before shipping — Admiral's
+call on whether to proceed now or wait for a live-fire confirmation.
 
 `engine/events_bus_consumer.py::consume_pending_signals()` dequeues with
 `SELECT ... FROM signals_v2 WHERE status='pending' ORDER BY created_at ASC
