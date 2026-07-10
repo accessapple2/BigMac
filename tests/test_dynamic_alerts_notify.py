@@ -32,9 +32,12 @@ def test_check_rsi_extremes_routes_through_alert_channels():
         with patch.object(da, "DB", db_path):
             da.ensure_alerts_table()
             da._alert_cooldown.clear()  # module-level global -- avoid cross-test cooldown bleed
-            with patch("engine.alert_channels.send_alert") as mock_send:
-                mock_send.return_value = {"ntfy": True}
-                alerts = da.check_rsi_extremes(symbol, price=42.0, indicators={"rsi": 25})
+            # Market-hours gate (item 8) is orthogonal to what this test
+            # checks -- force it open so the test is time-independent.
+            with patch("engine.market_calendar.is_within_alert_hours", return_value=True):
+                with patch("engine.alert_channels.send_alert") as mock_send:
+                    mock_send.return_value = {"ntfy": True}
+                    alerts = da.check_rsi_extremes(symbol, price=42.0, indicators={"rsi": 25})
 
     assert len(alerts) == 1
     assert alerts[0]["type"] == "rsi_oversold"
@@ -80,11 +83,15 @@ def test_no_telegram_module_import_in_dynamic_alerts():
         with patch.object(da, "DB", db_path):
             da.ensure_alerts_table()
             da._alert_cooldown.clear()
-            with patch("engine.alert_channels.send_alert") as mock_send:
-                mock_send.return_value = {"ntfy": True}
-                da.check_rsi_extremes(symbol, price=10.0, indicators={"rsi": 75})
-                da.check_volume_spikes(symbol, price=10.0, indicators={"volume_ratio": 3.0})
-                da.check_macd_crossovers(symbol, price=10.0, indicators={"macd_histogram": 0.05})
+            # Market-hours gate (item 8) is orthogonal to what this test
+            # checks -- force it open so the _notify() path this test
+            # exercises actually reaches send_alert, not just the gate.
+            with patch("engine.market_calendar.is_within_alert_hours", return_value=True):
+                with patch("engine.alert_channels.send_alert") as mock_send:
+                    mock_send.return_value = {"ntfy": True}
+                    da.check_rsi_extremes(symbol, price=10.0, indicators={"rsi": 75})
+                    da.check_volume_spikes(symbol, price=10.0, indicators={"volume_ratio": 3.0})
+                    da.check_macd_crossovers(symbol, price=10.0, indicators={"macd_histogram": 0.05})
 
     assert "engine.telegram_alerts" not in sys.modules, (
         "no dynamic_alerts code path may import engine.telegram_alerts"
@@ -139,9 +146,90 @@ def test_notify_failure_is_logged_not_silently_swallowed():
     catch it (never let a notification failure break the caller) but must
     NOT be a bare `except: pass` -- verified by confirming the console
     logger actually gets invoked on failure."""
-    with patch("engine.alert_channels.send_alert", side_effect=RuntimeError("boom")):
-        with patch.object(da, "console") as mock_console:
-            da._notify("test message", "high", "test_type", "ZZZ")
+    with patch("engine.market_calendar.is_within_alert_hours", return_value=True):
+        with patch("engine.alert_channels.send_alert", side_effect=RuntimeError("boom")):
+            with patch.object(da, "console") as mock_console:
+                da._notify("test message", "high", "test_type", "ZZZ")
     mock_console.log.assert_called_once()
     logged = mock_console.log.call_args[0][0]
     assert "notify failed" in logged and "boom" in logged
+
+
+# ─── HM-BUG-BATCH-2026-07-09 item 8: after-hours alert gating ────────────────
+#
+# Root cause of the reported symptom (trading-signal alerts firing at 8:42 PM
+# AZ, well after the 4:00 PM ET close): main.py's scan cadence never fully
+# stops overnight (it widens instead -- 5min market hours -> 30min evening ->
+# 30min overnight), and dynamic_alerts.py's _notify() had no gate of its own,
+# so the same handful of symbols kept re-alerting on stale after-close prices
+# for hours. Fixed by gating _notify() on engine.market_calendar.
+# is_within_alert_hours(). These tests freeze the clock at 23:42 ET (the
+# literal reported scenario, translated from AZ to ET) and assert trading
+# signals are suppressed while an ops/health sentinel alert -- which never
+# goes through this gate -- still fires.
+
+import datetime as _dt
+from zoneinfo import ZoneInfo as _ZoneInfo
+
+_ET = _ZoneInfo("America/New_York")
+# 2026-07-09 is a Thursday, not a holiday -- isolates the assertion to the
+# hour-of-day check alone, not weekend/holiday logic (covered separately below).
+_FROZEN_2342_ET = _dt.datetime(2026, 7, 9, 23, 42, tzinfo=_ET)
+_FROZEN_1000_ET = _dt.datetime(2026, 7, 9, 10, 0, tzinfo=_ET)  # regular session
+
+
+def test_is_within_alert_hours_false_at_2342_et():
+    """The literal reported scenario: 23:42 ET (8:42 PM AZ) is hours after
+    the 16:00 ET close -- must read as outside alert hours."""
+    from engine.market_calendar import is_within_alert_hours
+    assert is_within_alert_hours(_FROZEN_2342_ET) is False
+
+
+def test_is_within_alert_hours_true_during_regular_session():
+    """Sanity check the same function isn't just always-False -- 10:00 ET
+    on a weekday is squarely inside the default 9:30-16:00 window."""
+    from engine.market_calendar import is_within_alert_hours
+    assert is_within_alert_hours(_FROZEN_1000_ET) is True
+
+
+def test_is_within_alert_hours_false_on_weekend_even_in_widened_config():
+    """Weekends are excluded regardless of the configured hour range --
+    widening config.TRADING_ALERT_HOURS_ET must never resurrect weekend
+    alerts."""
+    from engine.market_calendar import is_within_alert_hours
+    saturday_midday_et = _dt.datetime(2026, 7, 11, 12, 0, tzinfo=_ET)  # 2026-07-11 is a Saturday
+    with patch("config.TRADING_ALERT_HOURS_ET", (0.0, 24.0)):
+        assert is_within_alert_hours(saturday_midday_et) is False
+
+
+def test_dynamic_alerts_notify_suppressed_at_2342_et():
+    """The actual alert pipeline, frozen at the reported time: _notify()
+    must never reach send_alert() when 'now' resolves to 23:42 ET, proving
+    the gate is wired into the real emission path, not just unit-tested in
+    isolation."""
+    with patch("engine.market_calendar._to_et", return_value=_FROZEN_2342_ET):
+        with patch("engine.alert_channels.send_alert") as mock_send:
+            da._notify("test message", "high", "test_type", "ZZZ")
+    mock_send.assert_not_called()
+
+
+def test_ops_sentinel_alert_not_gated_by_market_hours():
+    """The other half of the assertion: an ops/health sentinel alert (going
+    straight through engine.alert_channels.send_alert, the same function
+    hm_ops_sentinel.py calls -- dynamic_alerts.py's gate is NOT in that
+    path at all) must still fire at the same frozen 23:42 ET moment.
+    Mocks the channel internals (never touch real ntfy/DB) and just proves
+    send_alert() dispatches unconditionally regardless of time of day."""
+    from engine import alert_channels as ac
+    with patch.object(ac, "_send_ntfy", return_value=True) as mock_ntfy, \
+         patch.object(ac, "_db_notification") as mock_db, \
+         patch.object(ac, "_rate_ok", return_value=True), \
+         patch.object(ac, "_mark_rate_limit_sent"):
+        result = ac.send_alert(
+            "signals_v2 pending queue -- oldest-pending age=368h (> 48h)",
+            level=ac.AlertLevel.WARNING,
+            alert_type="sentinel_signals_v2_queue",
+        )
+    assert result.get("ntfy") is True
+    mock_ntfy.assert_called()
+    mock_db.assert_called_once()

@@ -80,7 +80,28 @@ def _notify(message: str, severity: str, alert_type: str, symbol: str, source: s
     call sites) rely on the default; the user-definition _fire() path
     passes source=f"user_{kind}" explicitly since its own alert_type is
     already "user_{kind}" and would otherwise double-prefix to
-    "dyn_user_{kind}"."""
+    "dyn_user_{kind}".
+
+    HM-BUG-BATCH-2026-07-09 item 8: market-hours gate. The overnight scan
+    cadence never fully stops (it widens instead -- main.py
+    _get_scan_interval()), so without this, the same handful of symbols
+    kept re-alerting on stale after-close prices for hours (observed
+    18:29/19:10/20:09 MST, i.e. after the 16:00 ET close). Gated HERE
+    (the single notification funnel), not at detection -- check_*()
+    still runs and _save_alert() still records history on every scan
+    cycle for other consumers (get_active_alerts(), the dynamic_alerts
+    table); only the user-facing push is suppressed outside the window.
+    This function has no `source` prefix that identifies it as ops/health
+    -- dynamic_alerts.py is exclusively trading-signal alerts, so this
+    gate applies unconditionally here (ops/health sentinels live in a
+    different module, hm_ops_sentinel.py, and are untouched)."""
+    try:
+        from engine.market_calendar import is_within_alert_hours
+        if not is_within_alert_hours():
+            return
+    except Exception:
+        pass  # never let the gate itself block a real alert on error
+
     level_map = {"high": "warning", "medium": "info", "low": "info",
                  "info": "info", "warning": "warning", "red_alert": "red_alert"}
     try:

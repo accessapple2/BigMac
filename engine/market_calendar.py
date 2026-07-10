@@ -311,3 +311,44 @@ def next_market_open(now: Optional[datetime] = None) -> datetime:
         f"next_market_open: no trading day found within 14 days of {now_et}; "
         "US_HOLIDAYS table likely needs extension"
     )
+
+
+def is_within_alert_hours(now: Optional[datetime] = None) -> bool:
+    """Configurable market-hours gate for user-facing TRADING-SIGNAL alert
+    emission (dynamic_alerts.py and similar). Ops/health sentinel alerts
+    are NOT subject to this gate -- they must fire 24/7 regardless.
+
+    HM-BUG-BATCH-2026-07-09 item 8: the overnight scanner cadence never
+    fully stops (it just widens: 5min market hours -> 10min after-hours ->
+    30min evening -> 30min overnight -> 1hr weekend, main.py
+    _get_scan_interval()), and dynamic_alerts.py's checks were never
+    separately gated from that cadence -- so the same handful of symbols
+    kept re-alerting on stale after-close prices for hours (observed
+    firing at 18:29, 19:10, and 20:09 MST, i.e. 20:29-23:09 ET, hours
+    after the 16:00 ET close). This is the fix: a dedicated hour-range
+    check, independent of the underlying scan cadence, applied ONLY at
+    the point alerts get pushed to the user (not at detection/logging,
+    which still runs on every scan cycle for other consumers like
+    get_active_alerts()).
+
+    Default window is regular session only (9:30-16:00 ET). Widen via
+    config.TRADING_ALERT_HOURS_ET, e.g. (4.0, 20.0) for pre/extended-hours
+    signals too. Weekends and holidays are ALWAYS excluded regardless of
+    the configured hour range -- there's no legitimate signal to alert on
+    when the market hasn't traded that day at all, and using proper ET
+    conversion (not manual AZ/UTC offset math) means this is correct
+    across the DST boundary even though Arizona itself never observes it.
+    """
+    try:
+        from config import TRADING_ALERT_HOURS_ET
+    except Exception:
+        TRADING_ALERT_HOURS_ET = (9.5, 16.0)
+
+    now_et = _to_et(now)
+    if now_et.weekday() >= 5:
+        return False
+    if is_us_market_holiday(now_et.date()):
+        return False
+    start_h, end_h = TRADING_ALERT_HOURS_ET
+    t = now_et.hour + now_et.minute / 60.0
+    return start_h <= t < end_h

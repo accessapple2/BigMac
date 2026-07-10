@@ -176,6 +176,15 @@ AUTO_SPREAD_MAX_TOTAL_DEBIT = 2500.0       # max total open auto-spread debit ($
 # read by anything yet, prepped ahead per Q3 of the Admiral's ruling.
 # FLIPPED 2026-07-07 (Admiral GO, after-close bundled restart).
 ALERT_DEFS_ENABLED = True
+
+# HM-BUG-BATCH-2026-07-09 item 8: market-hours gate for user-facing
+# TRADING-SIGNAL alert emission (engine.market_calendar.is_within_alert_hours(),
+# used by engine/dynamic_alerts.py). Ops/health sentinel alerts are exempt --
+# always fire 24/7 regardless of this window. Values are ET hour-of-day floats
+# (9.5 == 9:30 AM). Default is regular session only; widen to (4.0, 20.0) to
+# also allow pre-market/extended-hours signals through.
+TRADING_ALERT_HOURS_ET = (9.5, 16.0)
+
 AUTO_SPREAD_MIN_CONVICTION = 8.0           # proposing-agent conviction floor (>= 8)
 
 # Tickers confirmed delisted/halted — excluded from all scan universes
