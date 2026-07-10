@@ -10566,7 +10566,17 @@ def strategy_pnl():
             b["wins"]   += r["wins"] or 0
             b["pnl"]    += r["pnl"] or 0.0
 
-        # Options trades (options_trades table — all seasons, closed only)
+        # Options trades (options_trades table — closed only, real-quotes era
+        # only for CSP structures). HM-P&L-RECONCILIATION 2026-07-10: this
+        # previously summed ALL closed CSP history unfiltered, including the
+        # synthetic-VIX-formula era before TROI_REAL_QUOTES_ERA_START
+        # (2026-07-07) -- $35.3k of it never a real quote, none of it ever
+        # routed to the real Alpaca account the headline P&L reads from.
+        # engine.paper_trader._csp_realized_pnl_real_quotes() is already the
+        # standard the season leaderboard grades CSP agents on; this card
+        # must use the same standard so it can't show a bigger, more
+        # flattering number than the figure that actually counts.
+        from engine.paper_trader import TROI_REAL_QUOTES_ERA_START
         _opt = _db.execute("""
             SELECT agent_id,
                    COUNT(*) AS n,
@@ -10574,8 +10584,9 @@ def strategy_pnl():
                    SUM(COALESCE(pnl, 0)) AS pnl
             FROM options_trades
             WHERE status='closed'
+              AND (structure != 'csp' OR exit_date >= ?)
             GROUP BY agent_id
-        """).fetchall()
+        """, (TROI_REAL_QUOTES_ERA_START,)).fetchall()
         for r in _opt:
             bkt = _STRAT_BUCKET.get(r["agent_id"], "other")
             b = buckets.setdefault(bkt, {"trades": 0, "wins": 0, "pnl": 0.0})
@@ -10664,6 +10675,13 @@ def performance_summary():
             """, list(ids)).fetchone()
 
         def _from_options(ids: frozenset):
+            # HM-P&L-RECONCILIATION 2026-07-10: real-quotes-era filter on CSP
+            # rows only (same scoping as /api/strategy/pnl's fix) -- this is
+            # the only caller of _from_options (the "CSP / Wheel" card), but
+            # scoped to structure='csp' rather than blanket so a future
+            # non-CSP options strategy routed through this helper wouldn't
+            # be silently affected by a boundary that has nothing to do with it.
+            from engine.paper_trader import TROI_REAL_QUOTES_ERA_START
             ph = ",".join("?" * len(ids))
             return _db.execute(f"""
                 SELECT COUNT(*) n,
@@ -10671,8 +10689,10 @@ def performance_summary():
                        SUM(COALESCE(pnl,0)) pnl,
                        SUM(CASE WHEN pnl>0 THEN pnl ELSE 0 END) gp,
                        ABS(SUM(CASE WHEN pnl<0 THEN pnl ELSE 0 END)) gl
-                FROM options_trades WHERE status='closed' AND agent_id IN ({ph})
-            """, list(ids)).fetchone()
+                FROM options_trades
+                WHERE status='closed' AND agent_id IN ({ph})
+                  AND (structure != 'csp' OR exit_date >= ?)
+            """, list(ids) + [TROI_REAL_QUOTES_ERA_START]).fetchone()
 
         def _pf(gp: float, gl: float):
             return round(gp / gl, 2) if gl and gl > 0 else None
