@@ -4378,6 +4378,22 @@ if __name__ == "__main__":
         except Exception as _exc:
             logger.debug("[riker_xo] scheduler call failed: %s", _exc)
     schedule.every(10).minutes.do(_run_riker_xo_synthesis)
+    # HM-BUG-BATCH-2026-07-10 item 36: engine/ollietrades_signal.py::
+    # run_ollietrades_signal_cycle() (unanimous-consensus gate + signal_ledger,
+    # docs/OLLIETRADES_SIGNAL.md) existed complete and tested but was never
+    # scheduled anywhere -- same class of gap as HM-RIKER-XO-SCHEDULE above.
+    # No RTH-only cron string needed: evaluate_gate() already self-gates on
+    # is_within_alert_hours(), so off-hours calls are cheap no-ops. Phase 1
+    # ships with OLLIETRADES_SIGNAL_PUSH_ENABLED=False (config.py) -- every
+    # cycle only logs to signal_ledger (status SHOWN-ONLY), no real ntfy push
+    # is reachable yet.
+    def _run_ollietrades_signal_cycle():
+        try:
+            from engine.ollietrades_signal import run_ollietrades_signal_cycle
+            run_ollietrades_signal_cycle()
+        except Exception as _exc:
+            logger.debug("[ollietrades_signal] scheduler call failed: %s", _exc)
+    schedule.every(10).minutes.do(_run_ollietrades_signal_cycle)
     # HM-EXEC-PIPELINE measurement-health watchdog: ntfy RED probes every 15 min
     _mhealth_cooldown = {}  # probe_key -> epoch_secs of last alert
     _MHEALTH_CD_SECS = 3600  # 60-min cooldown per probe

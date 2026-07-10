@@ -209,6 +209,35 @@ def test_rank_and_cap_empty_input_is_not_an_error():
     assert shown_only == []
 
 
+def test_evaluate_gate_daily_cap_is_a_real_daily_budget_across_cycles(temp_db):
+    """HM-BUG-BATCH-2026-07-10 item 36 (scheduler wiring): rank_and_cap's
+    max_per_day only ever capped a SINGLE call. Once wired to a repeating
+    scheduler (every 10min during RTH), that would let a config literally
+    named MAX_PUSHES_PER_DAY silently push far more than that many times in
+    a real day. Two evaluate_gate() calls in the same day, each individually
+    qualifying 2 candidates under max_per_day=2, must push at most 2 total
+    across BOTH calls -- not 2 each."""
+    _insert_signal(temp_db, "modelA", "AAPL", "BUY", 0.95)
+    _insert_signal(temp_db, "modelB", "AAPL", "BUY", 0.95)
+    _insert_signal(temp_db, "modelA", "MSFT", "BUY", 0.90)
+    _insert_signal(temp_db, "modelB", "MSFT", "BUY", 0.90)
+    winners = [_winner("modelA"), _winner("modelB")]
+
+    with patch("engine.market_calendar.is_within_alert_hours", return_value=True), \
+         patch.object(ots, "get_winning_models", return_value=winners):
+        first = ots.evaluate_gate(min_conviction=0.0, max_per_day=2)
+        # Simulate run_ollietrades_signal_cycle() actually logging the pushes
+        # from cycle 1 -- this is what makes cycle 2 aware of the budget.
+        for c in first["pushed"]:
+            ots.log_to_ledger(c, "PUSHED", c["strategy"], first["gate_config"])
+
+        second = ots.evaluate_gate(min_conviction=0.0, max_per_day=2)
+
+    assert len(first["pushed"]) == 2  # cycle 1: full budget, nothing spent yet
+    assert len(second["pushed"]) == 0  # cycle 2: budget already exhausted by cycle 1
+    assert len(second["shown_only"]) == 2  # still logged, just not eligible to push
+
+
 # ─── Ledger immutability ────────────────────────────────────────────────────────
 
 def test_log_to_ledger_freezes_exact_call_time_snapshot(temp_db):

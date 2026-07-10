@@ -273,9 +273,34 @@ def match_playbook(candidate: dict, scanner_tiers: Optional[dict] = None) -> Opt
 def rank_and_cap(candidates: list[dict], max_per_day: int = 3) -> tuple[list[dict], list[dict]]:
     """Ranks by composite_conviction descending; top max_per_day -> (to_push,
     shown_only). If candidates is empty, returns ([], []) -- silence is the
-    expected common case, not an error."""
+    expected common case, not an error.
+
+    NOTE: `max_per_day` here is really "max this call" -- it has no memory of
+    earlier calls. That's fine for a one-shot evaluate_gate() call, but once
+    task 36 wires this to a repeating scheduler (every 10min during RTH,
+    ~39 calls/day), treating it as a per-call cap would let a config named
+    MAX_PUSHES_PER_DAY silently allow far more than that many pushes across
+    a real day. evaluate_gate() is responsible for narrowing max_per_day to
+    the REMAINING daily budget (via _pushed_count_today) before calling this
+    -- this function itself stays a pure per-call top-N ranker."""
     ranked = sorted(candidates, key=lambda c: c["composite_conviction"], reverse=True)
     return ranked[:max_per_day], ranked[max_per_day:]
+
+
+def _pushed_count_today(now: Optional[datetime] = None) -> int:
+    """Count of signal_ledger rows already marked PUSHED today (UTC calendar
+    day, matching created_at's datetime('now') storage). Used to turn the
+    per-call `max_per_day` in rank_and_cap into an actual daily budget across
+    repeated scheduler cycles."""
+    ensure_ledger_table()
+    today = (now or datetime.utcnow()).strftime("%Y-%m-%d")
+    conn = _conn()
+    row = conn.execute(
+        "SELECT COUNT(*) AS n FROM signal_ledger WHERE status = 'PUSHED' AND substr(created_at, 1, 10) = ?",
+        (today,),
+    ).fetchone()
+    conn.close()
+    return row["n"] if row else 0
 
 
 # ─── Ledger I/O ────────────────────────────────────────────────────────────────
@@ -348,7 +373,12 @@ def evaluate_gate(min_rating: str = "B", min_trades: int = 20, min_return_pct: f
     for c in candidates:
         c["strategy"] = match_playbook(c) or "unmatched"
 
-    to_push, shown_only = rank_and_cap(candidates, max_per_day)
+    # max_per_day is a DAILY budget, not a per-call one -- task 36 wires this
+    # to a repeating scheduler, so narrow it by what's already pushed today
+    # before ranking, else a 10min cadence across RTH could push far more
+    # than max_per_day in a real day (see rank_and_cap's docstring).
+    remaining_budget = max(max_per_day - _pushed_count_today(now), 0)
+    to_push, shown_only = rank_and_cap(candidates, remaining_budget)
     return {"pushed": to_push, "shown_only": shown_only, "gate_config": gate_config, "gated_out": None}
 
 
