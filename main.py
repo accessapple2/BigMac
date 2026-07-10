@@ -3346,8 +3346,11 @@ def run_daily_summary():
             ).fetchone()
             summary.append({
                 "name": p["display_name"],
-                "total_value": pnl["total_value"],
-                "return_pct": pnl["return_pct"],
+                # HM-P&L-RECONCILIATION 2026-07-10: restated, not raw -- raw
+                # folds in synthetic-era ("fantasy") CSP premium never seen
+                # by the real account; this feeds a literal Telegram message.
+                "total_value": pnl["total_value_restated"],
+                "return_pct": pnl["return_pct_restated"],
                 "unrealized_pnl": pnl["total_unrealized_pnl"],
                 "trades_today": trades_today["cnt"] if trades_today else 0,
             })

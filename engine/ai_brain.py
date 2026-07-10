@@ -876,10 +876,12 @@ class Arena:
         for pid in self.providers:
             pnl_data = get_portfolio_with_pnl(pid, prices)
             if pnl_data["positions"]:
+                # HM-P&L-RECONCILIATION 2026-07-10: restated, not raw -- see
+                # get_portfolio_with_pnl's own comment on synthetic CSP premium.
                 console.log(
-                    f"[dim]{pid}: Portfolio ${pnl_data['total_value']:,.2f} | "
+                    f"[dim]{pid}: Portfolio ${pnl_data['total_value_restated']:,.2f} | "
                     f"Unrealized P&L: ${pnl_data['total_unrealized_pnl']:+,.2f} | "
-                    f"Return: {pnl_data['return_pct']:+.2f}%[/dim]"
+                    f"Return: {pnl_data['return_pct_restated']:+.2f}%[/dim]"
                 )
                 # Flag stop-loss breaches
                 for pos in pnl_data["positions"]:

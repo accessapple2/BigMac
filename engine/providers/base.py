@@ -1206,7 +1206,14 @@ class AIProvider(ABC):
                 for _pl in _players:
                     try:
                         _pnl = _gpnl(_pl["id"], _ci_prices)
-                        _tv = _pnl["total_value"]
+                        # HM-P&L-RECONCILIATION 2026-07-10: total_value_restated,
+                        # not total_value -- the raw field folds in synthetic-era
+                        # ("fantasy") CSP premium never seen by the real account
+                        # (see get_portfolio_with_pnl's own comment). Unrestated,
+                        # this injected a $42.7k/+510.7% figure straight into
+                        # every active agent's LLM prompt every scan cycle,
+                        # including "copy the leader" framing built off it.
+                        _tv = _pnl["total_value_restated"]
                     except Exception:
                         _tv = _pl["cash"]
                     _ret = round((_tv - _starting) / _starting * 100, 1) if _starting > 0 else 0

@@ -58,7 +58,13 @@ def _get_standings() -> list[dict]:
     for p in players:
         try:
             pnl = get_portfolio_with_pnl(p["id"], prices)
-            tv = pnl["total_value"]
+            # HM-P&L-RECONCILIATION 2026-07-10: total_value_restated, not
+            # total_value -- unrestated folds in synthetic-era ("fantasy")
+            # CSP premium never seen by the real account, which put
+            # options-sosnoff at #2 fleet-wide ($42.7k/+510.7%) and fed her
+            # inflated standing into copy-the-leader signal generation and
+            # weekly elimination ranking.
+            tv = pnl["total_value_restated"]
         except Exception:
             tv = p["cash"]
         ret = round((tv - starting) / starting * 100, 1) if starting > 0 else 0

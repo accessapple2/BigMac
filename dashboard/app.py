@@ -3096,7 +3096,7 @@ def leaderboard(season: int = 0, _force: bool = False, nocache: bool = False, sh
     - Do not overwrite balances or delete history during fixes
     """
     import time as _lt, json as _lj
-    from engine.paper_trader import get_portfolio_with_pnl, TROI_V2_ERA_START
+    from engine.paper_trader import get_portfolio_with_pnl, TROI_V2_ERA_START, TROI_REAL_QUOTES_ERA_START
     from engine.market_data import get_bulk_prices
     from engine.universe import get_active_universe
 
@@ -3214,19 +3214,36 @@ def leaderboard(season: int = 0, _force: bool = False, nocache: bool = False, sh
     # queries above were counting her ~12 pre-wheel legacy stock trades
     # (4 SELLs, 4 wins = misleading 100% WR) instead of her actual 84-trade
     # wheel book. Override (not add -- the legacy stock trades are a
-    # different, pre-"options-only" era) with v1-era CSP stats. Scoped to
+    # different, pre-"options-only" era) with CSP stats. Scoped to
     # options-sosnoff only; every other agent's trade_counts/win_data is
     # untouched.
+    #
+    # HM-P&L-RECONCILIATION 2026-07-10: switched the boundary from
+    # `exit_date < TROI_V2_ERA_START` (selects the ~89 entirely-synthetic
+    # pre-2026-07-06 CSPs) to `exit_date >= TROI_REAL_QUOTES_ERA_START`,
+    # matching the season_realized fix a few lines below in this same
+    # function. Without this, the leaderboard row showed her real,
+    # near-zero real-quotes P&L next to a self-contradicting ~89-trade,
+    # ~95% win rate pulled entirely from the synthetic-pricing era --
+    # trade_counts/win_data must describe the SAME trades season_realized's
+    # dollar figure does, not a different, unlabeled era.
     try:
         csp_stats = conn.execute(
             "SELECT COUNT(*) as n, SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END) as wins "
             "FROM options_trades WHERE agent_id='options-sosnoff' AND structure='csp' "
-            "AND status='closed' AND exit_date < ?",
-            (TROI_V2_ERA_START,),
+            "AND status='closed' AND exit_date >= ?",
+            (TROI_REAL_QUOTES_ERA_START,),
         ).fetchone()
         if csp_stats and csp_stats["n"]:
             trade_counts["options-sosnoff"] = csp_stats["n"]
             win_data["options-sosnoff"] = round(csp_stats["wins"] / csp_stats["n"] * 100, 1)
+        else:
+            # No real-quotes-era CSP has closed (yet) -- must NOT silently
+            # fall through to the stale pre-wheel legacy-stock-trade counts
+            # from the queries above (the exact confusion this whole block
+            # exists to override). Zero trades is the honest state.
+            trade_counts["options-sosnoff"] = 0
+            win_data["options-sosnoff"] = 0.0
     except Exception:
         pass
 
@@ -3767,6 +3784,18 @@ def player_detail(player_id: str):
             prices[sym] = data
 
     pnl_data = get_portfolio_with_pnl(source_player_id, prices)
+
+    # HM-P&L-RECONCILIATION 2026-07-10: total_value/return_pct fold in
+    # synthetic-era ("fantasy") CSP premium never seen by the real account
+    # (see get_portfolio_with_pnl's own comment on why those raw fields are
+    # left as-is for save_equity_snapshot's continuity). This player-detail
+    # page is a current-state display, not a historical snapshot, so it
+    # should show the honest restated figures -- same override pattern as
+    # the Enterprise Computer metals case right below.
+    if pnl_data.get("csp_pricing_note"):
+        pnl_data = dict(pnl_data)
+        pnl_data["total_value"] = pnl_data["total_value_restated"]
+        pnl_data["return_pct"] = pnl_data["return_pct_restated"]
 
     # Enterprise Computer: override total_value/return_pct with metals_tracker (cost-basis based)
     if metals_alias:
@@ -10845,7 +10874,10 @@ def get_capital():
         starting = 3500.0 if pid == "dayblade-0dte" else (7021.81 if pid == "webull" else 7000.0)
         try:
             pnl_data = get_portfolio_with_pnl(pid, prices)
-            total = pnl_data["total_value"]
+            # HM-P&L-RECONCILIATION 2026-07-10: restated, not raw -- raw
+            # folds in synthetic-era ("fantasy") CSP premium never seen by
+            # the real account (see get_portfolio_with_pnl's own comment).
+            total = pnl_data["total_value_restated"]
         except Exception:
             total = p["cash"]
         return p["display_name"], {
@@ -24428,6 +24460,7 @@ async def options_positions_db(book: str = "fleet"):
 @app.get("/api/options/book-summary")
 async def options_book_summary():
     """Return P&L summary for both options books."""
+    from engine.paper_trader import TROI_REAL_QUOTES_ERA_START
     conn = sqlite3.connect("data/trader.db")
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
@@ -24440,9 +24473,26 @@ async def options_book_summary():
     for tag, info in books.items():
         c.execute("SELECT COUNT(*) AS n FROM options_trades WHERE book_tag = ? AND status = 'open'", (tag,))
         info["open_positions"] = c.fetchone()["n"]
-        c.execute("SELECT COALESCE(SUM(pnl), 0) AS pnl FROM options_trades WHERE book_tag = ? AND status = 'closed'", (tag,))
+        # HM-P&L-RECONCILIATION 2026-07-10 (S6 Finding 4 sweep): both books
+        # mix CSP structures with other option strategies (spreads, etc.)
+        # under one book_tag. CSP rows before TROI_REAL_QUOTES_ERA_START
+        # were priced via a synthetic VIX-formula, never a real quote --
+        # options-sosnoff alone had $29,868.74 of that baked unfiltered
+        # into the 'fleet' book's realized_pnl. Scoped to structure='csp'
+        # only so non-CSP strategies in the same book are untouched.
+        c.execute(
+            "SELECT COALESCE(SUM(pnl), 0) AS pnl FROM options_trades "
+            "WHERE book_tag = ? AND status = 'closed' "
+            "AND (structure != 'csp' OR exit_date >= ?)",
+            (tag, TROI_REAL_QUOTES_ERA_START),
+        )
         info["realized_pnl"] = c.fetchone()["pnl"]
-        c.execute("SELECT COALESCE(SUM(pnl), 0) AS pnl FROM options_trades WHERE book_tag = ? AND status = 'closed' AND DATE(exit_date) = DATE('now')", (tag,))
+        c.execute(
+            "SELECT COALESCE(SUM(pnl), 0) AS pnl FROM options_trades "
+            "WHERE book_tag = ? AND status = 'closed' AND DATE(exit_date) = DATE('now') "
+            "AND (structure != 'csp' OR exit_date >= ?)",
+            (tag, TROI_REAL_QUOTES_ERA_START),
+        )
         info["today_pnl"] = c.fetchone()["pnl"]
         # P0-A item 3, 2026-07-07: mtm_intrinsic existed as a schema column
         # and scripts/refresh_mtm_intrinsic.py existed to compute it, but
