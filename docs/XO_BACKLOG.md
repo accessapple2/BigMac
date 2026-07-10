@@ -8725,3 +8725,33 @@ investigated-and-closed rather than leaving it open with no lead.
   (a) — reorder by `created_at DESC` within active sources only — matches
   the swing-surge intent with the least behavioral surprise for the other
   ~1,285 legacy active-source rows already in queue.
+
+**CORRECTION (2026-07-09, same evening, HM-BUG-BATCH cleanup pass):** the
+"Recommendation #2 is still not built" line above is **wrong** — verified by
+reading `engine/events_bus_consumer.py::consume_pending_signals()` directly
+instead of trusting the ops-sentinel's oldest-age metric as a proxy. The
+query has been `ORDER BY created_at DESC` (newest-first) since **commit
+`aa55f1d`, 2026-07-06 15:29:58, "Admiral Steve"** — the exact same commit
+that shipped recommendation #1's halted-source cleanup. Both recommendations
+from the original filing were applied together that day; my earlier
+same-night entry above re-diagnosed this as still-open without checking the
+actual consumer code. Apologies for the noise — corrected now, not silently
+edited above, so the trail of what was believed when stays intact.
+
+**What the ops-sentinel WARNING is actually catching, now correctly
+understood:** newest-first ordering means a handful of very-old
+active-source rows (the `2026-06-24 19:42:20` one, and however many others
+predate the 07-06 fix) structurally can **never** win priority against
+same-day signals — they're not stuck in a slow FIFO, they're just
+permanently outranked. That's the intended tradeoff of newest-first, not a
+bug. But it does mean `oldest_age_hours` will climb forever and the sentinel
+will warn forever on rows that will genuinely never dequeue, which is noise
+once you understand the mechanism. That's a much smaller, lower-risk
+residual problem than "the priority fix isn't built" — it's "a few dozen
+ancient rows from before 07-06 should be archived (same archive-not-delete
+`hm_signals_v2_expire_halted_backlog.py`-style pattern, extended to
+active-source rows older than some age cutoff like 7 days, not just halted
+sources) so the sentinel stops alerting on rows that structurally can't
+execute under the ordering that's already live." Not applied tonight —
+flagging as a small, separate, low-risk follow-up rather than assuming scope
+that wasn't explicitly asked for.
