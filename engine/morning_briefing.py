@@ -749,6 +749,7 @@ def _get_technical_setups_convergent() -> list:
 
 def _get_tomorrows_game_plan() -> dict:
     """VIX + regime + F&G → structured game plan for the next session."""
+    from engine.fear_greed import classify_fear_greed as _classify_fg
     vix      = 0.0
     fg_score = None
     regime   = "UNKNOWN"
@@ -794,12 +795,16 @@ def _get_tomorrows_game_plan() -> dict:
         plan     = "Reduce position sizes 50%. Tight stops. No chasing moves. Wait for VIX < 20."
         focus    = "Defensive plays: XLU, XLP, GLD. Avoid growth."
         tone     = "cautious"
-    elif fg_score is not None and fg_score <= 25:
+    elif fg_score is not None and _classify_fg(fg_score) == "EXTREME FEAR":
+        # HM-BUG-BATCH-2026-07-09: was fg_score<=25, its own hardcoded
+        # cutoff disagreeing with the canonical fear_greed.py ladder (<15).
         headline = "EXTREME FEAR — Contrarian opportunity"
         plan     = "Fear is peaking. Scale into quality names at support. Buy in tranches — don't catch a falling knife."
         focus    = "XLK, SPY, QQQ dips. Staged entries."
         tone     = "contrarian"
-    elif fg_score is not None and fg_score >= 75:
+    elif fg_score is not None and _classify_fg(fg_score) in ("GREED", "EXTREME GREED"):
+        # HM-BUG-BATCH-2026-07-09: was fg_score>=75, its own hardcoded
+        # cutoff -- canonical's GREED bucket starts at 65.
         headline = "GREED — Market extended"
         plan     = "Overbought. Trim winners >+15%. Avoid FOMO. Let the trade come to you."
         focus    = "Trim and protect. Wait for pullbacks."

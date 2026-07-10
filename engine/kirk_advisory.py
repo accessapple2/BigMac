@@ -728,7 +728,13 @@ def generate_kirk_advisory():
             cash_reasoning = f"F&G {fg_score} = mild fear. Wait for F&G < 35 to deploy."
         else:
             cash_action = "WAIT"
-            cash_reasoning = f"F&G {fg_score} = neutral/greed. No rush to deploy cash."
+            # HM-BUG-BATCH-2026-07-09: was a hardcoded "neutral/greed"
+            # catch-all string that disagreed with the actual canonical
+            # label shown elsewhere for the same score (e.g. 76 is "GREED"
+            # on the canonical ladder, not a vague "neutral/greed"). Use
+            # the same classify_fear_greed() every other consumer now uses.
+            from engine.fear_greed import classify_fear_greed
+            cash_reasoning = f"F&G {fg_score} = {classify_fear_greed(fg_score).lower()}. No rush to deploy cash."
 
         # HM-AJ-γ 2026-05-06: stale alert auto-dismiss
         # real_holdings.json is the source of truth. Mark any undismissed

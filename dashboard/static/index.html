@@ -6377,7 +6377,7 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
     <div class="glance-expand" id="g-metals-expand"><div class="glance-expand-inner" id="g-metals-inner"></div></div>
     <div class="glance-row" onclick="toggleGlance('g-fear')">
       <span class="glance-icon">🌡️</span>
-      <span class="glance-label" data-tip="CNN Fear & Greed Index (0-100). Below 25 = Extreme Fear (historically strong buy signal). Above 75 = Extreme Greed (watch for tops). Classic contrarian tool.">Sentiment</span>
+      <span class="glance-label" data-tip="CNN Fear & Greed Index (0-100). Below 15 = Extreme Fear (historically strong buy signal). Above 80 = Extreme Greed (watch for tops). Classic contrarian tool.">Sentiment</span>
       <span class="glance-detail" id="g-fear-text">Loading...</span>
       <span class="glance-chevron" id="g-fear-chev">▼</span>
     </div>
@@ -7229,18 +7229,28 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
       }
       var score = d.score;
       var label = d.label || 'NEUTRAL';
-      var color = score < 25 ? 'var(--red)' : score < 45 ? '#f97316' : score < 65 ? 'var(--muted)' : score < 80 ? 'var(--green)' : '#2563eb';
+      // HM-BUG-BATCH-2026-07-09: this block used to have THREE independent
+      // hardcoded ladders in the same few lines -- color (25/45/65/80),
+      // fInline (20/35/50/65/80), and the tooltip (same 20/35/50/65/80,
+      // copy-pasted) -- none matching each other or the canonical ladder in
+      // engine/fear_greed.py (15/35/50/65/80). Switch on the backend's own
+      // `label` instead, one lookup, one source of truth.
+      var _fgCopy = {
+        'EXTREME FEAR':  {inline: 'EXTREME FEAR — BUY SIGNAL', tip: 'EXTREME FEAR. The crowd is panicking. Smart money buys when others are fearful. Potential buying opportunity.', color: 'var(--red)'},
+        'FEAR':          {inline: 'FEAR — APPROACHING BUY',    tip: 'FEAR. Market is anxious. Approaching buy territory. Watch for stabilization.', color: 'var(--red)'},
+        'MILD FEAR':     {inline: 'MILD FEAR',                 tip: 'MILD FEAR. Slightly negative sentiment. Cautious positioning, selective opportunities.', color: '#f97316'},
+        'NEUTRAL':       {inline: 'NEUTRAL',                   tip: 'NEUTRAL. No strong signal. Trade based on individual setups.', color: 'var(--muted)'},
+        'GREED':         {inline: 'GREED — REDUCE EXPOSURE',   tip: 'GREED. Crowd getting confident. Start reducing exposure. Protect gains.', color: 'var(--green)'},
+        'EXTREME GREED': {inline: 'EXTREME GREED — DANGER',    tip: 'EXTREME GREED. Danger zone. Euphoria precedes corrections. Take profits, raise cash.', color: '#2563eb'}
+      };
+      var _fgEntry = _fgCopy[label] || _fgCopy['NEUTRAL'];
+      var color = _fgEntry.color;
       document.getElementById('fgScore').textContent = score;
       document.getElementById('fgScore').style.color = color;
-      var fv=parseFloat(score),fInline='',ft='Score: '+fv+'/100 — ';
-      if(fv<=20){fInline='EXTREME FEAR — BUY SIGNAL';}
-      else if(fv<=35){fInline='FEAR — APPROACHING BUY';}
-      else if(fv<=50){fInline='MILD FEAR';}
-      else if(fv<=65){fInline='NEUTRAL';}
-      else if(fv<=80){fInline='GREED — REDUCE EXPOSURE';}
-      else{fInline='EXTREME GREED — DANGER';}
-      document.getElementById('fgLabel').textContent = fInline || label;
-      document.getElementById('fgLabel').style.color = color;if(fv<=20)ft+='EXTREME FEAR. The crowd is panicking. Smart money buys when others are fearful. Potential buying opportunity.';else if(fv<=35)ft+='FEAR. Market is anxious. Approaching buy territory. Watch for stabilization.';else if(fv<=50)ft+='MILD FEAR. Slightly negative sentiment. Cautious positioning, selective opportunities.';else if(fv<=65)ft+='NEUTRAL. No strong signal. Trade based on individual setups.';else if(fv<=80)ft+='GREED. Crowd getting confident. Start reducing exposure. Protect gains.';else ft+='EXTREME GREED. Danger zone. Euphoria precedes corrections. Take profits, raise cash.';var fge=document.getElementById('fgScore');if(fge)fge.setAttribute('data-tip',ft);
+      var fv=parseFloat(score), ft='Score: '+fv+'/100 — '+_fgEntry.tip;
+      document.getElementById('fgLabel').textContent = _fgEntry.inline || label;
+      document.getElementById('fgLabel').style.color = color;
+      var fge=document.getElementById('fgScore');if(fge)fge.setAttribute('data-tip',ft);
       var bd = '';
       if (d.signals) {
         for (var k in d.signals) {
@@ -18568,7 +18578,7 @@ registerSectionInit('options-flow', fetchOptionsFlow, []);
   <div id="guide-container-fear-greed"></div>
   <div style="border-left:4px solid #2563eb;background:rgba(37,99,235,0.07);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;"><div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">Sentiment Engine</div><div style="font-size:13px;color:var(--text-secondary);">CNN Fear &amp; Greed Index with 7 sub-indicators. Drives fleet-wide position sizing — Extreme Fear multiplies buys 1.25×, Extreme Greed cuts to 0.50× to avoid buying tops.</div></div>
   <div class="card" style="margin-bottom:16px;">
-    <div class="card-header" data-tip="WHAT: CNN Fear &amp; Greed Index (0=Extreme Fear, 100=Extreme Greed) — composite of 7 market indicators. WHY: Contrarian signal — Extreme Fear (0-25) = buy opportunity, Extreme Greed (75-100) = reduce exposure. Fleet multiplies position size by 1.25× in Fear, 0.5× in Greed. HOW: 7 sub-indicators: market momentum, stock breadth, safe haven demand, VIX, put/call ratio, junk bond demand, stock price breadth.">
+    <div class="card-header" data-tip="WHAT: CNN Fear &amp; Greed Index (0=Extreme Fear, 100=Extreme Greed) — composite of 7 market indicators. WHY: Contrarian signal — Extreme Fear (0-15) = buy opportunity, Extreme Greed (80-100) = reduce exposure. Fleet multiplies position size by 1.25× in Fear, 0.5× in Greed. HOW: 7 sub-indicators: market momentum, stock breadth, safe haven demand, VIX, put/call ratio, junk bond demand, stock price breadth.">
       <div class="card-title">🌡️ Fear &amp; Greed Index — Market Sentiment</div>
       <button class="btn btn-ghost" onclick="fetchFearGreedFull()" style="font-size:13px;">Refresh</button>
     </div>
@@ -23354,7 +23364,7 @@ var PAGE_GUIDES = {
   'fear-greed': {
     title: "Fear & Greed — Market Sentiment",
     steps: [
-      "0–25 = Extreme Fear (historically a buying opportunity). 75–100 = Extreme Greed (use caution).",
+      "0–15 = Extreme Fear (historically a buying opportunity). 80–100 = Extreme Greed (use caution).",
       "Best entries historically come when the index is below 25.",
       "Rising index with rising prices = healthy bull market. Divergence = warning sign.",
       "Check VIX alongside — both spiking together confirms a real fear event.",
@@ -35919,8 +35929,8 @@ var _BRIDGE_TIPS = {
   'Sentiment': {
     title: '🌡️ Fear & Greed Index',
     what: 'CNN\'s Fear & Greed Index (0–100) measures 7 market factors: momentum, put/call ratio, junk bond demand, market volatility, stock price strength, safe-haven demand, and market breadth. It\'s a classic contrarian signal.',
-    zones: [['0–24 Extreme Fear','green'],['25–44 Fear','yellow'],['45–54 Neutral','blue'],['55–74 Greed','yellow'],['75–100 Extreme Greed','red']],
-    history: 'Last time F&G hit extreme fear (<25), SPY was down 18% YTD — it rallied +28% over the next 6 months. Extreme fear is historically a buying opportunity, not a sell signal.',
+    zones: [['0–14 Extreme Fear','green'],['15–34 Fear','yellow'],['35–49 Mild Fear','yellow'],['50–64 Neutral','blue'],['65–79 Greed','yellow'],['80–100 Extreme Greed','red']],
+    history: 'Last time F&G hit extreme fear (<15), SPY was down 18% YTD — it rallied +28% over the next 6 months. Extreme fear is historically a buying opportunity, not a sell signal.',
     act: 'Open Fear & Greed', actFn: function(){ showSection('fear-greed'); }
   },
   'Recovery': {

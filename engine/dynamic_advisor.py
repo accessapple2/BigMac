@@ -86,18 +86,29 @@ def _gather() -> dict[str, Any]:
 
 # ─── SIGNAL INTERPRETATION HELPERS ────────────────────────────────────────────
 
+_FG_ZONE_MAP = {
+    "EXTREME FEAR": ("EXTREME_FEAR", "green", "Extreme Fear — historically a contrarian buying zone"),
+    "FEAR":         ("FEAR", "yellow", "Fear — market is worried, risk is elevated"),
+    "MILD FEAR":    ("FEAR", "yellow", "Fear — market is worried, risk is elevated"),
+    "NEUTRAL":      ("NEUTRAL", "yellow", "Neutral — no strong directional edge from sentiment"),
+    "GREED":        ("GREED", "orange", "Greed — market is confident, trends tend to continue"),
+    "EXTREME GREED": ("EXTREME_GREED", "red", "Extreme Greed — historically a profit-taking zone"),
+}
+
+
 def _fg_zone(score: float) -> tuple[str, str, str]:
-    """Return (zone_name, color, headline_text) for an F&G score."""
-    if score < 25:
-        return "EXTREME_FEAR", "green", "Extreme Fear — historically a contrarian buying zone"
-    elif score < 40:
-        return "FEAR", "yellow", "Fear — market is worried, risk is elevated"
-    elif score < 60:
-        return "NEUTRAL", "yellow", "Neutral — no strong directional edge from sentiment"
-    elif score < 75:
-        return "GREED", "orange", "Greed — market is confident, trends tend to continue"
-    else:
-        return "EXTREME_GREED", "red", "Extreme Greed — historically a profit-taking zone"
+    """Return (zone_name, color, headline_text) for an F&G score.
+
+    HM-BUG-BATCH-2026-07-09: boundaries now delegate to the canonical
+    engine.fear_greed.classify_fear_greed() (15/35/50/65/80) instead of a
+    separately hardcoded 25/40/60/75 ladder that disagreed with it -- the
+    same score used to render a different zone here than on the dashboard.
+    The canonical "MILD FEAR" bucket folds into this module's coarser
+    "FEAR" zone since there's no distinct MILD FEAR copy here.
+    """
+    from engine.fear_greed import classify_fear_greed
+    label = classify_fear_greed(score)
+    return _FG_ZONE_MAP.get(label, _FG_ZONE_MAP["NEUTRAL"])
 
 
 def _vix_zone(vix: float) -> tuple[str, str, str]:

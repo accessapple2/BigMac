@@ -1536,7 +1536,12 @@ async function loadFearGreed() {
     if (score == null) return;
     const n = Number(score);
     document.getElementById('fgScore').textContent = n.toFixed(0);
-    const lbl = n <= 25 ? 'Extreme Fear' : n <= 45 ? 'Fear' : n <= 55 ? 'Neutral' : n <= 75 ? 'Greed' : 'Extreme Greed';
+    // HM-BUG-BATCH-2026-07-09: was a separately hardcoded 25/45/55/75
+    // label ladder disagreeing with the canonical one in
+    // engine/fear_greed.py (15/35/50/65/80) -- the same score rendered
+    // "Extreme Greed" here but "Greed" on /classic. Use the backend's own
+    // label (fallback ladder only for the unlikely case it's missing).
+    const lbl = d.label || (n <= 25 ? 'Extreme Fear' : n <= 45 ? 'Fear' : n <= 55 ? 'Neutral' : n <= 75 ? 'Greed' : 'Extreme Greed');
     const color = n <= 45 ? 'var(--bull)' : n <= 55 ? 'var(--caution)' : 'var(--bear)';
     document.getElementById('fgLabel').textContent = lbl;
     document.getElementById('fgLabel').style.color = color;
@@ -2434,7 +2439,10 @@ async function loadMacroFearGreed() {
     const score = d.score ?? d.value ?? d.fear_greed;
     if (score == null) return;
     const n   = Number(score);
-    const lbl = n <= 25 ? 'Extreme Fear' : n <= 45 ? 'Fear' : n <= 55 ? 'Neutral' : n <= 75 ? 'Greed' : 'Extreme Greed';
+    // HM-BUG-BATCH-2026-07-09: see loadFearGreed() above -- same fix,
+    // was an independently hardcoded ladder that disagreed with the
+    // canonical one in engine/fear_greed.py.
+    const lbl = d.label || (n <= 25 ? 'Extreme Fear' : n <= 45 ? 'Fear' : n <= 55 ? 'Neutral' : n <= 75 ? 'Greed' : 'Extreme Greed');
     const col = n <= 45 ? 'var(--bull)' : n <= 55 ? 'var(--caution)' : 'var(--bear)';
     document.getElementById('mFgScore').textContent      = n.toFixed(0);
     document.getElementById('mFgLabel').textContent      = lbl;

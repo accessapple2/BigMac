@@ -18,6 +18,33 @@ _TIMEOUT = 15  # seconds for the entire computation
 
 _FALLBACK = {"score": None, "label": "Unavailable", "error": "data source timeout", "signals": {}}
 
+# HM-BUG-BATCH-2026-07-09: single source of truth for score->label
+# classification. Every consumer (v2 gauge, /classic sections, CTO advisory
+# text, Troi's read) should call classify_fear_greed() instead of
+# re-deriving its own boundaries -- found 7+ independently hardcoded
+# ladders disagreeing on the greed/extreme-greed cutoff (75 vs 80) and
+# other boundaries, so the same score (76) rendered as "EXTREME GREED",
+# "GREED", and "neutral/greed" in three different places. Bounds are
+# upper-exclusive (score < bound picks that label).
+FEAR_GREED_THRESHOLDS = (
+    (15, "EXTREME FEAR"),
+    (35, "FEAR"),
+    (50, "MILD FEAR"),
+    (65, "NEUTRAL"),
+    (80, "GREED"),
+    (None, "EXTREME GREED"),
+)
+
+
+def classify_fear_greed(score: float | None) -> str:
+    """Score (0-100) -> canonical label per FEAR_GREED_THRESHOLDS."""
+    if score is None or not math.isfinite(score):
+        return "NEUTRAL"
+    for bound, label in FEAR_GREED_THRESHOLDS:
+        if bound is None or score < bound:
+            return label
+    return "EXTREME GREED"
+
 
 def _sanitize(obj):
     """Recursively replace nan/inf with None so JSON serialization never fails."""
@@ -164,22 +191,10 @@ def _compute_fear_greed() -> dict:
         pass
 
     final = max(0, min(100, score))
-    if final < 15:
-        label = "EXTREME FEAR"
-    elif final < 35:
-        label = "FEAR"
-    elif final < 50:
-        label = "MILD FEAR"
-    elif final < 65:
-        label = "NEUTRAL"
-    elif final < 80:
-        label = "GREED"
-    else:
-        label = "EXTREME GREED"
 
     return _sanitize({
         "score": int(round(final)) if math.isfinite(final) else 50,
-        "label": label if math.isfinite(final) else "NEUTRAL",
+        "label": classify_fear_greed(final),  # handles non-finite -> "NEUTRAL" itself
         "signals": signals,
     })
 
