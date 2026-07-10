@@ -362,6 +362,21 @@ def _increment_closed(position_id: int, count: int, reason: str,
                    exec_status =
                        CASE WHEN contracts_closed_so_far + ? >= contracts
                             THEN 'closed' ELSE 'open' END,
+                   -- HM-STRATEGIES-EXECUTOR-STATUS-NEVER-SET 2026-07-10: this
+                   -- was the only live close path for bull_spread_v1 /
+                   -- bull_call_spread_v1 / bear_put_spread_v1 and NEVER set
+                   -- `status` (only `exec_status`) -- every P&L/win-rate
+                   -- query in the system filters on status='closed', so a
+                   -- position closed via this path stayed permanently
+                   -- invisible to reporting. pnl/exit_credit_debit are NOT
+                   -- computed here (see docs/XO_BACKLOG.md
+                   -- HM-STRATEGIES-EXECUTOR-STATUS-NEVER-SET -- MLEG close
+                   -- fill-price sign convention is unverified; leaving pnl
+                   -- NULL is the existing, already-tolerated state rather
+                   -- than risk a silently-backwards number).
+                   status =
+                       CASE WHEN contracts_closed_so_far + ? >= contracts
+                            THEN 'closed' ELSE status END,
                    exit_date =
                        CASE WHEN contracts_closed_so_far + ? >= contracts
                             THEN CURRENT_TIMESTAMP ELSE exit_date END,
@@ -371,7 +386,7 @@ def _increment_closed(position_id: int, count: int, reason: str,
                             ELSE exit_reason END
              WHERE id = ?
             """,
-            (count, count, count, count, reason, position_id),
+            (count, count, count, count, count, reason, position_id),
         )
         conn.commit()
         if cur.rowcount == 0:

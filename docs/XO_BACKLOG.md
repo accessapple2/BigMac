@@ -66,7 +66,61 @@ any specific number in this card; the card describes what was true as of
 2026-07-06 ~22:20 MST, not a live view.
 
 ---
-## 🔴 HM-SIGNALS-V2-FIFO-STARVATION — filed 2026-07-06 (HM-MONDAY-OPEN-WATCH), propose-first
+## 🟡 HM-ARMED-DORMANT-SPREAD-STRATEGIES — filed 2026-07-10 (S6 P&L-reconciliation sweep), propose-first
+
+`strategies/bull_call_spread_v1.py` and `strategies/bear_put_spread_v1.py`
+are both imported and scheduled every tick in `main.py` (signal scan +
+exit cycle, same as `bull_spread_v1`) but **have never fired a single
+trade** — zero rows in `options_trades` for either `strategy_id`, ever.
+`bull_spread_v1` itself (same `strategies/executor.py` framework) also
+went dormant on 2026-05-14 (2 months silent) despite staying armed and
+polled every cycle. Found while investigating the `total_trades`
+open-vs-close counting bug (see `HM-STRATEGIES-EXECUTOR-STATUS-NEVER-SET`
+below, same investigation) — not itself a P&L bug, just three live-armed
+strategies burning a scan-cycle slot with no evidence they're producing
+signals. Admiral to evaluate: are these still wanted (maybe their entry
+conditions are just rarely met — spreads can be picky), or should they be
+halted (`halt_mode`-equivalent for strategies, or simply commented out of
+the `main.py` scheduler) until deliberately re-armed? Not investigated
+further — no signal-generation logs were read to distinguish "legitimately
+picky" from "silently broken."
+
+---
+## 🟡 HM-STRATEGIES-EXECUTOR-STATUS-NEVER-SET — filed 2026-07-10 (S6 P&L-reconciliation sweep, part 3)
+
+`strategies/executor.py::_increment_closed()` — the only live close path
+for `bull_spread_v1`/`bull_call_spread_v1`/`bear_put_spread_v1` (see
+`HM-ARMED-DORMANT-SPREAD-STRATEGIES` above) and used nowhere else — sets
+`exec_status='closed'` on full close but **never sets `status='closed'`,
+and never writes a `pnl`**. Every P&L/win-rate query in the system
+(including `options_book_summary()`, `strategy_pnl()`, etc.) filters on
+`status='closed'`. Confirmed via the 21 legacy `bull_spread_v1` rows
+currently `status='closed'` in `options_trades`: **100% of them got that
+way from one-time manual reconciliation scripts** (`exit_reason` values
+`HM-OPTIONS-TRADES-ZOMBIE-CLEANUP-reconcile-2026-05-18` and
+`HM-AE-Option-B-reconcile-2026-05-05`), not from `_increment_closed()`
+itself — the live code path has *never once* correctly closed a position
+in this system's history. **SHIPPED (commit pending, this session):**
+`_increment_closed()` now also sets `status='closed'` + `exit_date` on
+full close — unambiguous, no broker-fill data needed, fixes the
+"permanently invisible to reporting" failure mode.
+
+**NOT shipped, needs a decision:** `pnl`/`exit_credit_debit` computation
+on close. `close_vertical_spread()` (`engine/alpaca_options.py`) submits a
+market order and returns immediately — no synchronous fill price. Getting
+real P&L requires polling `client.get_order_by_id().filled_avg_price` for
+the MLEG combo order (same mechanism `swingdesk/spread_executor.py::
+poll_fill()` already uses for single-leg fills), but **the sign
+convention for a multi-leg combo order's net `filled_avg_price` on close
+is unverified** — no historical example exists anywhere in this codebase
+of a real MLEG close being captured this way (the one pnl-populated
+legacy row, id=28, is a degenerate expired-OTM case where close cost is
+trivially $0, not a real fill). Alpaca's own docs don't spell out the
+convention either (checked). Guessing the sign risks writing a
+plausible-looking but backwards P&L number into the ledger — worse than
+the current `pnl IS NULL` state. Needs either an Alpaca support/docs
+confirmation or a deliberate live test-fire (Admiral-authorized) to
+observe the real sign before this gets wired up.
 
 `engine/events_bus_consumer.py::consume_pending_signals()` dequeues with
 `SELECT ... FROM signals_v2 WHERE status='pending' ORDER BY created_at ASC
