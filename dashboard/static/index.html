@@ -18437,9 +18437,11 @@ async function fetchGexNative() {
   var body = document.getElementById('gexNativeBody');
   var meta = document.getElementById('gexNativeMeta');
   try {
-    var r = await _cachedFetch('/api/gex-snapshot', 60000);
-    if (!r.ok) { if (body) body.innerHTML = '<div style="color:var(--muted);padding:20px;">GEX snapshot unavailable (' + r.status + ').</div>'; return; }
-    var d = await r.json();
+    // HM-BUG-BATCH-2026-07-09: same _cachedFetch-as-Response bug as
+    // fetchFearGreedFull above — _cachedFetch resolves parsed JSON, not a
+    // Response, so `!r.ok` was always true and this always short-circuited.
+    var d = await _cachedFetch('/api/gex-snapshot', 60000);
+    if (!d || d.error) { if (body) body.innerHTML = '<div style="color:var(--muted);padding:20px;">GEX snapshot unavailable.</div>'; return; }
     var data = (d && d.data) || {};
     var syms = Object.keys(data);
     if (!syms.length) { if (body) body.innerHTML = '<div style="color:var(--muted);padding:20px;">No GEX snapshot yet — collector runs daily near close.</div>'; return; }
@@ -18585,10 +18587,18 @@ registerSectionInit('options-flow', fetchOptionsFlow, []);
 <script>
 async function fetchFearGreedFull() {
   try {
-    var r = await _cachedFetch('/api/fear-greed', 30000);
-    if (!r.ok) { console.warn('Fear & Greed returned ' + r.status); return; }
-    var d = await r.json();
-    var score = d.score || 50;
+    // HM-BUG-BATCH-2026-07-09: _cachedFetch already resolves the parsed JSON
+    // body (see its definition, "Usage: _cachedFetch(url, ttl) -> Promise<json>"),
+    // not a raw fetch Response — treating the result as a Response (r.ok/r.status/
+    // r.json()) meant `!r.ok` was always true and this bailed out on every call,
+    // permanently leaving "Fetching sentiment…"/"Fetching breadth…" on screen.
+    var d = await _cachedFetch('/api/fear-greed', 30000);
+    if (!d || d.error || d.score === null || d.score === undefined) {
+      document.getElementById('fgFullLabel').textContent = 'Sentiment data unavailable';
+      document.getElementById('fgFullScore').textContent = '—';
+      return;
+    }
+    var score = d.score;
     var label = d.label || 'NEUTRAL';
     var color = score < 25 ? 'var(--red)' : score < 45 ? '#f97316' : score < 65 ? 'var(--muted)' : 'var(--green)';
     document.getElementById('fgFullScore').textContent = score;
@@ -18614,9 +18624,12 @@ async function fetchFearGreedFull() {
       sel.innerHTML = h;
     }
     // Breadth
-    var br = await fetch('/api/breadth');
-    var bd = await br.json();
     var bel = document.getElementById('breadthContent');
+    var bd = null;
+    try {
+      var br = await fetch('/api/breadth');
+      bd = await br.json();
+    } catch (be) { bd = null; }
     if (bd && !bd.error) {
       var h = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;">';
       h += '<div style="padding:12px;background:var(--surface);border-radius:8px;text-align:center;"><div style="font-size:13px;color:var(--muted);">SECTORS ABOVE 20MA</div><div style="font-size:24px;font-weight:700;font-family:var(--font-mono);">'+bd.sectors_above_20sma+'/'+bd.sectors_total+'</div><div style="font-size:13px;color:var(--muted);">'+bd.breadth_pct+'% breadth</div></div>';
@@ -18632,8 +18645,16 @@ async function fetchFearGreedFull() {
       }
       h += '</div>';
       bel.innerHTML = h;
+    } else if (bel) {
+      bel.innerHTML = '<div style="color:var(--muted);text-align:center;">Breadth data unavailable</div>';
     }
-  } catch(e) { console.error('Fear greed error:', e); }
+  } catch(e) {
+    console.error('Fear greed error:', e);
+    var lblEl = document.getElementById('fgFullLabel');
+    if (lblEl) lblEl.textContent = 'Sentiment data unavailable';
+    var breadthEl = document.getElementById('breadthContent');
+    if (breadthEl) breadthEl.innerHTML = '<div style="color:var(--muted);text-align:center;">Breadth data unavailable</div>';
+  }
 }
 registerSectionInit('fear-greed', fetchFearGreedFull, []);
 </script>
