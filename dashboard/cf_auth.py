@@ -3,12 +3,27 @@ Cloudflare Access JWT validation for the Bridge origin.
 
 Design
 ------
-CF Access is the ONLY browser auth gate.  The origin's job is to verify the
-request actually came through CF (validate the JWT) and to admit trusted
-internal automation (shared secret).  No second independent login flow.
+CF Access is the perimeter gate for the public bridge.ollietrades.com
+hostname. The origin's job is to verify the request actually came through CF
+(validate the JWT) and to admit trusted internal automation (shared secret).
 
 The browser sends nothing new — CF injects Cf-Access-Jwt-Assertion on every
-proxied request; the middleware here validates it.
+proxied request; the middleware here validates it, and (see
+dashboard/app.py AuthMiddleware, ~line 1442) auto-mints a local
+trademinds_session cookie from the JWT's email claim so a CF-authenticated
+browser never has to touch /login for any OTHER route.
+
+HM-BUG-BATCH-2026-07-09 correction: the line above used to claim "no second
+independent login flow" -- that's stale. dashboard/app.py's /login route
+(real username/password + real pyotp TOTP, not decorative or auto-submitting
+-- verified live 2026-07-09, an earlier audit's "auto-submits with no input"
+report did not reproduce) IS a second, independent credential check. It's
+explicitly exempted from the CF-JWT auto-mint (app.py AuthMiddleware's
+always-bypass allowlist includes /login) specifically so it keeps working as
+a real fallback when CF Access isn't configured, or for local/internal
+access that bypasses the CF hostname entirely. The two mechanisms are
+independent by design, not a bug -- just don't describe it as "no second
+flow" here, since there demonstrably is one.
 
 Required env vars (set in launchd plist / trader env):
   CF_ACCESS_TEAM_DOMAIN  — e.g. ollietrades.cloudflareaccess.com

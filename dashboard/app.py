@@ -1097,6 +1097,12 @@ def _is_via_cf_tunnel(request: Request) -> bool:
 
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request, step: str = ""):
+    # HM-BUG-BATCH-2026-07-09: real form, real TOTP, no auto-submit -- verified
+    # live. A CF-Access-authenticated browser never sees this page for OTHER
+    # routes (AuthMiddleware auto-mints a session from the CF JWT instead),
+    # which can look like "login was skipped" if you never actually land on
+    # /login itself. See dashboard/cf_auth.py's module docstring for the
+    # full CF-Access-vs-/login relationship.
     if step == "2":
         token = request.cookies.get("_totp_pending")
         if not token:
