@@ -45620,11 +45620,26 @@ async function fetchRealPortfolio() {
     // the Net Worth card shows); only metals are live spot. Label each honestly
     // so the two cards stop reading as contradictory ("06-02 snapshot" vs
     // "as-of 05-28").
-    var asOf = (d.schwab && d.schwab.last_updated) ? d.schwab.last_updated : (u.ts || '?');
+    // HM-BUG-BATCH-2026-07-10 item 10: last_updated is "when the sync script
+    // last ran," not "how fresh the underlying holdings data is" -- on a
+    // live-API-outage day (confirmed: Schwab OAuth refresh token expired,
+    // silently falling back to a month-old CSV snapshot every 15 minutes)
+    // this label kept reading as fresh ("as-of 2026-07-09") while the real
+    // data was 34 days old. Prefer snapshot_ts/snapshot_age_days (the real
+    // data-freshness fields) when available, with a visible warning past 7
+    // days -- falls back to the old last_updated-only label if an older
+    // backend response doesn't have them yet.
+    var asOf = (d.schwab && d.schwab.snapshot_ts) ? d.schwab.snapshot_ts
+      : (d.schwab && d.schwab.last_updated) ? d.schwab.last_updated : (u.ts || '?');
+    var staleWarning = '';
+    if (d.schwab && d.schwab.snapshot_stale) {
+      staleWarning = ' <span style="color:var(--red,#ef4444);font-weight:700;">⚠ ' +
+        d.schwab.snapshot_age_days + ' days old — live sync failing, may not reflect recent activity</span>';
+    }
     var src = (d._source || '/api/portfolio/real');
-    meta.textContent = src + ' • cash + equities as-of ' + asOf +
+    meta.innerHTML = src + ' • cash + equities as-of ' + asOf +
       ' (last sync, not live-quoted) · metals live spot • fetched ' +
-      new Date().toLocaleTimeString();
+      new Date().toLocaleTimeString() + staleWarning;
 
     // HM-SCHWAB-LINE-DETAIL: shared grade-badge + gain-cell helpers, used by BOTH
     // the Schwab card and the Positions by Symbol table.

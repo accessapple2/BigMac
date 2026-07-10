@@ -10176,14 +10176,60 @@ def portfolio_real():
             except (TypeError, ValueError):
                 continue
         schwab_total = cash + pos_value
+
+        # HM-BUG-BATCH-2026-07-10 item 10: last_updated is "when the sync
+        # script last ran," not "how fresh the underlying holdings data is"
+        # -- on a live-API-outage day the CSV-fallback sync re-stamps
+        # last_updated=now every 15 minutes while the actual snapshot stays
+        # frozen (confirmed live: schwab_live_sync.log shows a Schwab OAuth
+        # refresh-token failure — "Refresh token is invalid, expired or
+        # revoked" — on every RTH cron cycle today, silently falling back to
+        # the same 2026-06-05 CSV snapshot each time). snapshot_ts (added by
+        # both sync scripts) is the real data-freshness field; fall back to
+        # parsing it out of `notes` for files written before that field
+        # existed, so this doesn't need a fresh sync cycle to take effect.
+        snapshot_ts_raw = schwab_acct.get("snapshot_ts")
+        if not snapshot_ts_raw:
+            import re as _re
+            _m = _re.search(r"Snapshot time:\s*(.+?)\.?\s*$", schwab_acct.get("notes") or "")
+            snapshot_ts_raw = _m.group(1) if _m else None
+
+        snapshot_age_days = None
+        snapshot_stale = None
+        if snapshot_ts_raw:
+            import re as _re2
+            # Python's strptime %Z is unreliable for US zone abbreviations
+            # (EDT/EST/PST/...) -- confirmed live: "%Y-%m-%d %H:%M:%S %Z"
+            # fails to parse a literal "EDT" suffix, silently leaving
+            # snapshot_age_days=None for every live-sync-written timestamp.
+            # Day-granularity staleness doesn't need the timezone at all, so
+            # strip a trailing zone abbreviation before matching formats.
+            _snap_str = _re2.sub(r"\s+(ET|EDT|EST|PT|PDT|PST|UTC|GMT)\s*$", "", snapshot_ts_raw.strip())
+            for _fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%I:%M %p ET, %Y/%m/%d"):
+                try:
+                    _snap_dt = datetime.strptime(_snap_str, _fmt)
+                    snapshot_age_days = (datetime.now() - _snap_dt).days
+                    snapshot_stale = snapshot_age_days > 7
+                    break
+                except ValueError:
+                    continue
+
         result["schwab"] = {
             "cash_balance": round(cash, 2),
             "positions_value": round(pos_value, 2),
             "positions": positions,
             "total": round(schwab_total, 2),
             "last_updated": rh.get("last_updated"),
+            "snapshot_ts": snapshot_ts_raw,
+            "snapshot_age_days": snapshot_age_days,
+            "snapshot_stale": snapshot_stale,
             "notes": schwab_acct.get("notes"),
         }
+        if snapshot_stale:
+            result["notes"].append(
+                f"Schwab snapshot is {snapshot_age_days} days old (as of {snapshot_ts_raw}) -- "
+                "live sync has been failing, cash/positions may not reflect recent activity"
+            )
         liquid_total += schwab_total
     except FileNotFoundError:
         result["schwab"] = {"error": "data/real_holdings.json not found", "total": 0.0}

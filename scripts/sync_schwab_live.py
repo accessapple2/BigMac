@@ -149,6 +149,13 @@ def main() -> int:
     schwab["total_gain_pct"] = total_gain_pct
     schwab["source"] = "live_api"
     schwab["last_updated"] = now_et.strftime("%Y-%m-%d %H:%M:%S %Z")
+    # HM-BUG-BATCH-2026-07-10 item 10: on this (live_api) path last_updated
+    # already IS the data's real freshness -- but consumers need a single
+    # field to trust regardless of which sync path wrote the file, so stamp
+    # snapshot_ts here too (same value as last_updated when live). See
+    # sync_schwab_to_real_holdings.py's CSV-fallback path for the case
+    # where these two diverge.
+    schwab["snapshot_ts"] = schwab["last_updated"]
     schwab["notes"] = (
         f"Live Schwab API sync at {now_et.strftime('%Y-%m-%d %H:%M ET')}. "
         f"{len(positions)} positions, cash ${round(float(cash), 2)}."

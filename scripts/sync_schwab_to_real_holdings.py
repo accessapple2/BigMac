@@ -127,6 +127,14 @@ def main():
         schwab["last_updated"] = datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d %H:%M:%S %Z")
     except Exception:
         schwab["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # HM-BUG-BATCH-2026-07-10 item 10: last_updated above is "when this sync
+    # script last ran" -- on the CSV-fallback path that's NOT the same thing
+    # as "how fresh the underlying holdings data is" (snap_ts, the CSV
+    # snapshot's actual capture time). Prior to this field existing, the API
+    # only had last_updated to show, so a live-API outage silently re-stamped
+    # a month-old snapshot as "current" every 15 minutes. snapshot_ts is the
+    # real data-freshness field consumers should use for staleness display.
+    schwab["snapshot_ts"] = str(snap_ts)
     total_equity = sum(float(p.get("avg_cost", 0)) * float(p.get("qty", 0)) for p in positions)
     schwab["notes"] = (
         f"Auto-synced from schwab_holdings snapshot {snap_id}. "
