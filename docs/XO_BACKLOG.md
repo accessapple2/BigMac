@@ -199,11 +199,12 @@ strategies this whitelist was written for use.
 in `tests/test_options_exec_status_and_bear_spread_whitelist.py`.
 
 ---
-## 🟡 HM-DRAWDOWN-BLIND-TO-OPTIONS-PNL — filed 2026-07-10 (S6 MLEG sweep), needs Admiral decision, NOT investigated further
+## 🟡 HM-DRAWDOWN-BLIND-TO-OPTIONS-PNL — filed 2026-07-10 (S6 MLEG sweep), closer look done 2026-07-10, needs Admiral decision on the fix design, ZERO current impact
 
 `engine/risk_manager.py::check_drawdown()` (called every scan cycle from
 `engine/ai_brain.py:1065`, gates whether a player's new-trade scanning
-proceeds) reads `MAX(total_value)`/latest `total_value` from
+proceeds — soft/transient per-cycle gate, not the persisted `halt_mode`
+column) reads `MAX(total_value)`/latest `total_value` from
 `portfolio_history`. Traced how that table is written
 (`engine/paper_trader.py::record_portfolio_snapshot()` →
 `get_portfolio()`, `ai_players.cash` + stock `positions` table only) and
@@ -211,32 +212,71 @@ confirmed it is **structurally blind to ALL options/CSP P&L, always, by
 architecture** — CSP realized P&L is booked to `options_books.<book_tag>.
 current_cash`, never to `ai_players.cash` (documented in
 `engine/paper_trader.py` lines 2594-2609, `HM-CLEANUP-TRIO-2026-07-04`/
-`HM-TROI-WHEEL-V2`). This is NOT the CSP-era-pricing-filter bug class
-from earlier in this session's sweep — it's a separate, always-true
-architectural gap: **the 20%-drawdown safety halt can never see a real
-options/CSP loss for any CSP-trading agent, regardless of era.** A
-genuinely large real-quotes-era options loss would never trip the
-auto-halt via this mechanism.
+`HM-TROI-WHEEL-V2`). NOT the CSP-era-pricing-filter bug class from
+earlier in this session's sweep — a separate, always-true architectural
+gap.
 
-**NOT a quick fix** — this is a design question (should `check_drawdown`
-fold in options P&L at all, and if so from which book — `options_books.
-current_cash` deltas, or `get_portfolio_with_pnl()`'s restated total?
-CSP notional/margin already draws against `options_books` per
-`engine/risk_manager.py` line 133's own comment, so there may be
-double-counting risk in naively adding it to the stock-side drawdown
-calc). Filed for a dedicated future session, not folded into this
-session's mechanical fixes. Two agent-sourced claims that assumed
-`portfolio_history` WAS polluted by the synthetic-CSP-premium bug (an
-earlier sweep round flagged `check_drawdown()` and
-`engine/rallies_intel.py::compare_crew_vs_rallies()` on that premise)
-were checked directly against the live DB and **do not hold** — for
-`options-sosnoff`, `portfolio_history`'s own peak equals its own current
-value ($12,880.20 = $12,880.20, zero synthetic inflation ever present in
-this specific table) since it was never fed by CSP P&L in the first
-place, refuting the "true restated equity is -$16,988" arithmetic those
-findings were based on.
+**UPDATE 2026-07-10 (closer look, per Admiral request) — blast radius
+and current impact:**
 
-Not shipping anything against `rallies_intel.py` — it's reading the same
+- `check_drawdown()` only ever runs for `ai_players` roster members
+  (`ai_brain.py::_run_player()` iterates that table). Checked every
+  options/CSP/spread-trading `agent_id` that appears in `options_trades`
+  against `ai_players` directly: **`options-sosnoff` is the only one
+  that's an actual `ai_players` row.** `shadow-qwen35-csp` (ghost-book
+  CSP audition, `engine/shadow_csp.py`), `strategy:bull_spread_v1`
+  (`strategies/executor.py`'s own scheduler), `swingdesk-manual`
+  (SwingDesk manual API), and `test-door1-regression` are **all
+  structurally outside this gate** — no `ai_players` row for
+  `check_drawdown(player_id)` to even look up. They may have other,
+  independent risk controls (not investigated here), but this specific
+  20%-drawdown halt does not and cannot apply to them.
+- **Current practical impact: zero.** `options-sosnoff` has exactly $0
+  real-quotes-era CSP P&L (no real-quotes-era closes at all yet) — there
+  is nothing for this gap to be masking today. (`shadow-qwen35-csp`,
+  outside the gate anyway, is actually +$2,511.39 real, not a loss.) The
+  gap is real and will matter the moment `options-sosnoff` — or any
+  future CSP-trading `ai_players` roster addition — posts an actual real
+  loss, but it is not hiding anything right now.
+
+**UPDATE 2026-07-10 — fix design, and a correction to the original
+filing:** the "double-counting risk against the CSP notional cap" noted
+originally does not hold up. `get_csp_exposure()` (the notional/margin
+cap) reads the shared `options_books.current_cash` pool for open-CSP
+sizing; a fixed `check_drawdown()` would use `get_portfolio_with_pnl()`'s
+`total_value_restated` (`= portfolio["cash"] + positions_value +
+csp_pnl_real_quotes`, agent-scoped via `options_trades.agent_id`) —
+fully independent computation paths, no overlap. Verified `csp_pnl_
+real_quotes` is purely additive against `ai_players.cash` (per the
+`HM-W1F4` decoupling doctrine already in the code), so folding it into a
+drawdown calc would NOT double-count.
+
+**The real obstacle is missing peak-tracking infrastructure**, not
+double-counting. `check_drawdown()` needs a historical PEAK to compare
+against. None of this codebase's three equity-tracking surfaces
+currently persist a restated one: `portfolio_history` (SQL, raw
+cash+stock only — what `check_drawdown` reads today), the JSON equity
+curve file (`save_equity_snapshot()`, also raw — used for charting, a
+totally separate mechanism, not read by `check_drawdown` either), or
+`get_portfolio_with_pnl()` itself (has the restated figure, but live/
+on-demand only, no history). Comparing a *restated* current value
+against the *existing raw* peak would be apples-to-oranges and could
+false-trigger a halt purely from the two figures being computed on
+different bases, not from any real loss. A correct fix needs a new
+persisted restated-equity history (new table or column), not a one-line
+swap — genuinely a small design/build project, not folded into
+mechanical fixes.
+
+Two agent-sourced claims that assumed `portfolio_history` WAS polluted
+by the synthetic-CSP-premium bug (an earlier sweep round flagged
+`check_drawdown()` and `engine/rallies_intel.py::compare_crew_vs_
+rallies()` on that premise) were checked directly against the live DB
+and **do not hold** — for `options-sosnoff`, `portfolio_history`'s own
+peak equals its own current value ($12,880.20 = $12,880.20, zero
+synthetic inflation ever present in this specific table) since it was
+never fed by CSP P&L in the first place, refuting the "true restated
+equity is -$16,988" arithmetic those findings were based on. Not
+shipping anything against `rallies_intel.py` — it's reading the same
 architecturally-CSP-blind table, not a bug.
 
 ---
