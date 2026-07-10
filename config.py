@@ -185,6 +185,21 @@ ALERT_DEFS_ENABLED = True
 # also allow pre-market/extended-hours signals through.
 TRADING_ALERT_HOURS_ET = (9.5, 16.0)
 
+# OllieTrades Signal (Phase 1 — ghost book, see docs/OLLIETRADES_SIGNAL.md).
+# [ADMIRAL] OLLIETRADES_SIGNAL_PUSH_ENABLED: flip to True only after
+# reviewing /signals/compare and confirming the ghost record is selective
+# (pushes stayed rare) and materially beats fleet/best-solo-model WR over a
+# meaningful sample. Never auto-promoted by code.
+OLLIETRADES_SIGNAL_PUSH_ENABLED = False
+OLLIETRADES_SIGNAL_MIN_RATING = "B"
+OLLIETRADES_SIGNAL_MIN_TRADES = 20
+OLLIETRADES_SIGNAL_MIN_RETURN_PCT = 0.0
+OLLIETRADES_SIGNAL_MIN_AGREEING_MODELS = 2
+OLLIETRADES_SIGNAL_MIN_CONVICTION = 0.75
+OLLIETRADES_SIGNAL_MAX_PUSHES_PER_DAY = 3
+OLLIETRADES_SIGNAL_LOOKBACK_MINUTES = 60
+OLLIETRADES_SIGNAL_RESOLUTION_WINDOW_DAYS = 5
+
 AUTO_SPREAD_MIN_CONVICTION = 8.0           # proposing-agent conviction floor (>= 8)
 
 # Tickers confirmed delisted/halted — excluded from all scan universes
