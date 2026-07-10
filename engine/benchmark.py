@@ -107,22 +107,53 @@ def _get_fleet_starting_capital() -> float:
         return 100000.0
 
 
-# ── ETF returns via yfinance ─────────────────────────────────────────────────
+# ── ETF returns via the shared Polygon-backed candle cascade ──────────────────
 
 def _get_etf_return(ticker: str, days: int) -> float | None:
-    """Total return % for an ETF over the last N calendar days."""
+    """Total return % for an ETF over the last N calendar days.
+
+    HM-S6-PERF-FINDINGS-2026-07-10 finding 3.1: this previously used yfinance
+    directly with a bare `except: return None` -- when yfinance failed (rate
+    limits, API drift, exactly what's been observed), EVERY benchmark nulled
+    out silently AND the >5%-underperformance alert below (which requires
+    spy_ret is not None) could never fire. Two house doctrines violated at
+    once: no silent catch, and the alarm shared a failure mode with what it
+    watches. Fixed by switching to engine.market_data.get_intraday_candles
+    (Polygon-first, already paid for -> Alpaca -> Yahoo cascade, same infra
+    used fleet-wide and freshness-fixed tonight for the VWAP bug) and firing
+    a real ops alert on failure instead of swallowing it."""
     try:
-        import yfinance as yf
-        end = datetime.today()
-        start = end - timedelta(days=days + 5)  # buffer for weekends
-        hist = yf.download(ticker, start=start.strftime("%Y-%m-%d"),
-                           end=end.strftime("%Y-%m-%d"), progress=False, auto_adjust=True)
-        if hist.empty or len(hist) < 2:
-            return None
-        first_close = float(hist["Close"].iloc[0])
-        last_close = float(hist["Close"].iloc[-1])
+        from engine.market_data import get_intraday_candles
+        range_ = "1mo" if days <= 25 else "3mo" if days <= 80 else "6mo" if days <= 170 else "1y"
+        candles = get_intraday_candles(ticker, interval="1d", range_=range_)
+        if not candles:
+            raise RuntimeError(f"no daily candles returned for {ticker}")
+        target_start = datetime.utcnow() - timedelta(days=days)
+        eligible = [c for c in candles if datetime.fromisoformat(c["time"].rstrip("Z")) >= target_start]
+        start_candle = eligible[0] if eligible else candles[0]
+        end_candle = candles[-1]
+        first_close = float(start_candle["close"])
+        last_close = float(end_candle["close"])
+        if first_close <= 0:
+            raise RuntimeError(f"invalid first_close={first_close} for {ticker}")
         return round((last_close / first_close - 1) * 100, 2)
-    except Exception:
+    except Exception as e:
+        logger.error("benchmark: ETF return fetch failed for %s (%dd): %s: %s",
+                      ticker, days, type(e).__name__, e)
+        try:
+            from engine.alert_channels import send_alert, AlertLevel
+            send_alert(
+                message=(f"benchmark: {ticker} return fetch failed ({type(e).__name__}: {e}). "
+                         f"/api/benchmark will show null for this ETF and the >5% "
+                         f"underperformance alarm cannot evaluate until this recovers."),
+                level=AlertLevel.WARNING,
+                alert_type="sentinel_benchmark_etf_fetch",
+                title="Benchmark pipeline: ETF fetch failed",
+                source="benchmark",
+                rate_limit_secs=3600,
+            )
+        except Exception:
+            pass
         return None
 
 
