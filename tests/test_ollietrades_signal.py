@@ -962,5 +962,65 @@ def test_compute_compare_cache_key_is_per_window_and_toggle(temp_db):
     assert call_count["n"] == 3  # three distinct cache keys -> three live computes
 
 
+# ─── Connection leak regression (found live: HM-SQLITE-CONN-FD-LEAK class) ─────
+# Every _conn() acquisition in this module now wraps its body in try/finally
+# so conn.close() runs even when execute() raises (e.g. "database is locked",
+# which fires frequently in this codebase) -- same anti-pattern and same fix
+# doctrine as the 2026-07-06 aladdin.py/sarek.py incident (docs/XO_BACKLOG.md).
+# These tests prove close() actually happens on the exception path, not just
+# that try/finally syntax is present.
+
+class _LeakyMockConn:
+    """A fake sqlite3.Connection that raises on execute() and records close()."""
+    def __init__(self):
+        self.closed = False
+
+    def execute(self, *a, **kw):
+        raise sqlite3.OperationalError("database is locked")
+
+    def close(self):
+        self.closed = True
+
+
+def test_query_ledger_closes_connection_on_query_exception(temp_db):
+    fake = _LeakyMockConn()
+    with patch.object(ots, "_conn", return_value=fake):
+        with pytest.raises(sqlite3.OperationalError):
+            ots.query_ledger()
+    assert fake.closed is True
+
+
+def test_write_outcome_closes_connection_on_query_exception(temp_db):
+    fake = _LeakyMockConn()
+    with patch.object(ots, "_conn", return_value=fake):
+        with pytest.raises(sqlite3.OperationalError):
+            ots._write_outcome(1, "WIN", 2.0, {})
+    assert fake.closed is True
+
+
+def test_resolve_outcomes_closes_connection_on_query_exception(temp_db):
+    fake = _LeakyMockConn()
+    with patch.object(ots, "_conn", return_value=fake):
+        with pytest.raises(sqlite3.OperationalError):
+            ots.resolve_outcomes()
+    assert fake.closed is True
+
+
+def test_pushed_count_today_closes_connection_on_query_exception(temp_db):
+    fake = _LeakyMockConn()
+    with patch.object(ots, "_conn", return_value=fake):
+        with pytest.raises(sqlite3.OperationalError):
+            ots._pushed_count_today()
+    assert fake.closed is True
+
+
+def test_recent_signals_by_winner_closes_connection_on_query_exception(temp_db):
+    fake = _LeakyMockConn()
+    with patch.object(ots, "_conn", return_value=fake):
+        with pytest.raises(sqlite3.OperationalError):
+            ots._recent_signals_by_winner({"modelA"}, 60)
+    assert fake.closed is True
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))

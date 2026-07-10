@@ -59,35 +59,37 @@ def _conn():
 
 def ensure_ledger_table():
     conn = _conn()
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS signal_ledger (
-            id                    INTEGER PRIMARY KEY AUTOINCREMENT,
-            created_at            TEXT NOT NULL DEFAULT (datetime('now')),
-            symbol                TEXT NOT NULL,
-            direction             TEXT NOT NULL,
-            strategy              TEXT NOT NULL,
-            entry_price           REAL,
-            stop_price            REAL,
-            target_price          REAL,
-            composite_conviction  REAL NOT NULL,
-            approving_models_json TEXT NOT NULL,
-            dissents_json         TEXT,
-            context_json          TEXT,
-            gate_config_json      TEXT NOT NULL,
-            status                TEXT NOT NULL DEFAULT 'SHOWN-ONLY',
-            pushed_at             TEXT,
-            trade_id              INTEGER,
-            outcome               TEXT,
-            outcome_r_multiple    REAL,
-            outcome_resolved_at   TEXT,
-            outcome_detail_json   TEXT
-        )
-    """)
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_signal_ledger_created ON signal_ledger(created_at)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_signal_ledger_status ON signal_ledger(status)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_signal_ledger_symbol ON signal_ledger(symbol)")
-    conn.commit()
-    conn.close()
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS signal_ledger (
+                id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at            TEXT NOT NULL DEFAULT (datetime('now')),
+                symbol                TEXT NOT NULL,
+                direction             TEXT NOT NULL,
+                strategy              TEXT NOT NULL,
+                entry_price           REAL,
+                stop_price            REAL,
+                target_price          REAL,
+                composite_conviction  REAL NOT NULL,
+                approving_models_json TEXT NOT NULL,
+                dissents_json         TEXT,
+                context_json          TEXT,
+                gate_config_json      TEXT NOT NULL,
+                status                TEXT NOT NULL DEFAULT 'SHOWN-ONLY',
+                pushed_at             TEXT,
+                trade_id              INTEGER,
+                outcome               TEXT,
+                outcome_r_multiple    REAL,
+                outcome_resolved_at   TEXT,
+                outcome_detail_json   TEXT
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_signal_ledger_created ON signal_ledger(created_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_signal_ledger_status ON signal_ledger(status)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_signal_ledger_symbol ON signal_ledger(symbol)")
+        conn.commit()
+    finally:
+        conn.close()
 
 
 # ─── Step 1: winning models (dynamic — never hardcoded names) ────────────────
@@ -178,15 +180,17 @@ def _recent_signals_by_winner(winning_ids: set[str], lookback_minutes: int) -> d
     if not winning_ids:
         return {}
     conn = _conn()
-    cutoff = (datetime.utcnow() - timedelta(minutes=lookback_minutes)).strftime("%Y-%m-%d %H:%M:%S")
-    placeholders = ",".join("?" * len(winning_ids))
-    rows = conn.execute(
-        f"SELECT player_id, symbol, signal, confidence, option_type, created_at "
-        f"FROM signals WHERE player_id IN ({placeholders}) AND created_at >= ? "
-        f"ORDER BY created_at DESC",
-        [*winning_ids, cutoff],
-    ).fetchall()
-    conn.close()
+    try:
+        cutoff = (datetime.utcnow() - timedelta(minutes=lookback_minutes)).strftime("%Y-%m-%d %H:%M:%S")
+        placeholders = ",".join("?" * len(winning_ids))
+        rows = conn.execute(
+            f"SELECT player_id, symbol, signal, confidence, option_type, created_at "
+            f"FROM signals WHERE player_id IN ({placeholders}) AND created_at >= ? "
+            f"ORDER BY created_at DESC",
+            [*winning_ids, cutoff],
+        ).fetchall()
+    finally:
+        conn.close()
     by_symbol: dict[str, list[dict]] = {}
     for r in rows:
         by_symbol.setdefault(r["symbol"], []).append(dict(r))
@@ -295,11 +299,13 @@ def _pushed_count_today(now: Optional[datetime] = None) -> int:
     ensure_ledger_table()
     today = (now or datetime.utcnow()).strftime("%Y-%m-%d")
     conn = _conn()
-    row = conn.execute(
-        "SELECT COUNT(*) AS n FROM signal_ledger WHERE status = 'PUSHED' AND substr(created_at, 1, 10) = ?",
-        (today,),
-    ).fetchone()
-    conn.close()
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM signal_ledger WHERE status = 'PUSHED' AND substr(created_at, 1, 10) = ?",
+            (today,),
+        ).fetchone()
+    finally:
+        conn.close()
     return row["n"] if row else 0
 
 
@@ -315,34 +321,38 @@ def log_to_ledger(candidate: dict, status: str, strategy: str, gate_config: dict
     OLLIETRADES_SIGNAL.md #4)."""
     ensure_ledger_table()
     conn = _conn()
-    cur = conn.execute(
-        "INSERT INTO signal_ledger "
-        "(symbol, direction, strategy, entry_price, stop_price, target_price, "
-        " composite_conviction, approving_models_json, dissents_json, context_json, "
-        " gate_config_json, status) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-        (
-            candidate["symbol"], candidate["direction"], strategy,
-            entry_price, stop_price, target_price,
-            candidate["composite_conviction"],
-            json.dumps(candidate["approving_models"]),
-            json.dumps(dissents or []),
-            json.dumps(context or {}),
-            json.dumps(gate_config),
-            status,
-        ),
-    )
-    conn.commit()
-    row_id = cur.lastrowid
-    conn.close()
+    try:
+        cur = conn.execute(
+            "INSERT INTO signal_ledger "
+            "(symbol, direction, strategy, entry_price, stop_price, target_price, "
+            " composite_conviction, approving_models_json, dissents_json, context_json, "
+            " gate_config_json, status) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                candidate["symbol"], candidate["direction"], strategy,
+                entry_price, stop_price, target_price,
+                candidate["composite_conviction"],
+                json.dumps(candidate["approving_models"]),
+                json.dumps(dissents or []),
+                json.dumps(context or {}),
+                json.dumps(gate_config),
+                status,
+            ),
+        )
+        conn.commit()
+        row_id = cur.lastrowid
+    finally:
+        conn.close()
     return row_id
 
 
 def get_ledger_row(ledger_id: int) -> Optional[dict]:
     ensure_ledger_table()
     conn = _conn()
-    row = conn.execute("SELECT * FROM signal_ledger WHERE id = ?", (ledger_id,)).fetchone()
-    conn.close()
+    try:
+        row = conn.execute("SELECT * FROM signal_ledger WHERE id = ?", (ledger_id,)).fetchone()
+    finally:
+        conn.close()
     return dict(row) if row else None
 
 
@@ -631,13 +641,15 @@ def _write_outcome(ledger_id: int, outcome: str, r_multiple: Optional[float], de
     ever touches outcome/outcome_r_multiple/outcome_resolved_at/outcome_detail_json.
     Never the frozen columns (no-repaint rule, docs/OLLIETRADES_SIGNAL.md #4)."""
     conn = _conn()
-    conn.execute(
-        "UPDATE signal_ledger SET outcome = ?, outcome_r_multiple = ?, "
-        "outcome_resolved_at = datetime('now'), outcome_detail_json = ? WHERE id = ?",
-        (outcome, r_multiple, json.dumps(detail), ledger_id),
-    )
-    conn.commit()
-    conn.close()
+    try:
+        conn.execute(
+            "UPDATE signal_ledger SET outcome = ?, outcome_r_multiple = ?, "
+            "outcome_resolved_at = datetime('now'), outcome_detail_json = ? WHERE id = ?",
+            (outcome, r_multiple, json.dumps(detail), ledger_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def resolve_outcomes(now: Optional[datetime] = None, resolution_window_days: Optional[int] = None) -> dict:
@@ -655,11 +667,13 @@ def resolve_outcomes(now: Optional[datetime] = None, resolution_window_days: Opt
 
     ensure_ledger_table()
     conn = _conn()
-    rows = conn.execute(
-        "SELECT id, symbol, direction, created_at, entry_price, stop_price, target_price "
-        "FROM signal_ledger WHERE outcome IS NULL AND entry_price IS NOT NULL"
-    ).fetchall()
-    conn.close()
+    try:
+        rows = conn.execute(
+            "SELECT id, symbol, direction, created_at, entry_price, stop_price, target_price "
+            "FROM signal_ledger WHERE outcome IS NULL AND entry_price IS NOT NULL"
+        ).fetchall()
+    finally:
+        conn.close()
 
     tally = {"WIN": 0, "LOSS": 0, "EXPIRED_UNRESOLVED": 0, "pending": 0, "errors": 0}
     for row in rows:
@@ -715,29 +729,31 @@ def query_ledger(from_date: Optional[str] = None, to_date: Optional[str] = None,
     _pushed_count_today's substr match)."""
     ensure_ledger_table()
     conn = _conn()
-    where = []
-    params: list = []
-    if from_date:
-        where.append("created_at >= ?")
-        params.append(from_date)
-    if to_date:
-        where.append("created_at <= ?")
-        params.append(to_date)
-    if strategy:
-        where.append("strategy = ?")
-        params.append(strategy)
-    if status:
-        where.append("status = ?")
-        params.append(status)
-    clause = ("WHERE " + " AND ".join(where)) if where else ""
-    # model filtering happens post-fetch, so fetch a wider window when it's
-    # active -- same starvation fix as get_notifications' stream filter.
-    sql_limit = limit * 10 if model else limit
-    rows = conn.execute(
-        f"SELECT * FROM signal_ledger {clause} ORDER BY created_at DESC LIMIT ?",
-        (*params, sql_limit),
-    ).fetchall()
-    conn.close()
+    try:
+        where = []
+        params: list = []
+        if from_date:
+            where.append("created_at >= ?")
+            params.append(from_date)
+        if to_date:
+            where.append("created_at <= ?")
+            params.append(to_date)
+        if strategy:
+            where.append("strategy = ?")
+            params.append(strategy)
+        if status:
+            where.append("status = ?")
+            params.append(status)
+        clause = ("WHERE " + " AND ".join(where)) if where else ""
+        # model filtering happens post-fetch, so fetch a wider window when it's
+        # active -- same starvation fix as get_notifications' stream filter.
+        sql_limit = limit * 10 if model else limit
+        rows = conn.execute(
+            f"SELECT * FROM signal_ledger {clause} ORDER BY created_at DESC LIMIT ?",
+            (*params, sql_limit),
+        ).fetchall()
+    finally:
+        conn.close()
 
     result = []
     for r in rows:
@@ -900,14 +916,16 @@ def _resolve_signals_table_rows(player_id: str, window_days: int, stop_pct: floa
     window allows."""
     now = datetime.utcnow()
     conn = _conn()
-    window_cutoff = (now - timedelta(days=window_days)).strftime("%Y-%m-%d %H:%M:%S")
-    resolvable_cutoff = (now - timedelta(days=resolution_window_days)).strftime("%Y-%m-%d %H:%M:%S")
-    rows = conn.execute(
-        "SELECT symbol, signal, created_at FROM signals WHERE player_id = ? AND created_at >= ? AND created_at <= ? "
-        "ORDER BY created_at DESC",
-        (player_id, window_cutoff, resolvable_cutoff),
-    ).fetchall()
-    conn.close()
+    try:
+        window_cutoff = (now - timedelta(days=window_days)).strftime("%Y-%m-%d %H:%M:%S")
+        resolvable_cutoff = (now - timedelta(days=resolution_window_days)).strftime("%Y-%m-%d %H:%M:%S")
+        rows = conn.execute(
+            "SELECT symbol, signal, created_at FROM signals WHERE player_id = ? AND created_at >= ? AND created_at <= ? "
+            "ORDER BY created_at DESC",
+            (player_id, window_cutoff, resolvable_cutoff),
+        ).fetchall()
+    finally:
+        conn.close()
 
     directional = [r for r in rows if _direction_bucket(r["signal"]) is not None]
     total_available = len(directional)
@@ -977,16 +995,18 @@ def _resolve_strategy_signals(window_days: int, resolution_window_days: int, sam
     most-recent-first alone biases toward still-pending rows."""
     now = datetime.utcnow()
     conn = _conn()
-    window_cutoff = (now - timedelta(days=window_days)).strftime("%Y-%m-%d %H:%M:%S")
-    resolvable_cutoff = (now - timedelta(days=resolution_window_days)).strftime("%Y-%m-%d %H:%M:%S")
-    rows = conn.execute(
-        "SELECT ticker, entry_price, stop_price, target_price, created_at FROM strategy_signals "
-        "WHERE created_at >= ? AND created_at <= ? "
-        "AND entry_price IS NOT NULL AND stop_price IS NOT NULL AND target_price IS NOT NULL "
-        "ORDER BY created_at DESC",
-        (window_cutoff, resolvable_cutoff),
-    ).fetchall()
-    conn.close()
+    try:
+        window_cutoff = (now - timedelta(days=window_days)).strftime("%Y-%m-%d %H:%M:%S")
+        resolvable_cutoff = (now - timedelta(days=resolution_window_days)).strftime("%Y-%m-%d %H:%M:%S")
+        rows = conn.execute(
+            "SELECT ticker, entry_price, stop_price, target_price, created_at FROM strategy_signals "
+            "WHERE created_at >= ? AND created_at <= ? "
+            "AND entry_price IS NOT NULL AND stop_price IS NOT NULL AND target_price IS NOT NULL "
+            "ORDER BY created_at DESC",
+            (window_cutoff, resolvable_cutoff),
+        ).fetchall()
+    finally:
+        conn.close()
 
     total_available = len(rows)
     sample = rows[:sample_cap]
