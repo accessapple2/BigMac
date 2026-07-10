@@ -47,6 +47,7 @@ from engine.alert_channels import classify_alert_stream  # noqa: E402
     "holdings_stale",
     "guardian_sweep_sells",
     "troi_csp_cap_breach",
+    "deployment_floor",  # HM-DEPLOYMENT-FLOOR: fleet capital state, not a trade idea
     "alert_channel",  # unclassified fallback -- conservative default
 ])
 def test_classifies_as_ops(alert_type):

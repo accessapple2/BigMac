@@ -5047,6 +5047,24 @@ if __name__ == "__main__":
         except Exception:
             pass
     schedule.every(15).minutes.do(run_capitol_scan)
+    # M-5 Multitronic — rules-based regime allocator control seat
+    # (HM-M5-BASELINE-ALLOCATOR 2026-07-10). Ships DORMANT (is_paused=1);
+    # run_m5_rebalance() no-ops until Admiral sets is_paused=0. JPM
+    # control-arm pattern: the deterministic bar the LLM fleet must clear.
+    try:
+        from engine.m5_allocator import register_seat as _m5_register, run_m5_rebalance
+        _m5_register()
+        schedule.every(15).minutes.do(run_m5_rebalance)     # once/day effective (7:45–8:30 AZ window + dedup)
+    except Exception as _m5_err:
+        console.log(f"[red][m5-allocator] wiring failed: {type(_m5_err).__name__}: {_m5_err!r}")
+    # Deployment-floor advisory (HM-DEPLOYMENT-FLOOR 2026-07-10, S6 Finding 1 P1):
+    # once/day NTFY when fleet long-equity % < ⅓ of the regime's Blend E target
+    # in a BULL-family regime. Advisory only — no auto-deployment.
+    try:
+        from engine.deployment_floor import run_deployment_floor_check
+        schedule.every(30).minutes.do(run_deployment_floor_check)  # once/day effective (8:30–9:30 AZ window + dedup)
+    except Exception as _df_err:
+        console.log(f"[red][deployment-floor] wiring failed: {type(_df_err).__name__}: {_df_err!r}")
     schedule.every(15).minutes.do(run_cost_monitor)         # Cost Monitor: every 15 min (budget alert, auto-pause)
     # Bridge Vote — Tier 3 morning vote at 9:00 AM ET (fires once per day)
     try:

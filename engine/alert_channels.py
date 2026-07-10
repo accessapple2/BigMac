@@ -111,6 +111,8 @@ OPS_ALERT_TYPE_PREFIXES = (
     "holdings_",                       # real_holdings.json staleness (Kirk advisory)
     "guardian_sweep_sells",            # fleet-wide protective forced-sell sweep
     "troi_csp_cap_breach",             # agent risk-cap breach
+    "deployment_floor",                # HM-DEPLOYMENT-FLOOR: fleet under-deployed for regime -- about
+                                        # the fleet's own capital state, not a specific trade idea
     "alert_channel",                   # unclassified fallback (source= was never passed) -- default conservative
 )
 
