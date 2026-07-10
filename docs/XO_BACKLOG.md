@@ -138,6 +138,15 @@ end-to-end to confirm it. Materially stronger evidence than before (an
 official, schema-derived doc citation vs. nothing), but implementing the
 pnl write should still ideally be checked against one real fill (or
 explicitly accepted on doc-confidence alone) before shipping — Admiral's
+decision, 2026-07-10: **hold.** Do not implement pnl computation on
+doc-confidence alone. Wait until one of the three armed strategies (see
+`HM-ARMED-DORMANT-SPREAD-STRATEGIES`) or a deliberate manual SwingDesk
+close actually produces a real MLEG close, observe the real
+`filled_avg_price` sign, confirm it matches this doc citation, THEN
+implement `close_cost = filled_avg_price * qty * 100`, `pnl =
+entry_credit_debit - close_cost` in `strategies/executor.py::
+_increment_closed()` and `swingdesk/spread_executor.py::
+_close_original_position()`. Still
 call on whether to proceed now or wait for a live-fire confirmation.
 
 `engine/events_bus_consumer.py::consume_pending_signals()` dequeues with
