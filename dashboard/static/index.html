@@ -34464,6 +34464,19 @@ async function fetchHoldingsTop() {
 setTimeout(fetchHoldingsTop, 4000);
 setInterval(fetchHoldingsTop, 60000);
 
+// Single shared GEX regime helper (HM-BUG-BATCH-2026-07-09) — the Bridge
+// Status glance row, GEX map, and Market Conditions summary each had their
+// own inline copy of this comparison and had drifted out of sync (the
+// glance row was comparing d.regime === 'volatile', a string the backend
+// never emits verbatim, so it always read STABLE). Flip-based (spot vs
+// gamma_flip) per HM-DRYDOCK-2: below flip = volatile/negative gamma,
+// above = stable/positive gamma. Falls back to the backend regime string
+// only when spot/gammaFlip themselves are unavailable.
+function gexIsVolatileRegime(spot, gammaFlip, regimeStr) {
+  if (spot != null && gammaFlip != null) return spot < gammaFlip;
+  return regimeStr === 'volatile' || regimeStr === 'volatile (below flip)';
+}
+
 async function fetchGEX() {
   var el = document.getElementById('gexBody');
   var timeEl = document.getElementById('gexTime');
@@ -34474,9 +34487,7 @@ async function fetchGEX() {
     if (d.error || !d.spot) { el.innerHTML = '<div style="color:var(--muted);text-align:center;padding:12px;">No GEX data available — Alpaca keys may not be configured</div>'; return; }
     if (timeEl) timeEl.textContent = (d.timestamp || '').substring(11, 19);
     var spot = d.spot, putWall = d.put_wall, callWall = d.call_wall, gammaFlip = d.gamma_flip, totalGex = d.total_gex, regime = d.regime;
-    // HM-DRYDOCK-2: flip-based read (match Battle Station) — below gamma_flip = negative gamma /
-    // VOLATILE, above = STABLE. Was a stale d.regime label that said "stable/above flip" with spot below.
-    var isVolatile = (spot != null && gammaFlip != null) ? (spot < gammaFlip) : (regime === 'volatile');
+    var isVolatile = gexIsVolatileRegime(spot, gammaFlip, regime);
     var regimeColor = isVolatile ? '#ea580c' : '#2563eb';
     var regimeLabel = isVolatile ? '⚠️ VOLATILE — Negative Gamma (dealers amplify moves)' : '✅ STABLE — Positive Gamma (dealers dampen moves)';
     var html = '';
@@ -35038,11 +35049,9 @@ async function fetchKirkDetail() {
     var vixColor = vixVal > 30 ? '#ea580c' : vixVal > 25 ? '#f59e0b' : 'var(--text)';
     html += '<div style="background:var(--surface2);border-radius:8px;padding:10px;"><div style="font-size:12px;color:var(--muted);">VIX</div><div style="font-size:22px;font-weight:700;color:' + vixColor + ';">' + vixVal.toFixed(1) + '</div><div style="font-size:11px;color:var(--muted);">' + (vixVal > 30 ? 'EXTREME' : vixVal > 25 ? 'ELEVATED' : 'NORMAL') + '</div></div>';
 
-    // HM-DRYDOCK-2: flip-based (spot vs gamma_flip) — below flip = volatile, above = stable. Match
-    // Battle Station; was the stale gex.regime label.
-    var gexRegime = (gex.spot != null && gex.gamma_flip != null)
-        ? (gex.spot < gex.gamma_flip ? 'volatile' : 'stable')
-        : (gex.regime || 'unknown');
+    var gexRegime = (gex.spot != null && gex.gamma_flip != null) || gex.regime
+        ? (gexIsVolatileRegime(gex.spot, gex.gamma_flip, gex.regime) ? 'volatile' : 'stable')
+        : 'unknown';
     var gexColor = gexRegime === 'volatile' ? '#ea580c' : '#2563eb';
     html += '<div style="background:var(--surface2);border-radius:8px;padding:10px;"><div style="font-size:12px;color:var(--muted);">GEX REGIME</div><div style="font-size:22px;font-weight:700;color:' + gexColor + ';">' + gexRegime.toUpperCase() + '</div><div style="font-size:11px;color:var(--muted);">' + ((gex.total_gex||0)/1e9).toFixed(1) + 'B</div></div>';
 
@@ -36528,7 +36537,7 @@ function loadGlanceData() {
   fetch('/api/gex/spy').then(function(r){return r.json();}).then(function(d) {
     var el = document.getElementById('g-gex-text');
     if (!el || d.error || !d.spot) return;
-    var isVol = d.regime === 'volatile';
+    var isVol = gexIsVolatileRegime(d.spot, d.gamma_flip, d.regime);
     var gexB = (d.total_gex / 1e9).toFixed(1);
     var icon = isVol ? '⚠️' : '✅';
     var col = isVol ? '#ea580c' : '#2563eb';
