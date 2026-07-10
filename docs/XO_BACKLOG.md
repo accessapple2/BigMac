@@ -66,7 +66,7 @@ any specific number in this card; the card describes what was true as of
 2026-07-06 ~22:20 MST, not a live view.
 
 ---
-## 🟡 HM-ARMED-DORMANT-SPREAD-STRATEGIES — filed 2026-07-10 (S6 P&L-reconciliation sweep), propose-first
+## 🔴 HM-ARMED-DORMANT-SPREAD-STRATEGIES — filed 2026-07-10 (S6 P&L-reconciliation sweep), closer look done 2026-07-10, ALL THREE now definitively silently broken, decision needed
 
 `strategies/bull_call_spread_v1.py` and `strategies/bear_put_spread_v1.py`
 are both imported and scheduled every tick in `main.py` (signal scan +
@@ -74,16 +74,93 @@ exit cycle, same as `bull_spread_v1`) but **have never fired a single
 trade** — zero rows in `options_trades` for either `strategy_id`, ever.
 `bull_spread_v1` itself (same `strategies/executor.py` framework) also
 went dormant on 2026-05-14 (2 months silent) despite staying armed and
-polled every cycle. Found while investigating the `total_trades`
-open-vs-close counting bug (see `HM-STRATEGIES-EXECUTOR-STATUS-NEVER-SET`
-below, same investigation) — not itself a P&L bug, just three live-armed
-strategies burning a scan-cycle slot with no evidence they're producing
-signals. Admiral to evaluate: are these still wanted (maybe their entry
-conditions are just rarely met — spreads can be picky), or should they be
-halted (`halt_mode`-equivalent for strategies, or simply commented out of
-the `main.py` scheduler) until deliberately re-armed? Not investigated
-further — no signal-generation logs were read to distinguish "legitimately
-picky" from "silently broken."
+polled every cycle. Originally filed with "legitimately picky vs.
+silently broken" left as an open question.
+
+**UPDATE 2026-07-10 (closer look, per Admiral request): definitively
+answered — all three are silently broken, not legitimately picky.**
+Traced signal generation end-to-end for each. Two root causes found and
+fixed today (`HM-OPTIONS-EXEC-CLOSE-EXEC-STATUS-NEVER-SET`,
+`HM-EXECUTOR-STRUCTURE-WHITELIST-GAP`); a THIRD, more fundamental root
+cause was found in this closer look and is NOT yet fixed:
+
+1. **`bull_spread_v1` (SPY-only, `FIRST_TRADE_UNIVERSE=["SPY"]`,
+   Admiral-approved 2026-04-22 scope limit — that part is intentional,
+   not a bug):** `registry_signals` shows its last-ever generated signal
+   was 2026-05-14 — 8 days BEFORE the `exec_status` bug even started
+   (2026-05-22), so that bug alone doesn't explain the full silence.
+   Traced the live per-ticker gate chain for SPY directly: `iv_history`
+   for SPY has a **7-week recording gap, 2026-05-22 to 2026-07-10** —
+   caused by the `exec_status` bug, since `_already_open('SPY')` was
+   `True` the whole time and `bull_spread_v1.py`'s loop `continue`s on
+   that check BEFORE ever calling `get_iv_rank(ticker, record=True)`.
+   With SPY unblocked (today's fix), the scheduler's own 15-min cycles
+   have started recording fresh IV again — but the first fresh reading
+   landed as the new minimum of a stale/gapped comparison window, so
+   `iv_rank` currently reads an artifactual `0.0`, routing to the debit
+   `bull_call_spread` structure, which then fails its own $500-risk-cap/
+   R:R quality gate (`[first_trade_width] no width fits risk_cap=$500
+   for SPY bull_call_spread dte=21`, confirmed live). **Expected to
+   self-heal over the next several days** as `iv_history` refills with
+   regular readings and the comparison window's minimum naturally moves
+   off today's single data point. No further code fix needed for this
+   piece — it's an in-progress recovery from the already-fixed bug, not
+   a new one.
+
+2. **`bull_call_spread_v1` / `bear_put_spread_v1` (10-ticker universe:
+   SPY, QQQ, IWM, AAPL, MSFT, NVDA, META, GOOGL, AMZN, TSLA):** `iv_history`
+   for ALL 10 tickers shows the identical 7-week-plus gap (last row
+   2026-05-22 for every ticker except SPY's fresh 2026-07-10 row from
+   item 1). Traced why: both strategies only call `get_iv_rank(...)`
+   AFTER their Tier-1 (`bmb_fired AND tb_active`) or Tier-2 (`buy_signal
+   AND tb_active AND pc_ratio<0.7`) gate passes — and **both tiers
+   require `tb_active=True` as a mandatory AND-condition.**
+   `_get_tb_active()` queries `signal-center/signals.db`'s
+   `trade_signals` table for `agent_name='tractor-beam'` rows within a
+   lookback window. **That table has had ZERO `tractor-beam` rows since
+   2026-04-14** (268 lifetime rows total, last one 2026-04-14 16:57:50)
+   — while sibling signal sources in the same table (`shadow-bridge:*`,
+   `long_range_sensors`) are actively firing as recently as today,
+   confirming the signal-center pipeline itself is alive and this is
+   specific to the `tractor-beam` source. **Root cause found in an
+   existing code comment**, `engine/crew_scanner.py:3307-3312`
+   (`HM-NAVIGATOR-SIGNAL-PATH-DEAD`, 2026-05-30): *"the old
+   tractor_beam→save_signal emitter was dropped"* when agents were
+   re-homed to a trade-only path on **2026-04-12** — a deliberate,
+   documented architecture change. **Both `bull_call_spread_v1.py` and
+   `bear_put_spread_v1.py` were created 2026-05-01 — nearly 3 weeks
+   AFTER that emitter was already retired** — so `tb_active` has been
+   `False` 100% of the time for the ENTIRE operational history of both
+   strategies, for every one of their 10 tickers, blocking both tiers
+   unconditionally. This is the true primary root cause of their
+   dormancy — more fundamental than the whitelist-gap bug already fixed
+   today (that fix only matters once a signal is ever generated, and
+   none ever were, because of this). `engine/crew_scanner.py::
+   chekov_rules()` reads the same dead table for its own TB-confidence
+   boost (line 1624-1637) — a fourth confirmed consumer of the same
+   stale dependency, not yet fixed either.
+
+**NOT fixed — needs a design decision, not a quick patch:** per
+`CLAUDE.md`'s Fleet Roster doctrine, "the live Tractor Beam tiebreaker
+functionality is in-repo today (`engine/strategies.py`,
+`engine/crew_scanner.py`, `engine/phaser_lock.py`, `engine/reveille.py`)"
+— but it's unconfirmed whether that in-repo implementation writes its
+output anywhere queryable that `_get_tb_active()` could be repointed to,
+or whether a genuinely new TB-signal-availability check needs to be
+designed from scratch. Filed for a dedicated session: trace what the
+in-repo TB implementation currently produces, decide whether/how
+`_get_tb_active()` (×2 strategies) and `chekov_rules()`'s `_tb_conf_map`
+lookup should be rewired, or whether `tb_active` should simply be
+dropped as a gate condition if TB tiebreaking has moved elsewhere
+entirely.
+
+**Given all three strategies are now confirmed silently broken (not a
+market-conditions/calibration question), this entry is upgraded to 🔴**
+— worth an Admiral decision sooner rather than later on priority:
+(a) fix the Tractor Beam dependency so bull_call_spread_v1/
+bear_put_spread_v1 can actually trade, (b) halt them until that's fixed
+(stop burning scan-cycle slots on strategies that structurally cannot
+fire), or (c) something else.
 
 ---
 ## 🟡 HM-STRATEGIES-EXECUTOR-STATUS-NEVER-SET — filed 2026-07-10 (S6 P&L-reconciliation sweep, part 3)
