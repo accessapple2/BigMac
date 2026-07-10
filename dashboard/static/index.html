@@ -37423,6 +37423,10 @@ if (_tutorMode) {
 .notif-popup:hover { filter: brightness(1.08); }
 @keyframes notifSlideIn { from { transform: translateX(110%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 @keyframes notifPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.75; } }
+/* HM-BUG-BATCH-2026-07-09: brief highlight when a repeat alert updates an
+   existing toast in place instead of stacking a new one. */
+@keyframes notifRepeatFlash { 0% { box-shadow: 0 4px 20px rgba(0,0,0,0.6), 0 0 0 2px rgba(59,130,246,0.9); } 100% { box-shadow: 0 4px 20px rgba(0,0,0,0.6); } }
+.notif-repeat-flash { animation: notifRepeatFlash 1s ease-out; }
 /* ── Floating Archer ─────────────────────────────────────────────────── */
 #archer-float { position:fixed;bottom:20px;right:20px;z-index:9999;display:flex;flex-direction:column;align-items:center;gap:4px;transition:all 0.3s ease; }
 #archer-float-close { position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:rgba(15,23,42,0.95);border:1px solid rgba(255,255,255,0.2);color:#64748b;font-size:9px;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:10000;opacity:0;pointer-events:none;transition:opacity 0.2s;padding:0;line-height:1; }
@@ -37498,6 +37502,24 @@ function _notifDestination(notif) {
   }
 }
 
+// HM-BUG-BATCH-2026-07-09: dedup key = type + title. `type` is now a stable
+// per-check identifier for the large majority of send_alert() callers
+// (alert_channels.py falls back to `alert_type` when no explicit `source` is
+// given, e.g. "sentinel_signals_v2_queue" — previously it collapsed to the
+// generic "alert_channel" for every sentinel check, so there was nothing to
+// key repeats on). Title is included so genuinely-different notifications
+// that happen to share a coarse type (e.g. 'trade' for every fill) still
+// get their own toast rather than being merged.
+var _activeToasts = {};
+
+function _dismissToast(btn) {
+  var el = btn.closest('.notif-popup');
+  if (!el) return;
+  var k = el.dataset.notifKey;
+  if (k && _activeToasts[k] && _activeToasts[k].el === el) delete _activeToasts[k];
+  el.remove();
+}
+
 function showNotificationPopup(notif) {
   var container = document.getElementById('notif-container');
   if (!container) {
@@ -37506,27 +37528,43 @@ function showNotificationPopup(notif) {
     document.body.appendChild(container);
   }
   var dest = _notifDestination(notif);
-  var popup = document.createElement('div');
-  popup.className = 'notif-popup notif-' + (notif.severity || 'info');
+  var key = (notif.type || 'notif') + '::' + (notif.title || '');
+  var existing = _activeToasts[key];
+  var isRepeat = !!(existing && existing.el && existing.el.parentNode);
+  var popup = isRepeat ? existing.el : document.createElement('div');
+
+  if (existing && existing.timer) clearTimeout(existing.timer);
+  popup.dataset.notifKey = key;
+  popup.className = 'notif-popup notif-' + (notif.severity || 'info') + (isRepeat ? ' notif-repeat-flash' : '');
   popup.style.cursor = 'pointer';
   popup.onclick = function(e) {
     if (e.target.classList.contains('notif-close')) return;
     try { eval(dest); } catch(err) {}
+    delete _activeToasts[key];
     popup.remove();
   };
   popup.innerHTML =
     '<div class="notif-header">' +
     '<span class="notif-icon">' + (notif.icon || '🔔') + '</span>' +
-    '<span class="notif-title">' + (notif.title || '') + '</span>' +
+    '<span class="notif-title">' + (notif.title || '') + (isRepeat ? ' <span style="font-size:9px;font-weight:400;color:#64748b;">(updated)</span>' : '') + '</span>' +
     '<span class="notif-time">' + (notif.time || '') + '</span>' +
-    '<button class="notif-close" onclick="event.stopPropagation();this.closest(\'.notif-popup\').remove()">✕</button>' +
+    '<button class="notif-close" onclick="event.stopPropagation();_dismissToast(this)">✕</button>' +
     '</div>' +
     '<div class="notif-body">' + (notif.body || '') + '</div>' +
     '<div style="font-size:10px;color:#475569;margin-top:5px;">Tap to view →</div>';
-  container.insertBefore(popup, container.firstChild);
-  if (notif.severity !== 'critical') {
-    setTimeout(function() { if (popup.parentNode) popup.remove(); }, 8000);
-  }
+  container.insertBefore(popup, container.firstChild); // (no-op if already first child)
+
+  // Auto-dismiss every severity now — 'critical' previously never
+  // auto-dismissed at all, which (combined with no dedup) was the main
+  // driver of toasts stacking indefinitely down the viewport. Critical
+  // still gets noticeably longer on-screen time than warning/info.
+  var dismissMs = notif.severity === 'critical' ? 25000 : 8000;
+  var timer = setTimeout(function() {
+    if (popup.parentNode) popup.remove();
+    if (_activeToasts[key] && _activeToasts[key].el === popup) delete _activeToasts[key];
+  }, dismissMs);
+  _activeToasts[key] = { el: popup, timer: timer };
+
   if (notif.type === 'trade' || notif.type === 'alert') playNotifSound(notif.severity);
   // Archer audio — route by notification type and body content
   // HM-ARCHER-DYNAMIC 2026-06-06: canned HeyGen clips RETIRED → dynamic announcements

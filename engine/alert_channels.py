@@ -381,22 +381,33 @@ def send_alert(
 
     results: dict = {}
 
+    # HM-BUG-BATCH-2026-07-09: `source` defaults to "" for the large majority
+    # of callers (e.g. hm_ops_sentinel.py never passes it), which made every
+    # one of those alerts collapse to the generic notifications.type value
+    # "alert_channel" -- no stable per-check identifier reached the browser,
+    # so the /classic toast layer had nothing to dedup identical repeats on.
+    # `alert_type` (e.g. "sentinel_signals_v2_queue") is already a stable,
+    # caller-specific key used for the rate limiter above -- fall back to it
+    # here too. An explicit `source` still wins (Contact Classification
+    # tiering, dyn_*/user_* distinction per send_alert's docstring above).
+    _notif_type = source or alert_type
+
     # INFO → ntfy only
     if level == AlertLevel.INFO:
         results["ntfy"] = any(_send_ntfy(title, message, ntfy_priority, ntfy_tags, t) for t in _ntfy_topics())
-        _db_notification(title, message, "info", source)
+        _db_notification(title, message, "info", _notif_type)
 
     # WARNING → ntfy + browser notification (DB)
     elif level == AlertLevel.WARNING:
         results["ntfy"]    = any(_send_ntfy(title, message, ntfy_priority, ntfy_tags, t) for t in _ntfy_topics())
-        _db_notification(title, message, "warning", source)
+        _db_notification(title, message, "warning", _notif_type)
         results["browser"] = True
 
     # RED ALERT → all channels
     elif level == AlertLevel.RED_ALERT:
         crit_topics = _ntfy_topics() + [NTFY_CRITICAL_TOPIC]   # HM-UHURA-HAILS: keep admin topic AND add critical lane
         results["ntfy"]    = any(_send_ntfy(title, message, ntfy_priority, ntfy_tags, t) for t in crit_topics)
-        _db_notification(title, message, "critical", source)
+        _db_notification(title, message, "critical", _notif_type)
         results["browser"] = True
         results["email"]   = _send_email(title, f"{message}\n\nLevel: RED ALERT\nType: {alert_type}")
 
