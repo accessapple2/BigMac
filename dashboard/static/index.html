@@ -37718,6 +37718,52 @@ function dismissNotifBanner() {
 
 setInterval(pollNotifications, 60000); // was 15s
 setTimeout(pollNotifications, 3000); // First poll after 3s
+
+// HM-BUG-BATCH-2026-07-09 item 6: dev hook to prove toast dedup without
+// waiting for a real sentinel alert to repeat in production. Exercises the
+// ACTUAL showNotificationPopup() code path (not a reimplementation) --
+// fires the same alert type+title twice, asserts exactly one DOM node
+// exists afterward and it's flagged "(updated)", then cleans up after
+// itself. Call from devtools console: window._devTestToastDedup()
+window._devTestToastDedup = function() {
+  var testType = '__test_dedup_proof__';
+  var testTitle = 'Dev hook: duplicate alert test';
+  var key = testType + '::' + testTitle;
+  // Clear any stale state from a prior run so this is deterministic.
+  var stale = _activeToasts[key];
+  if (stale && stale.el && stale.el.parentNode) stale.el.remove();
+  delete _activeToasts[key];
+
+  showNotificationPopup({ id: -1, type: testType, title: testTitle, body: 'first fire', severity: 'warning', time: '', icon: '🧪' });
+  var popupsAfterFirst = document.querySelectorAll('.notif-popup[data-notif-key="' + key + '"]').length;
+  var elAfterFirst = _activeToasts[key] && _activeToasts[key].el;
+
+  showNotificationPopup({ id: -2, type: testType, title: testTitle, body: 'second fire (duplicate)', severity: 'warning', time: '', icon: '🧪' });
+  var popupsAfterSecond = document.querySelectorAll('.notif-popup[data-notif-key="' + key + '"]').length;
+  var elAfterSecond = _activeToasts[key] && _activeToasts[key].el;
+  var sameElementReused = elAfterFirst === elAfterSecond;
+  var bodyUpdatedInPlace = elAfterSecond && elAfterSecond.querySelector('.notif-body') &&
+    elAfterSecond.querySelector('.notif-body').textContent === 'second fire (duplicate)';
+  var flaggedUpdated = elAfterSecond && elAfterSecond.querySelector('.notif-title') &&
+    elAfterSecond.querySelector('.notif-title').textContent.indexOf('(updated)') !== -1;
+
+  var pass = popupsAfterFirst === 1 && popupsAfterSecond === 1 && sameElementReused && bodyUpdatedInPlace && flaggedUpdated;
+
+  // Cleanup -- don't leave a fake toast sitting in a real user's viewport.
+  if (elAfterSecond && elAfterSecond.parentNode) elAfterSecond.remove();
+  delete _activeToasts[key];
+
+  var result = {
+    pass: pass,
+    popupsAfterFirst: popupsAfterFirst,
+    popupsAfterSecond: popupsAfterSecond,
+    sameElementReused: sameElementReused,
+    bodyUpdatedInPlace: bodyUpdatedInPlace,
+    flaggedUpdated: flaggedUpdated,
+  };
+  console.log('[_devTestToastDedup]', pass ? 'PASS' : 'FAIL', result);
+  return result;
+};
 </script>
 
 <!-- ── CIC (Combat Information Center) Chat Widget ──────────────────── -->
