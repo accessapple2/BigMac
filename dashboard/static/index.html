@@ -40737,15 +40737,29 @@ window.createLiveChart=function(id,sym){var c=document.getElementById(id);if(!c|
       // the guide's rendered height instead, when it's expanded.
       setTimeout(function() {
         var main = document.querySelector('.main');
-        if (!main) return;
         var sectionName = (typeof section === 'string') ? section : ((section && section.id) || '');
         var guideId = (typeof _guidePageMap !== 'undefined') ? _guidePageMap[sectionName] : null;
         var guideEl = guideId ? document.getElementById('guide-container-' + guideId) : null;
         // >40px = expanded guide (vs. the small dismissed reopen-pill, which
         // isn't worth scrolling past).
-        var target = (guideEl && guideEl.offsetHeight > 40) ? (guideEl.offsetTop + guideEl.offsetHeight) : 0;
-        main.scrollTop = target;
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        var target = 0;
+        if (guideEl && guideEl.offsetHeight > 40) {
+          // HM-BUG-BATCH-2026-07-09 (round 2, live-verified on
+          // bridge.ollietrades.com): .main has zero scrollable overflow on
+          // the real deployed layout (scrollHeight === clientHeight --
+          // .main's height auto-grows to fit content instead of being
+          // clipped) despite its overflow-y:auto CSS, so main.scrollTop was
+          // a silent no-op. document/window is the actual scrolling context
+          // (confirmed live: document.documentElement.scrollHeight >>
+          // clientHeight). getBoundingClientRect() + current window.scrollY
+          // gives an absolute document-coordinate target that works
+          // correctly regardless of which element the CSS says should
+          // scroll vs. which one actually does.
+          var r = guideEl.getBoundingClientRect();
+          target = Math.max(0, window.scrollY + r.top + r.height - 8);
+        }
+        if (main) main.scrollTop = target; // harmless no-op if .main isn't the real scroll container
+        window.scrollTo({ top: target, behavior: 'smooth' });
         // Two sections (#section-ollie-ai, #section-sector-watch) manage
         // their own internal overflow-y:auto scrollbox decoupled from
         // .main's scroll -- their scrollTop persists across section
