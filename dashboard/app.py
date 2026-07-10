@@ -12203,18 +12203,43 @@ def acknowledge_spock_alert(alert_id: int):
 
 
 @app.get("/api/notifications")
-def get_notifications(since: int = 0, limit: int = 20):
+def get_notifications(since: int = 0, limit: int = 20, stream: str = "",
+                       acknowledged: str = "unacked"):
+    """HM-BUG-BATCH-2026-07-10 item 7: added `stream` (filter to "ops" or
+    "signal", classified via engine.alert_channels.classify_alert_stream())
+    and `acknowledged` ("unacked" [default, preserves prior behavior] |
+    "all" | "acked") so this one endpoint serves both the live-poll toast
+    system (unfiltered, unacked-only, unchanged) and a new alert-history
+    browse view (filterable, can include acked rows)."""
+    from engine.alert_channels import classify_alert_stream
     _init_notifications_table()
     conn = _conn()
+
+    where = ["id > ?"]
+    params: list = [since]
+    if acknowledged == "unacked":
+        where.append("acknowledged = 0")
+    elif acknowledged == "acked":
+        where.append("acknowledged = 1")
+    # acknowledged == "all" -> no filter on the column
+
+    # `stream` is derived in Python (classify_alert_stream), not a column, so
+    # it can't be pushed into the SQL WHERE/LIMIT -- fetch a wider window when
+    # a stream filter is active so filtering afterward doesn't starve the
+    # result down to far fewer than `limit` rows.
+    sql_limit = limit * 10 if stream else limit
     rows = conn.execute(
-        "SELECT id, timestamp, type, severity, title, body, icon, agent_id "
-        "FROM notifications WHERE id > ? AND acknowledged = 0 "
-        "ORDER BY id DESC LIMIT ?",
-        (since, limit)
+        f"SELECT id, timestamp, type, severity, title, body, icon, agent_id, acknowledged "
+        f"FROM notifications WHERE {' AND '.join(where)} "
+        f"ORDER BY id DESC LIMIT ?",
+        (*params, sql_limit)
     ).fetchall()
     # Auto-ack on initial page load (since=0) so stale alerts don't re-popup
     # on every login. Live polls (since>0) are not auto-acked so new alerts show.
-    if since == 0 and rows:
+    # Only touches the unacked rows just fetched -- a stream/acknowledged=all
+    # history query must never have the side effect of acking rows it's just
+    # browsing, so this stays scoped to the historical since==0 live-poll path.
+    if since == 0 and acknowledged == "unacked" and rows:
         ids = [r["id"] for r in rows]
         conn.execute(
             "UPDATE notifications SET acknowledged=1 WHERE id IN (%s)"
@@ -12225,16 +12250,23 @@ def get_notifications(since: int = 0, limit: int = 20):
     conn.close()
     result = []
     for r in rows:
+        row_stream = classify_alert_stream(r["type"])
+        if stream and row_stream != stream:
+            continue
         result.append({
             "id": r["id"],
             "time": r["timestamp"][:16] if r["timestamp"] else "",
             "type": r["type"] or "info",
+            "stream": row_stream,
             "severity": r["severity"] or "info",
             "title": r["title"] or "",
             "body": r["body"] or "",
             "icon": r["icon"] or "🔔",
             "agent_id": r["agent_id"],
+            "acknowledged": bool(r["acknowledged"]),
         })
+        if len(result) >= limit:
+            break
     return result
 
 

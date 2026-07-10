@@ -32686,7 +32686,84 @@ function fetchFibonacci() {
       <div style="color:var(--muted);text-align:center;padding:40px;">Loading alert history...</div>
     </div>
   </div>
+
+  <!-- HM-BUG-BATCH-2026-07-10 item 7 (ALERT STREAM SEPARATION, task 26): the
+       card above reads /api/alerts/history, which is scoped to dynamic_alerts
+       + signals only -- ops/health sentinel alerts (send_alert() ->
+       notifications table) structurally never appear there. This second card
+       is the first browsable view of /api/notifications, with an Ops/Signal
+       filter so a "database is locked" warning and a stock tip stay visually
+       and structurally separate here too, not just in the live toast/banner. -->
+  <div class="card" style="margin-top:14px;">
+    <div class="card-header">
+      <div class="card-title">🔧 System Notifications — Ops vs Signal</div>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <div id="snStreamFilter" style="display:flex;gap:2px;background:var(--input-bg);border:1px solid var(--border);border-radius:6px;padding:2px;">
+          <button class="btn btn-ghost sn-filter-btn active" data-stream="" onclick="_snSetFilter('')" style="font-size:12px;padding:4px 10px;">All</button>
+          <button class="btn btn-ghost sn-filter-btn" data-stream="ops" onclick="_snSetFilter('ops')" style="font-size:12px;padding:4px 10px;">🚨 Ops</button>
+          <button class="btn btn-ghost sn-filter-btn" data-stream="signal" onclick="_snSetFilter('signal')" style="font-size:12px;padding:4px 10px;">📈 Signal</button>
+        </div>
+        <label style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px;cursor:pointer;">
+          <input type="checkbox" id="snUnackedOnly" onchange="fetchSystemNotifications()"> unacked only
+        </label>
+        <button class="btn btn-ghost" onclick="fetchSystemNotifications()" style="font-size:13px;">Refresh</button>
+      </div>
+    </div>
+    <div id="systemNotificationsContent" style="max-height:400px;overflow-y:auto;">
+      <div style="color:var(--muted);text-align:center;padding:24px;">Loading...</div>
+    </div>
+  </div>
 </div>
+<style>
+.sn-filter-btn { border-radius: 4px !important; }
+.sn-filter-btn.active { background: rgba(59,130,246,0.2) !important; color: #93c5fd !important; }
+</style>
+<script>
+var _snStreamFilter = '';
+
+function _snSetFilter(stream) {
+  _snStreamFilter = stream;
+  document.querySelectorAll('.sn-filter-btn').forEach(function(b) {
+    b.classList.toggle('active', b.dataset.stream === stream);
+  });
+  fetchSystemNotifications();
+}
+
+async function fetchSystemNotifications() {
+  var el = document.getElementById('systemNotificationsContent');
+  if (!el) return;
+  var unackedOnly = (document.getElementById('snUnackedOnly')||{}).checked;
+  var url = '/api/notifications?limit=100&acknowledged=' + (unackedOnly ? 'unacked' : 'all');
+  if (_snStreamFilter) url += '&stream=' + _snStreamFilter;
+  try {
+    var r = await fetch(url);
+    var notifs = await r.json();
+    if (!Array.isArray(notifs) || !notifs.length) {
+      el.innerHTML = '<div style="color:var(--muted);text-align:center;padding:24px;">No notifications match this filter.</div>';
+      return;
+    }
+    var h = '';
+    for (var i = 0; i < notifs.length; i++) {
+      var n = notifs[i];
+      var isOps = n.stream === 'ops';
+      var chipBg = isOps ? 'rgba(239,68,68,0.15)' : 'rgba(59,130,246,0.15)';
+      var chipColor = isOps ? '#fca5a5' : '#93c5fd';
+      var chipLabel = isOps ? '🚨 OPS' : '📈 SIGNAL';
+      h += '<div style="display:flex;gap:10px;padding:8px 16px;border-bottom:1px solid #1e2336;align-items:flex-start;">';
+      h += '<span style="min-width:64px;padding:2px 6px;border-radius:4px;font-size:11px;font-weight:700;background:' + chipBg + ';color:' + chipColor + ';text-align:center;">' + chipLabel + '</span>';
+      h += '<div style="flex:1;min-width:0;">';
+      h += '<div style="font-size:13px;font-weight:600;color:var(--text);">' + escapeHtml(n.title || n.type || '') + '</div>';
+      h += '<div style="font-size:12px;color:var(--muted);">' + escapeHtml(n.body || '') + '</div>';
+      h += '</div>';
+      h += '<div style="font-size:11px;color:var(--muted);white-space:nowrap;">' + escapeHtml(n.time || '') + (n.acknowledged ? ' ✓' : '') + '</div>';
+      h += '</div>';
+    }
+    el.innerHTML = h;
+  } catch (e) {
+    el.innerHTML = '<div style="color:var(--red);padding:20px;">Error: ' + e.message + '</div>';
+  }
+}
+</script>
 <script>
 async function fetchAlertHistory() {
   var el = document.getElementById('alertHistoryContent');
@@ -37490,6 +37567,47 @@ if (_tutorMode) {
    existing toast in place instead of stacking a new one. */
 @keyframes notifRepeatFlash { 0% { box-shadow: 0 4px 20px rgba(0,0,0,0.6), 0 0 0 2px rgba(59,130,246,0.9); } 100% { box-shadow: 0 4px 20px rgba(0,0,0,0.6); } }
 .notif-repeat-flash { animation: notifRepeatFlash 1s ease-out; }
+/* HM-BUG-BATCH-2026-07-10 item 7 (ALERT STREAM SEPARATION): ops/health
+   sentinel alerts get a visually distinct, top-docked, sticky system
+   banner instead of the right-side signal-toast stack -- "database is
+   locked" must never look like a stock tip. No auto-dismiss timer exists
+   for these at all (unlike .notif-popup); dismissal only happens via the
+   explicit Acknowledge button, which persists via /api/notifications/{id}/ack. */
+#ops-banner-container {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10001;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  pointer-events: none;
+}
+.ops-banner {
+  background: #2a0e0e;
+  border-bottom: 3px solid #ef4444;
+  padding: 10px 20px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+  animation: opsBannerSlideDown 0.3s ease-out;
+  pointer-events: all;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.ops-banner-icon { font-size: 20px; flex-shrink: 0; }
+.ops-banner-body { flex: 1; min-width: 0; }
+.ops-banner-title { font-weight: 700; font-size: 13px; color: #fecaca; }
+.ops-banner-msg { font-size: 12px; color: #fca5a5; margin-top: 2px; }
+.ops-banner-time { font-size: 10px; color: #f87171; margin-top: 2px; }
+.ops-banner-ack {
+  background: #ef4444; border: none; border-radius: 6px; color: #fff;
+  font-size: 12px; font-weight: 600; padding: 6px 14px; cursor: pointer;
+  flex-shrink: 0; white-space: nowrap;
+}
+.ops-banner-ack:hover { background: #dc2626; }
+.ops-banner-ack:disabled { opacity: 0.5; cursor: default; }
+@keyframes opsBannerSlideDown { from { transform: translateY(-100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 /* ── Floating Archer ─────────────────────────────────────────────────── */
 #archer-float { position:fixed;bottom:20px;right:20px;z-index:9999;display:flex;flex-direction:column;align-items:center;gap:4px;transition:all 0.3s ease; }
 #archer-float-close { position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:rgba(15,23,42,0.95);border:1px solid rgba(255,255,255,0.2);color:#64748b;font-size:9px;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:10000;opacity:0;pointer-events:none;transition:opacity 0.2s;padding:0;line-height:1; }
@@ -37583,7 +37701,60 @@ function _dismissToast(btn) {
   el.remove();
 }
 
+// HM-BUG-BATCH-2026-07-10 item 7 (ALERT STREAM SEPARATION): ops/health
+// sentinel alerts (notif.stream === 'ops', classified server-side by
+// engine.alert_channels.classify_alert_stream()) get a distinct, sticky,
+// top-docked system banner instead of the auto-dismissing right-side
+// signal toast -- "database is locked" must never look like a stock tip.
+// Same dedup-by-key philosophy as _activeToasts, separate map/container
+// since these have a different container AND no auto-dismiss timer at all.
+var _activeOpsBanners = {};
+
+function _ackOpsBanner(btn, notifId, key) {
+  btn.disabled = true;
+  btn.textContent = 'Acknowledging…';
+  fetch('/api/notifications/' + notifId + '/ack', { method: 'POST' })
+    .then(function() {
+      var el = btn.closest('.ops-banner');
+      if (el) el.remove();
+      delete _activeOpsBanners[key];
+    })
+    .catch(function() {
+      btn.disabled = false;
+      btn.textContent = 'Acknowledge';
+    });
+}
+
+function showOpsBanner(notif) {
+  var container = document.getElementById('ops-banner-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'ops-banner-container';
+    document.body.appendChild(container);
+  }
+  var key = (notif.type || 'ops') + '::' + (notif.title || '');
+  var existing = _activeOpsBanners[key];
+  var isRepeat = !!(existing && existing.el && existing.el.parentNode);
+  var banner = isRepeat ? existing.el : document.createElement('div');
+  banner.className = 'ops-banner' + (isRepeat ? ' notif-repeat-flash' : '');
+  banner.dataset.opsKey = key;
+  banner.innerHTML =
+    '<span class="ops-banner-icon">' + (notif.icon || '🚨') + '</span>' +
+    '<div class="ops-banner-body">' +
+    '<div class="ops-banner-title">' + (notif.title || 'System Alert') +
+    (isRepeat ? ' <span style="font-size:10px;font-weight:400;">(updated)</span>' : '') + '</div>' +
+    '<div class="ops-banner-msg">' + (notif.body || '') + '</div>' +
+    '<div class="ops-banner-time">' + (notif.time || '') + '</div>' +
+    '</div>' +
+    '<button class="ops-banner-ack" onclick="_ackOpsBanner(this,' + notif.id + ',\'' + key.replace(/'/g, "\\'") + '\')">Acknowledge</button>';
+  if (!isRepeat) container.appendChild(banner);
+  _activeOpsBanners[key] = { el: banner };
+  // No auto-dismiss timer -- deliberate. Sticky until Acknowledge is
+  // clicked (or a future poll cycle repaints it in place on repeat).
+}
+
 function showNotificationPopup(notif) {
+  if (notif.stream === 'ops') { showOpsBanner(notif); return; }
   var container = document.getElementById('notif-container');
   if (!container) {
     container = document.createElement('div');
@@ -37772,6 +37943,68 @@ window._devTestToastDedup = function() {
     flaggedUpdated: flaggedUpdated,
   };
   console.log('[_devTestToastDedup]', pass ? 'PASS' : 'FAIL', result);
+  return result;
+};
+
+// HM-BUG-BATCH-2026-07-10 item 7: analogous dev hook for the ops-banner
+// path (stream === 'ops') -- proves (1) repeat ops alerts dedup/update in
+// place same as signal toasts, (2) the banner does NOT auto-dismiss on its
+// own (still present after the wait, unlike a signal toast), and (3) the
+// Acknowledge button removes it and calls the real ack endpoint (id=-1 is
+// a nonexistent row, so the ack UPDATE is a harmless no-op — safe to hit
+// for real). Call from devtools console: await window._devTestOpsBannerDedupAndAck()
+window._devTestOpsBannerDedupAndAck = async function() {
+  var testType = '__test_ops_banner_proof__';
+  var testTitle = 'Dev hook: ops banner test';
+  var key = testType + '::' + testTitle;
+  var stale = _activeOpsBanners[key];
+  if (stale && stale.el && stale.el.parentNode) stale.el.remove();
+  delete _activeOpsBanners[key];
+
+  showNotificationPopup({ id: -1, type: testType, stream: 'ops', title: testTitle, body: 'first fire', severity: 'warning', time: '', icon: '🧪' });
+  var bannersAfterFirst = document.querySelectorAll('.ops-banner[data-ops-key="' + key + '"]').length;
+  var elAfterFirst = _activeOpsBanners[key] && _activeOpsBanners[key].el;
+  var wentToOpsContainer = !!(elAfterFirst && elAfterFirst.closest('#ops-banner-container'));
+
+  showNotificationPopup({ id: -1, type: testType, stream: 'ops', title: testTitle, body: 'second fire (duplicate)', severity: 'warning', time: '', icon: '🧪' });
+  var bannersAfterSecond = document.querySelectorAll('.ops-banner[data-ops-key="' + key + '"]').length;
+  var elAfterSecond = _activeOpsBanners[key] && _activeOpsBanners[key].el;
+  var sameElementReused = elAfterFirst === elAfterSecond;
+  var bodyUpdatedInPlace = elAfterSecond && elAfterSecond.querySelector('.ops-banner-msg') &&
+    elAfterSecond.querySelector('.ops-banner-msg').textContent === 'second fire (duplicate)';
+
+  // No-auto-dismiss check: still present after a beat (a signal toast's
+  // shortest timer is 8000ms; this just needs to prove no timer exists at
+  // all, so any non-trivial wait that a toast would NOT have survived works).
+  await new Promise(function(r) { setTimeout(r, 300); });
+  var stillPresentBeforeAck = !!(document.querySelector('.ops-banner[data-ops-key="' + key + '"]'));
+
+  var ackBtn = elAfterSecond && elAfterSecond.querySelector('.ops-banner-ack');
+  var ackRemovedIt = false;
+  if (ackBtn) {
+    ackBtn.click();
+    await new Promise(function(r) { setTimeout(r, 500); }); // let the fetch round-trip
+    ackRemovedIt = !document.querySelector('.ops-banner[data-ops-key="' + key + '"]') && !_activeOpsBanners[key];
+  }
+
+  var pass = bannersAfterFirst === 1 && bannersAfterSecond === 1 && wentToOpsContainer &&
+    sameElementReused && bodyUpdatedInPlace && stillPresentBeforeAck && ackRemovedIt;
+
+  // Cleanup in case ack somehow didn't fire (never leave a fake banner up).
+  if (elAfterSecond && elAfterSecond.parentNode) elAfterSecond.remove();
+  delete _activeOpsBanners[key];
+
+  var result = {
+    pass: pass,
+    bannersAfterFirst: bannersAfterFirst,
+    bannersAfterSecond: bannersAfterSecond,
+    wentToOpsContainer: wentToOpsContainer,
+    sameElementReused: sameElementReused,
+    bodyUpdatedInPlace: bodyUpdatedInPlace,
+    stillPresentBeforeAck: stillPresentBeforeAck,
+    ackRemovedIt: ackRemovedIt,
+  };
+  console.log('[_devTestOpsBannerDedupAndAck]', pass ? 'PASS' : 'FAIL', result);
   return result;
 };
 </script>

@@ -69,6 +69,65 @@ class AlertLevel:
     RED_ALERT = "red_alert"
 
 
+# HM-BUG-BATCH-2026-07-10 item 7 (ALERT STREAM SEPARATION): ops/health
+# sentinel alerts and trading-signal alerts currently share one notification
+# channel and look identical -- a "database is locked" warning and a stock
+# tip render as the same toast. This is the single classifier both the
+# notifications API and the frontend keyed off notif.type use so ops alerts
+# can get sticky/system-banner treatment while signal alerts keep
+# auto-dismissing.
+#
+# Enumerated from every `alert_type=` call site in the codebase (grep
+# 'alert_type=' across engine/*.py, scripts/*.py, dashboard/app.py, main.py
+# -- 59 distinct patterns as of this pass). Prefix-matched via startswith()
+# so f-string-interpolated per-symbol/per-error-class variants (e.g.
+# "dyn_rsi_oversold_AAPL", "hm-u-close_position-ConnectionError") still
+# classify correctly without listing every possible suffix.
+#
+# Ops/health/infra (sticky until acknowledged): hm_ops_sentinel.py's checks
+# (heartbeat/backlog/DB-lock/FD-count -- "sentinel_*"), HM-U architecture-
+# class unhandled exceptions (order-submission code throwing, not a trading
+# decision), data-pipeline/source health watchers, model-quality monitoring
+# (degenerate_confidence), and fleet-wide protective actions (guardian
+# sweep, CSP cap breach) -- system took action or something broke, not "here
+# is a trade idea."
+OPS_ALERT_TYPE_PREFIXES = (
+    "sentinel_",                       # hm_ops_sentinel.py: FD count, heartbeat, DB locks, queue backlog
+    "hm-u-",                           # HM-U doctrine: architecture-class unhandled exceptions
+    "hm-push-health-",                 # git push health watchdog
+    "hm-at-gamma-schwab-cadence-",     # Schwab data-sync cadence check
+    "hm-i-b-item5-drift",              # reconciliation drift
+    "hm-holly-",                       # Holly process health / missing-dependency errors
+    "source-health-watcher-",          # source health watcher dead/stale
+    "scan_liveness",                   # scanner heartbeat
+    "war_room_slow_cycle",             # War Room cycle-time degradation
+    "wr_layer1_watch_summary",         # War Room layer-1 monitoring summary
+    "event_tape_staleness",            # event tape data feed staleness
+    "scotty-kirk-ingest",              # Kirk ingest pipeline health
+    "eod_report",                      # EOD report generation status
+    "congress_scrape_zero",            # congress-trades scraper returned nothing
+    "degenerate_confidence",           # AI model producing suspicious fixed confidence
+    "tuning_crew_zero_",               # weekly tuning crew produced zero output
+    "holdings_",                       # real_holdings.json staleness (Kirk advisory)
+    "guardian_sweep_sells",            # fleet-wide protective forced-sell sweep
+    "troi_csp_cap_breach",             # agent risk-cap breach
+    "alert_channel",                   # unclassified fallback (source= was never passed) -- default conservative
+)
+
+
+def classify_alert_stream(alert_type: str) -> str:
+    """'ops' or 'signal'. Default is 'signal' -- trading-content alerts
+    (dyn_* RSI/MACD/volume, bk_orb/bk_box/bk_avwap scanner picks,
+    replay_match, stuck_stop, spread-fill/exit, ollietrades_signal, etc.)
+    outnumber ops alerts and are the safe default for anything not
+    explicitly recognized as infra/system-health."""
+    t = (alert_type or "").lower()
+    for prefix in OPS_ALERT_TYPE_PREFIXES:
+        if t.startswith(prefix.lower()):
+            return "ops"
+    return "signal"
+
+
 # ── State ──────────────────────────────────────────────────────────────────────
 
 _rate_state: dict[str, float] = {}   # alert_type → last_sent_ts
