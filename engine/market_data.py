@@ -846,10 +846,24 @@ def get_intraday_candles(symbol: str, interval: str = "5m", range_: str = "1d") 
         _end_p = _dt_p.utcnow().strftime("%Y-%m-%d")
         _start_p = (_dt_p.utcnow() - _td_p(days=_days_p * 2)).strftime("%Y-%m-%d")
 
+        # HM-BUG-BATCH-2026-07-10: sort=desc (+limit=500) is required, not
+        # optional. Polygon's default sort for this endpoint is ASCENDING
+        # (oldest first) -- for a 2-day-padded 1-minute window, SPY alone
+        # produces well over 500 one-minute bars, so an unsorted request
+        # silently returns the OLDEST 500 and truncates before ever reaching
+        # today's bars. Found live: get_session_vwap() (commit 89b2070) was
+        # always returning None during market hours because every 1-min/1d
+        # candle fetch was silently 38+ hours stale (last bar timestamp two
+        # calendar days in the past) despite HTTP 200 + real data -- looked
+        # like a healthy response, was actually the wrong slice of history.
+        # sort=desc gets the newest 500 instead; reversed below so the
+        # returned list stays chronological-ascending (every caller --VWAP's
+        # forward walk, chart rendering, the outcome-resolution engine's
+        # walk-forward -- assumes ascending order).
         _url = (
             f"https://api.polygon.io/v2/aggs/ticker/{symbol.upper()}"
             f"/range/{_mult}/{_span}/{_start_p}/{_end_p}"
-            f"?apiKey={_key_p}&limit=500"
+            f"?apiKey={_key_p}&limit=500&sort=desc"
         )
         _r = _req_p.get(_url, timeout=5)
         if _r.status_code != 200:
@@ -873,6 +887,7 @@ def get_intraday_candles(symbol: str, interval: str = "5m", range_: str = "1d") 
                 "close":  round(float(_row.get("c", 0)), 2),
                 "volume": int(_row.get("v", 0) or 0),
             })
+        candles.reverse()  # sort=desc gave newest-first; callers expect ascending
         return candles
     except Exception as _e_p:
         console.log(f"[yellow]HM-CB Polygon candles fallback to Alpaca for {symbol}: {type(_e_p).__name__}: {_e_p!r}[/yellow]")
