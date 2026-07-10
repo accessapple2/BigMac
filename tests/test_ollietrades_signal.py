@@ -293,5 +293,232 @@ def test_ledger_has_no_update_path_for_frozen_columns(temp_db):
                 assert col not in line, f"found an UPDATE touching frozen column {col}: {line!r}"
 
 
+# ─── Entry/stop/target computation (task 37) ───────────────────────────────────
+
+def _candle(time, o, h, l, c, v=1000):
+    return {"time": time, "open": o, "high": h, "low": l, "close": c, "volume": v}
+
+
+def test_compute_entry_stop_target_long():
+    candles = [_candle("2026-07-09T14:00:00Z", 100, 101, 99, 100.0)]
+    with patch("engine.market_data.get_intraday_candles", return_value=candles):
+        entry, stop, target = ots.compute_entry_stop_target("AAPL", "long", stop_pct=0.05, target_r_multiple=2.0)
+    assert entry == 100.0
+    assert stop == 95.0    # 100 * (1 - 0.05)
+    assert target == 110.0  # 100 + (100*0.05)*2.0
+
+
+def test_compute_entry_stop_target_short():
+    candles = [_candle("2026-07-09T14:00:00Z", 100, 101, 99, 100.0)]
+    with patch("engine.market_data.get_intraday_candles", return_value=candles):
+        entry, stop, target = ots.compute_entry_stop_target("AAPL", "short", stop_pct=0.05, target_r_multiple=2.0)
+    assert entry == 100.0
+    assert stop == 105.0
+    assert target == 90.0
+
+
+def test_compute_entry_stop_target_returns_none_on_no_candles():
+    with patch("engine.market_data.get_intraday_candles", return_value=[]):
+        assert ots.compute_entry_stop_target("AAPL", "long", 0.05, 2.0) is None
+
+
+def test_compute_entry_stop_target_returns_none_on_fetch_error():
+    with patch("engine.market_data.get_intraday_candles", side_effect=RuntimeError("boom")):
+        assert ots.compute_entry_stop_target("AAPL", "long", 0.05, 2.0) is None
+
+
+# ─── Trading-days-elapsed (resolution window) ──────────────────────────────────
+
+def test_trading_days_elapsed_skips_weekend():
+    # Thursday 2026-07-09 -> Monday 2026-07-13 (exclusive start, inclusive end):
+    # Fri 07-10 and Mon 07-13 count, Sat/Sun don't -> 2
+    start = datetime(2026, 7, 9, 15, 0)
+    end = datetime(2026, 7, 13, 15, 0)
+    assert ots._trading_days_elapsed(start, end) == 2
+
+
+def test_trading_days_elapsed_same_day_is_zero():
+    d = datetime(2026, 7, 9, 15, 0)
+    assert ots._trading_days_elapsed(d, d) == 0
+
+
+# ─── Outcome resolution walk-forward ───────────────────────────────────────────
+
+def _ledger_row(symbol="AAPL", direction="long", created_at="2026-07-09 14:00:00",
+                 entry=100.0, stop=95.0, target=110.0):
+    return {"symbol": symbol, "direction": direction, "created_at": created_at,
+            "entry_price": entry, "stop_price": stop, "target_price": target}
+
+
+def test_resolve_one_row_win_when_target_hit():
+    row = _ledger_row()
+    candles = [
+        _candle("2026-07-09T14:05:00Z", 100, 102, 99, 101),
+        _candle("2026-07-09T14:10:00Z", 101, 111, 100, 105),  # high=111 >= target 110
+    ]
+    with patch("engine.market_data.get_intraday_candles", return_value=candles):
+        outcome, r, detail = ots._resolve_one_row(row, datetime(2026, 7, 9, 15, 0), 5)
+    assert outcome == "WIN"
+    assert r == 2.0  # (110-100)/(100-95)
+    assert detail["hit"] == "target"
+
+
+def test_resolve_one_row_loss_when_stop_hit():
+    row = _ledger_row()
+    candles = [_candle("2026-07-09T14:05:00Z", 100, 101, 94, 96)]  # low=94 <= stop 95
+    with patch("engine.market_data.get_intraday_candles", return_value=candles):
+        outcome, r, detail = ots._resolve_one_row(row, datetime(2026, 7, 9, 15, 0), 5)
+    assert outcome == "LOSS"
+    assert r == -1.0
+    assert detail["hit"] == "stop"
+
+
+def test_resolve_one_row_same_candle_ambiguity_assumes_stop_first():
+    """If a single candle's range contains BOTH stop and target, the
+    conservative assumption (no tick data available) is stop-first."""
+    row = _ledger_row()
+    candles = [_candle("2026-07-09T14:05:00Z", 100, 115, 90, 105)]  # both 95 and 110 inside [90,115]
+    with patch("engine.market_data.get_intraday_candles", return_value=candles):
+        outcome, r, detail = ots._resolve_one_row(row, datetime(2026, 7, 9, 15, 0), 5)
+    assert outcome == "LOSS"
+    assert detail["hit"] == "stop"
+
+
+def test_resolve_one_row_short_direction():
+    row = _ledger_row(direction="short", entry=100.0, stop=105.0, target=90.0)
+    candles = [_candle("2026-07-09T14:05:00Z", 100, 101, 89, 92)]  # low=89 <= target 90
+    with patch("engine.market_data.get_intraday_candles", return_value=candles):
+        outcome, r, detail = ots._resolve_one_row(row, datetime(2026, 7, 9, 15, 0), 5)
+    assert outcome == "WIN"
+    assert r == 2.0
+    assert detail["hit"] == "target"
+
+
+def test_resolve_one_row_still_pending_when_neither_hit_nor_expired():
+    row = _ledger_row()
+    candles = [_candle("2026-07-09T14:05:00Z", 100, 102, 99, 101)]  # neither stop nor target touched
+    with patch("engine.market_data.get_intraday_candles", return_value=candles):
+        # Same day, well under the 5-trading-day resolution window
+        outcome, r, detail = ots._resolve_one_row(row, datetime(2026, 7, 9, 15, 30), 5)
+    assert outcome is None
+    assert r is None
+    assert detail is None
+
+
+def test_resolve_one_row_expired_unresolved_after_window():
+    row = _ledger_row(created_at="2026-07-01 14:00:00")
+    candles = [_candle("2026-07-08T14:05:00Z", 100, 102, 99, 101)]  # neither hit
+    # 2026-07-01 (Wed) -> 2026-07-09 (Thu): 6 trading days elapsed, past a 5-day window
+    with patch("engine.market_data.get_intraday_candles", return_value=candles):
+        outcome, r, detail = ots._resolve_one_row(row, datetime(2026, 7, 9, 15, 0), 5)
+    assert outcome == "EXPIRED_UNRESOLVED"
+    assert detail["reason"] == "resolution_window_elapsed"
+
+
+def test_resolve_one_row_zero_stop_distance_is_immediately_expired():
+    row = _ledger_row(entry=100.0, stop=100.0, target=110.0)
+    outcome, r, detail = ots._resolve_one_row(row, datetime(2026, 7, 9, 15, 0), 5)
+    assert outcome == "EXPIRED_UNRESOLVED"
+    assert detail["reason"] == "zero_stop_distance"
+
+
+# ─── resolve_outcomes() end-to-end ─────────────────────────────────────────────
+
+def _backdate_ledger_row(db_path, row_id, created_at_str):
+    """log_to_ledger always stamps created_at via SQL datetime('now') (real
+    wall-clock) -- tests that need a controlled created_at (to line up with
+    fixed mocked candle timestamps regardless of what day the suite actually
+    runs on) must override it directly after insert."""
+    conn = sqlite3.connect(db_path)
+    conn.execute("UPDATE signal_ledger SET created_at = ? WHERE id = ?", (created_at_str, row_id))
+    conn.commit()
+    conn.close()
+
+
+def test_resolve_outcomes_writes_outcome_and_preserves_frozen_columns(temp_db):
+    """End-to-end: log a candidate with entry/stop/target, run resolve_outcomes
+    against mocked candles that hit target, assert the outcome* columns are
+    written AND every frozen column is byte-identical before/after (the
+    no-repaint rule's actual behavioral guarantee, not just the structural
+    source-scan in test_ledger_has_no_update_path_for_frozen_columns)."""
+    candidate = {
+        "symbol": "TSLA", "direction": "long", "composite_conviction": 0.9,
+        "approving_models": [{"player_id": "modelA", "display_name": "Model A",
+                               "action": "BUY", "confidence": 0.9, "option_type": None,
+                               "rating": "A", "rating_score": 90}],
+    }
+    row_id = ots.log_to_ledger(
+        candidate, status="SHOWN-ONLY", strategy="ollie_live_swing",
+        gate_config={"min_rating": "B"}, entry_price=100.0, stop_price=95.0, target_price=110.0,
+    )
+    _backdate_ledger_row(temp_db, row_id, "2026-07-09 14:00:00")
+    before = ots.get_ledger_row(row_id)
+
+    candles = [_candle("2026-07-09T14:10:00Z", 100, 111, 100, 105)]  # target hit
+    with patch("engine.market_data.get_intraday_candles", return_value=candles):
+        tally = ots.resolve_outcomes(now=datetime(2026, 7, 9, 15, 0))
+
+    after = ots.get_ledger_row(row_id)
+    assert tally["WIN"] == 1
+    assert after["outcome"] == "WIN"
+    assert after["outcome_r_multiple"] == 2.0
+    assert after["outcome_resolved_at"] is not None
+    assert json.loads(after["outcome_detail_json"])["hit"] == "target"
+    # Frozen columns must be byte-identical before/after.
+    for col in ("symbol", "direction", "strategy", "entry_price", "stop_price", "target_price",
+                "composite_conviction", "approving_models_json", "gate_config_json", "context_json"):
+        assert before[col] == after[col], f"frozen column {col} changed during resolution"
+
+
+def test_resolve_outcomes_skips_rows_without_entry_price(temp_db):
+    """A row that never got a computed entry_price (e.g. price-fetch failure
+    at log time) must be left alone by resolve_outcomes, not crash it."""
+    candidate = {
+        "symbol": "NVDA", "direction": "long", "composite_conviction": 0.8,
+        "approving_models": [],
+    }
+    row_id = ots.log_to_ledger(candidate, status="SHOWN-ONLY", strategy="unmatched", gate_config={})
+    tally = ots.resolve_outcomes(now=datetime(2026, 7, 9, 15, 0))
+    assert tally["WIN"] == 0 and tally["LOSS"] == 0 and tally["EXPIRED_UNRESOLVED"] == 0
+    row = ots.get_ledger_row(row_id)
+    assert row["outcome"] is None
+
+
+def test_resolve_outcomes_never_reresolves_an_already_resolved_row(temp_db):
+    """outcome IS NULL is the query filter -- a resolved row must be inert
+    to subsequent resolve_outcomes() calls (no-repaint at the engine level,
+    not just the frozen-column level)."""
+    candidate = {"symbol": "MSFT", "direction": "long", "composite_conviction": 0.9, "approving_models": []}
+    row_id = ots.log_to_ledger(candidate, status="SHOWN-ONLY", strategy="unmatched", gate_config={},
+                                entry_price=100.0, stop_price=95.0, target_price=110.0)
+    _backdate_ledger_row(temp_db, row_id, "2026-07-09 14:00:00")
+    candles = [_candle("2026-07-09T14:10:00Z", 100, 111, 100, 105)]
+    with patch("engine.market_data.get_intraday_candles", return_value=candles):
+        ots.resolve_outcomes(now=datetime(2026, 7, 9, 15, 0))
+        first_resolved_at = ots.get_ledger_row(row_id)["outcome_resolved_at"]
+        ots.resolve_outcomes(now=datetime(2026, 7, 9, 15, 30))  # run again, later
+    assert ots.get_ledger_row(row_id)["outcome_resolved_at"] == first_resolved_at
+
+
+# ─── run_ollietrades_signal_cycle wires entry/stop/target into the ledger ──────
+
+def test_cycle_logs_entry_stop_target_when_price_fetch_succeeds(temp_db):
+    _insert_signal(temp_db, "modelA", "AMD", "BUY", 0.9)
+    _insert_signal(temp_db, "modelB", "AMD", "BUY", 0.9)
+    winners = [_winner("modelA"), _winner("modelB")]
+    candles = [_candle("2026-07-09T14:00:00Z", 50, 51, 49, 50.0)]
+    with patch("engine.market_calendar.is_within_alert_hours", return_value=True), \
+         patch.object(ots, "get_winning_models", return_value=winners), \
+         patch("engine.market_data.get_intraday_candles", return_value=candles):
+        ots.run_ollietrades_signal_cycle()
+
+    conn = sqlite3.connect(temp_db)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute("SELECT * FROM signal_ledger WHERE symbol = 'AMD'").fetchone()
+    conn.close()
+    assert row["entry_price"] == 50.0
+    assert row["stop_price"] == 47.5   # 50 * (1 - 0.05)
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))

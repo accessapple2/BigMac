@@ -4394,6 +4394,23 @@ if __name__ == "__main__":
         except Exception as _exc:
             logger.debug("[ollietrades_signal] scheduler call failed: %s", _exc)
     schedule.every(10).minutes.do(_run_ollietrades_signal_cycle)
+    # HM-BUG-BATCH-2026-07-10 item 37: outcome resolution engine (design doc
+    # §5, "every signal that cleared the gate gets a verdict") -- walks every
+    # unresolved signal_ledger row forward against intraday candles. Runs
+    # every 15min market hours per the design doc; gated here (not inside
+    # resolve_outcomes itself, which stays a plain function callable from
+    # tests without mocking market hours) since off-hours there are no new
+    # bars to walk forward against anyway.
+    def _run_ollietrades_resolve_outcomes():
+        try:
+            from engine.market_calendar import is_us_market_open
+            if not is_us_market_open():
+                return
+            from engine.ollietrades_signal import resolve_outcomes
+            resolve_outcomes()
+        except Exception as _exc:
+            logger.debug("[ollietrades_signal] resolve_outcomes scheduler call failed: %s", _exc)
+    schedule.every(15).minutes.do(_run_ollietrades_resolve_outcomes)
     # HM-EXEC-PIPELINE measurement-health watchdog: ntfy RED probes every 15 min
     _mhealth_cooldown = {}  # probe_key -> epoch_secs of last alert
     _MHEALTH_CD_SECS = 3600  # 60-min cooldown per probe

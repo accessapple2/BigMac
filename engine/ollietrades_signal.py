@@ -345,6 +345,43 @@ def get_ledger_row(ledger_id: int) -> Optional[dict]:
     return dict(row) if row else None
 
 
+# ─── Entry/stop/target (task 37 — required for resolve_outcomes to have
+# anything to resolve; the design doc left this computation unspecified) ──────
+
+def compute_entry_stop_target(symbol: str, direction: str, stop_pct: float,
+                               target_r_multiple: float) -> Optional[tuple[float, float, float]]:
+    """Entry = latest 5min bar close (same get_intraday_candles cascade as the
+    session-VWAP fix, so this never invents a second price source). Stop/target
+    are symmetric % moves off entry -- stop_pct is the fleet's own canonical
+    STOP_LOSS_PCT by default (config.py), target is stop_pct * target_r_multiple
+    away (a fixed reward:risk, not a data-driven level -- Phase 1 ghost book
+    only needs a consistent, direction-aware yardstick for WIN/LOSS, not a
+    "real" technical stop). Returns None (never raises) on any data failure --
+    the candidate still logs to the ledger with entry_price=None; resolve_
+    outcomes() simply has nothing to resolve for that row, which is correct:
+    silence/no-signal is not corruption."""
+    try:
+        from engine.market_data import get_intraday_candles
+        candles = get_intraday_candles(symbol, interval="5m", range_="1d")
+        if not candles:
+            return None
+        entry = float(candles[-1]["close"])
+        if entry <= 0:
+            return None
+    except Exception as e:
+        console.log(f"[yellow]ollietrades_signal: entry price fetch failed for {symbol}: {e}")
+        return None
+
+    stop_distance = entry * stop_pct
+    if direction == "long":
+        stop = entry - stop_distance
+        target = entry + stop_distance * target_r_multiple
+    else:  # short
+        stop = entry + stop_distance
+        target = entry - stop_distance * target_r_multiple
+    return round(entry, 4), round(stop, 4), round(target, 4)
+
+
 # ─── Orchestrator ──────────────────────────────────────────────────────────────
 
 def evaluate_gate(min_rating: str = "B", min_trades: int = 20, min_return_pct: float = 0.0,
@@ -393,6 +430,7 @@ def run_ollietrades_signal_cycle() -> dict:
             OLLIETRADES_SIGNAL_MIN_TRADES, OLLIETRADES_SIGNAL_MIN_RETURN_PCT,
             OLLIETRADES_SIGNAL_MIN_AGREEING_MODELS, OLLIETRADES_SIGNAL_MIN_CONVICTION,
             OLLIETRADES_SIGNAL_MAX_PUSHES_PER_DAY, OLLIETRADES_SIGNAL_LOOKBACK_MINUTES,
+            OLLIETRADES_SIGNAL_STOP_PCT, OLLIETRADES_SIGNAL_TARGET_R_MULTIPLE,
         )
     except Exception:
         console.log("[red]ollietrades_signal: config import failed, skipping cycle")
@@ -430,10 +468,20 @@ def run_ollietrades_signal_cycle() -> dict:
                 pushed_count += 1
             except Exception as e:
                 console.log(f"[red]ollietrades_signal: push failed for {c['symbol']}: {e}")
-        log_to_ledger(c, status, c["strategy"], result["gate_config"])
+        entry_stop_target = compute_entry_stop_target(
+            c["symbol"], c["direction"], OLLIETRADES_SIGNAL_STOP_PCT, OLLIETRADES_SIGNAL_TARGET_R_MULTIPLE
+        )
+        entry, stop, target = entry_stop_target if entry_stop_target else (None, None, None)
+        log_to_ledger(c, status, c["strategy"], result["gate_config"],
+                      entry_price=entry, stop_price=stop, target_price=target)
 
     for c in result["shown_only"]:
-        log_to_ledger(c, "SHOWN-ONLY", c["strategy"], result["gate_config"])
+        entry_stop_target = compute_entry_stop_target(
+            c["symbol"], c["direction"], OLLIETRADES_SIGNAL_STOP_PCT, OLLIETRADES_SIGNAL_TARGET_R_MULTIPLE
+        )
+        entry, stop, target = entry_stop_target if entry_stop_target else (None, None, None)
+        log_to_ledger(c, "SHOWN-ONLY", c["strategy"], result["gate_config"],
+                      entry_price=entry, stop_price=stop, target_price=target)
 
     if result["pushed"] or result["shown_only"]:
         console.log(
@@ -441,3 +489,158 @@ def run_ollietrades_signal_cycle() -> dict:
             f"{len(result['shown_only']) + (len(result['pushed']) - pushed_count)} shown-only this cycle"
         )
     return {"pushed": pushed_count, "shown_only": len(result["shown_only"])}
+
+
+# ─── Outcome Resolution Engine (task 37, docs/OLLIETRADES_SIGNAL.md §5) ───────
+# "Every signal that cleared the gate gets a verdict" -- runs identically
+# regardless of status (PUSHED/SHOWN-ONLY/TRADED), which is the entire point
+# of the regret-meter comparison in §6/§8. Only ever writes outcome*/status/
+# pushed_at/trade_id -- never the frozen call-time columns (enforced by
+# test_ledger_has_no_update_path_for_frozen_columns).
+
+def _trading_days_elapsed(start: datetime, end: datetime) -> int:
+    """Count NYSE trading days strictly between start.date() and end.date()
+    (exclusive of start day, inclusive of end day) -- sessions, not wall-clock
+    (established doctrine: count market sessions, not calendar days, same
+    reasoning as engine.market_calendar.is_trading_day's other callers)."""
+    from engine.market_calendar import is_trading_day
+    if end <= start:
+        return 0
+    d = start.date()
+    end_date = end.date()
+    count = 0
+    while d < end_date:
+        d = d + timedelta(days=1)
+        if is_trading_day(d):
+            count += 1
+    return count
+
+
+def _parse_candle_time(t: str) -> datetime:
+    return datetime.fromisoformat(t.rstrip("Z"))
+
+
+def _resolve_one_row(row: dict, now: datetime, resolution_window_days: int) -> tuple:
+    """Returns (outcome, r_multiple, detail_dict) or (None, None, None) if
+    still pending (not yet resolvable -- leave outcome NULL, try again next
+    cycle). Walk-forward tie-break within a single candle: if both stop AND
+    target fall inside that candle's [low, high] range, STOP is assumed hit
+    first -- the conservative assumption every backtest simulator without
+    tick data has to make, documented rather than silently optimistic."""
+    from engine.market_data import get_intraday_candles
+
+    symbol = row["symbol"]
+    direction = row["direction"]
+    entry = row["entry_price"]
+    stop = row["stop_price"]
+    target = row["target_price"]
+    created_at = datetime.strptime(row["created_at"][:19], "%Y-%m-%d %H:%M:%S")
+
+    stop_distance = abs(entry - stop)
+    if stop_distance <= 0:
+        return "EXPIRED_UNRESOLVED", None, {"reason": "zero_stop_distance"}
+
+    range_ = "1mo" if resolution_window_days <= 15 else "3mo"
+    try:
+        candles = get_intraday_candles(symbol, interval="5m", range_=range_)
+    except Exception as e:
+        console.log(f"[yellow]ollietrades_signal: resolve candle fetch failed for {symbol}: {e}")
+        return None, None, None
+    if not candles:
+        return None, None, None
+
+    forward = sorted(
+        (c for c in candles if _parse_candle_time(c["time"]) >= created_at),
+        key=lambda c: c["time"],
+    )
+
+    for c in forward:
+        lo, hi = float(c["low"]), float(c["high"])
+        if direction == "long":
+            if lo <= stop:
+                move = stop - entry
+                return "LOSS", round(move / stop_distance, 3), {
+                    "hit": "stop", "hit_price": stop, "hit_time": c["time"],
+                }
+            if hi >= target:
+                move = target - entry
+                return "WIN", round(move / stop_distance, 3), {
+                    "hit": "target", "hit_price": target, "hit_time": c["time"],
+                }
+        else:  # short
+            if hi >= stop:
+                move = entry - stop
+                return "LOSS", round(move / stop_distance, 3), {
+                    "hit": "stop", "hit_price": stop, "hit_time": c["time"],
+                }
+            if lo <= target:
+                move = entry - target
+                return "WIN", round(move / stop_distance, 3), {
+                    "hit": "target", "hit_price": target, "hit_time": c["time"],
+                }
+
+    if _trading_days_elapsed(created_at, now) >= resolution_window_days:
+        last_close = float(forward[-1]["close"]) if forward else entry
+        move = (last_close - entry) if direction == "long" else (entry - last_close)
+        return "EXPIRED_UNRESOLVED", round(move / stop_distance, 3), {
+            "reason": "resolution_window_elapsed", "last_close": last_close,
+        }
+
+    return None, None, None  # still pending, neither hit nor expired yet
+
+
+def _write_outcome(ledger_id: int, outcome: str, r_multiple: Optional[float], detail: dict) -> None:
+    """The ONLY function in this module that UPDATEs signal_ledger -- and only
+    ever touches outcome/outcome_r_multiple/outcome_resolved_at/outcome_detail_json.
+    Never the frozen columns (no-repaint rule, docs/OLLIETRADES_SIGNAL.md #4)."""
+    conn = _conn()
+    conn.execute(
+        "UPDATE signal_ledger SET outcome = ?, outcome_r_multiple = ?, "
+        "outcome_resolved_at = datetime('now'), outcome_detail_json = ? WHERE id = ?",
+        (outcome, r_multiple, json.dumps(detail), ledger_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def resolve_outcomes(now: Optional[datetime] = None, resolution_window_days: Optional[int] = None) -> dict:
+    """Scheduled entry point (main.py, every 15min market hours per design
+    doc). For every signal_ledger row with outcome IS NULL and entry_price
+    set, resolve WIN/LOSS/EXPIRED_UNRESOLVED. Never raises -- a single row's
+    resolution failure is logged and skipped, not fatal to the batch."""
+    if resolution_window_days is None:
+        try:
+            from config import OLLIETRADES_SIGNAL_RESOLUTION_WINDOW_DAYS
+            resolution_window_days = OLLIETRADES_SIGNAL_RESOLUTION_WINDOW_DAYS
+        except Exception:
+            resolution_window_days = 5
+    now = now or datetime.utcnow()
+
+    ensure_ledger_table()
+    conn = _conn()
+    rows = conn.execute(
+        "SELECT id, symbol, direction, created_at, entry_price, stop_price, target_price "
+        "FROM signal_ledger WHERE outcome IS NULL AND entry_price IS NOT NULL"
+    ).fetchall()
+    conn.close()
+
+    tally = {"WIN": 0, "LOSS": 0, "EXPIRED_UNRESOLVED": 0, "pending": 0, "errors": 0}
+    for row in rows:
+        try:
+            outcome, r_multiple, detail = _resolve_one_row(dict(row), now, resolution_window_days)
+        except Exception as e:
+            console.log(f"[yellow]ollietrades_signal: resolve failed for ledger id {row['id']}: {e}")
+            tally["errors"] += 1
+            continue
+        if outcome is None:
+            tally["pending"] += 1
+            continue
+        _write_outcome(row["id"], outcome, r_multiple, detail)
+        tally[outcome] += 1
+
+    if tally["WIN"] or tally["LOSS"] or tally["EXPIRED_UNRESOLVED"]:
+        console.log(
+            f"[cyan]ollietrades_signal: resolved {tally['WIN']} WIN, {tally['LOSS']} LOSS, "
+            f"{tally['EXPIRED_UNRESOLVED']} expired ({tally['pending']} still pending)"
+        )
+    return tally

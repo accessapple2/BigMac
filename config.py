@@ -199,6 +199,14 @@ OLLIETRADES_SIGNAL_MIN_CONVICTION = 0.75
 OLLIETRADES_SIGNAL_MAX_PUSHES_PER_DAY = 3
 OLLIETRADES_SIGNAL_LOOKBACK_MINUTES = 60
 OLLIETRADES_SIGNAL_RESOLUTION_WINDOW_DAYS = 5
+# item 37 (outcome resolution engine): the design doc left entry/stop/target
+# computation unspecified. STOP_PCT reuses the fleet's own canonical
+# STOP_LOSS_PCT (5%, see "Trading Rules" above) rather than inventing a new
+# number; TARGET_R_MULTIPLE=2.0 is a standard 2:1 reward:risk default for a
+# signal-tracking tool -- both tunable independently of the live fleet's
+# risk settings since this book never actually trades in Phase 1.
+OLLIETRADES_SIGNAL_STOP_PCT = 0.05
+OLLIETRADES_SIGNAL_TARGET_R_MULTIPLE = 2.0
 
 AUTO_SPREAD_MIN_CONVICTION = 8.0           # proposing-agent conviction floor (>= 8)
 
