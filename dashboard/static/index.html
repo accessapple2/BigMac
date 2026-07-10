@@ -40735,7 +40735,17 @@ window.createLiveChart=function(id,sym){var c=document.getElementById(id);if(!c|
       // down" on most sections' first view -- nothing was actually hidden,
       // the guide was just filling the whole first viewport. Scroll past
       // the guide's rendered height instead, when it's expanded.
-      setTimeout(function() {
+      // HM-BUG-BATCH-2026-07-09 (round 3, live-verified on
+      // bridge.ollietrades.com): a single smooth-behavior scrollTo() at
+      // 150ms measured as a complete no-op live -- window.scrollY never
+      // moved from its pre-switch value even though the call fired with a
+      // correct target (confirmed by intercepting window.scrollTo). Each
+      // section's own async data fetch (e.g. fetchFearGreedFull) mutates
+      // the DOM shortly after the switch, and a smooth scroll animation is
+      // apparently getting cancelled/reset by that -- an instant jump,
+      // repeated once more after the async content has had time to settle,
+      // is far more robust against this than a single animated attempt.
+      function _scrollPastGuide() {
         var main = document.querySelector('.main');
         var sectionName = (typeof section === 'string') ? section : ((section && section.id) || '');
         var guideId = (typeof _guidePageMap !== 'undefined') ? _guidePageMap[sectionName] : null;
@@ -40744,22 +40754,21 @@ window.createLiveChart=function(id,sym){var c=document.getElementById(id);if(!c|
         // isn't worth scrolling past).
         var target = 0;
         if (guideEl && guideEl.offsetHeight > 40) {
-          // HM-BUG-BATCH-2026-07-09 (round 2, live-verified on
-          // bridge.ollietrades.com): .main has zero scrollable overflow on
-          // the real deployed layout (scrollHeight === clientHeight --
-          // .main's height auto-grows to fit content instead of being
-          // clipped) despite its overflow-y:auto CSS, so main.scrollTop was
-          // a silent no-op. document/window is the actual scrolling context
-          // (confirmed live: document.documentElement.scrollHeight >>
-          // clientHeight). getBoundingClientRect() + current window.scrollY
-          // gives an absolute document-coordinate target that works
-          // correctly regardless of which element the CSS says should
-          // scroll vs. which one actually does.
+          // .main has zero scrollable overflow on the real deployed layout
+          // (scrollHeight === clientHeight -- its height auto-grows to fit
+          // content instead of being clipped) despite its overflow-y:auto
+          // CSS, so main.scrollTop alone was a silent no-op. document/window
+          // is the actual scrolling context (confirmed live:
+          // document.documentElement.scrollHeight >> clientHeight).
+          // getBoundingClientRect() + current window.scrollY gives an
+          // absolute document-coordinate target that works correctly
+          // regardless of which element the CSS says should scroll vs.
+          // which one actually does.
           var r = guideEl.getBoundingClientRect();
           target = Math.max(0, window.scrollY + r.top + r.height - 8);
         }
         if (main) main.scrollTop = target; // harmless no-op if .main isn't the real scroll container
-        window.scrollTo({ top: target, behavior: 'smooth' });
+        window.scrollTo({ top: target, behavior: 'instant' });
         // Two sections (#section-ollie-ai, #section-sector-watch) manage
         // their own internal overflow-y:auto scrollbox decoupled from
         // .main's scroll -- their scrollTop persists across section
@@ -40769,7 +40778,9 @@ window.createLiveChart=function(id,sym){var c=document.getElementById(id);if(!c|
           var innerEl = document.getElementById(id);
           if (innerEl) innerEl.scrollTop = 0;
         });
-      }, 150);
+      }
+      setTimeout(_scrollPastGuide, 150);
+      setTimeout(_scrollPastGuide, 600);
     };
     console.log('Sidebar scroll-to-section fix applied');
   }
