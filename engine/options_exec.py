@@ -189,6 +189,7 @@ def close_options_trade(
             """
             UPDATE options_trades
             SET status = 'closed',
+                exec_status = 'closed',
                 exit_date = ?,
                 exit_credit_debit = ?,
                 pnl = ?,
@@ -197,6 +198,14 @@ def close_options_trade(
             WHERE id = ?
             """,
             (
+                # HM-OPTIONS-EXEC-CLOSE-EXEC-STATUS-NEVER-SET 2026-07-10:
+                # exec_status was never set here, only status. Callers that
+                # gate on exec_status='open' alone (strategies/exit_manager.py
+                # fetch_open_strategy_positions, bull_spread_v1.py/
+                # bull_call_spread_v1.py's dedup checks) saw a fully-closed
+                # position as still open forever -- confirmed live: SPY has
+                # been blocked from new bull_spread_v1/bull_call_spread_v1
+                # entries since options_trades id 28 closed 2026-05-22.
                 datetime.utcnow().isoformat(timespec="seconds"),
                 -close_cost,
                 pnl,

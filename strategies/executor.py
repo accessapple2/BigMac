@@ -72,7 +72,19 @@ def _execute_live(signal: StrategySignal, signal_id: Optional[int]) -> Execution
 
     payload = signal.payload
     structure = payload.get("structure")
-    if structure not in ("bull_call_spread", "bull_put_spread"):
+    # HM-EXECUTOR-STRUCTURE-WHITELIST-GAP 2026-07-10: bear_put_spread_v1
+    # emits "bear_put_spread"/"bear_call_spread" (bear_put_spread_v1.py
+    # lines 449/451) but neither was in this whitelist -- every signal
+    # that strategy ever generated was rejected before submission, since
+    # it was wired up (confirmed: zero options_trades rows for
+    # strategy_id='bear_put_spread_v1', ever). submit_vertical_spread()'s
+    # own docstring already documents bear-put-spread support by name
+    # (buy_symbol=higher strike, sell_symbol=lower strike), and the
+    # payload shape (long_leg/short_leg/net_debit/net_credit) is already
+    # identical to the bull-spread strategies this whitelist was written
+    # for -- this was purely a missing tuple entry, not a missing feature.
+    if structure not in ("bull_call_spread", "bull_put_spread",
+                          "bear_put_spread", "bear_call_spread"):
         return ExecutionResult(
             signal_id=signal_id, ticker=signal.ticker, exit_tag=signal.exit_tag,
             status="rejected",

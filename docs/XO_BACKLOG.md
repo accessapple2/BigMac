@@ -146,8 +146,101 @@ close actually produces a real MLEG close, observe the real
 implement `close_cost = filled_avg_price * qty * 100`, `pnl =
 entry_credit_debit - close_cost` in `strategies/executor.py::
 _increment_closed()` and `swingdesk/spread_executor.py::
-_close_original_position()`. Still
-call on whether to proceed now or wait for a live-fire confirmation.
+_close_original_position()`.
+
+---
+## 🟡 HM-OPTIONS-EXEC-CLOSE-EXEC-STATUS-NEVER-SET — filed 2026-07-10 (S6 MLEG sweep), SHIPPED
+
+`engine/options_exec.py::close_options_trade()` — the close path for
+single-leg and MLEG-adjacent trades outside the `strategies/executor.py`
+framework — updated `status`, `pnl`, `exit_date`, `exit_credit_debit`,
+`pnl_pct`, `exit_reason` on close, but **never set `exec_status`**. Three
+call sites gate on `exec_status='open'` ALONE (not `status`):
+`strategies/exit_manager.py::fetch_open_strategy_positions()`, and the
+self/cross-strategy dedup checks in `strategies/bull_spread_v1.py::
+_already_open()` and `strategies/bull_call_spread_v1.py::
+_bull_spread_v1_has_position()`. **Confirmed live, currently manifesting:**
+`options_trades` id 28 (`bull_spread_v1`, SPY, closed 2026-05-22,
+`exit_reason='expired_otm'`) stayed `exec_status='open'` for 7+ weeks,
+silently blocking every new SPY entry for BOTH `bull_spread_v1` and
+`bull_call_spread_v1` (cross-strategy check) the entire time. 19 total
+rows found with `status='closed' AND exec_status='open'` (1 bull_spread_v1
++ 18 `options-sosnoff` CSP closes — the CSP ones don't cause a live
+blocking bug since `paper_trader.py`'s CSP gating never checks
+`exec_status`, just a data inconsistency).
+
+**SHIPPED:** `close_options_trade()` now also sets `exec_status='closed'`
+in the same UPDATE. **Also hand-corrected all 19 existing affected rows**
+(`UPDATE options_trades SET exec_status='closed' WHERE status='closed'
+AND exec_status='open'`) — verified `_already_open('SPY')` now returns
+`False` post-fix. Tests in
+`tests/test_options_exec_status_and_bear_spread_whitelist.py`.
+
+---
+## 🟡 HM-EXECUTOR-STRUCTURE-WHITELIST-GAP — filed 2026-07-10 (S6 MLEG sweep), SHIPPED
+
+`strategies/executor.py::_execute_live()`'s structure whitelist was
+hardcoded to `("bull_call_spread", "bull_put_spread")` — but
+`strategies/bear_put_spread_v1.py` (live-scheduled every 15 min in
+`main.py`) emits `"bear_put_spread"`/`"bear_call_spread"`, neither on the
+list. **Every signal this strategy has ever generated was rejected
+before submission**, since it was wired up — confirmed via
+`options_trades`: zero rows for `strategy_id='bear_put_spread_v1'`, ever.
+Verified this was purely a missing tuple entry, not a missing feature:
+`engine/alpaca_options.py::submit_vertical_spread()`'s own docstring
+already documents bear-put-spread support by name ("Bear put spread:
+buy_symbol = higher strike put, sell_symbol = lower strike put"), and
+`bear_put_spread_v1.py`'s payload shape (`long_leg`/`short_leg`/
+`net_debit`/`net_credit`) is already identical to what the bull-spread
+strategies this whitelist was written for use.
+
+**SHIPPED:** whitelist expanded to include `"bear_put_spread"` and
+`"bear_call_spread"`. No existing data to correct (zero rows ever). Tests
+in `tests/test_options_exec_status_and_bear_spread_whitelist.py`.
+
+---
+## 🟡 HM-DRAWDOWN-BLIND-TO-OPTIONS-PNL — filed 2026-07-10 (S6 MLEG sweep), needs Admiral decision, NOT investigated further
+
+`engine/risk_manager.py::check_drawdown()` (called every scan cycle from
+`engine/ai_brain.py:1065`, gates whether a player's new-trade scanning
+proceeds) reads `MAX(total_value)`/latest `total_value` from
+`portfolio_history`. Traced how that table is written
+(`engine/paper_trader.py::record_portfolio_snapshot()` →
+`get_portfolio()`, `ai_players.cash` + stock `positions` table only) and
+confirmed it is **structurally blind to ALL options/CSP P&L, always, by
+architecture** — CSP realized P&L is booked to `options_books.<book_tag>.
+current_cash`, never to `ai_players.cash` (documented in
+`engine/paper_trader.py` lines 2594-2609, `HM-CLEANUP-TRIO-2026-07-04`/
+`HM-TROI-WHEEL-V2`). This is NOT the CSP-era-pricing-filter bug class
+from earlier in this session's sweep — it's a separate, always-true
+architectural gap: **the 20%-drawdown safety halt can never see a real
+options/CSP loss for any CSP-trading agent, regardless of era.** A
+genuinely large real-quotes-era options loss would never trip the
+auto-halt via this mechanism.
+
+**NOT a quick fix** — this is a design question (should `check_drawdown`
+fold in options P&L at all, and if so from which book — `options_books.
+current_cash` deltas, or `get_portfolio_with_pnl()`'s restated total?
+CSP notional/margin already draws against `options_books` per
+`engine/risk_manager.py` line 133's own comment, so there may be
+double-counting risk in naively adding it to the stock-side drawdown
+calc). Filed for a dedicated future session, not folded into this
+session's mechanical fixes. Two agent-sourced claims that assumed
+`portfolio_history` WAS polluted by the synthetic-CSP-premium bug (an
+earlier sweep round flagged `check_drawdown()` and
+`engine/rallies_intel.py::compare_crew_vs_rallies()` on that premise)
+were checked directly against the live DB and **do not hold** — for
+`options-sosnoff`, `portfolio_history`'s own peak equals its own current
+value ($12,880.20 = $12,880.20, zero synthetic inflation ever present in
+this specific table) since it was never fed by CSP P&L in the first
+place, refuting the "true restated equity is -$16,988" arithmetic those
+findings were based on.
+
+Not shipping anything against `rallies_intel.py` — it's reading the same
+architecturally-CSP-blind table, not a bug.
+
+---
+## 🔴 HM-SIGNALS-V2-FIFO-STARVATION — filed 2026-07-06 (HM-MONDAY-OPEN-WATCH), propose-first
 
 `engine/events_bus_consumer.py::consume_pending_signals()` dequeues with
 `SELECT ... FROM signals_v2 WHERE status='pending' ORDER BY created_at ASC
