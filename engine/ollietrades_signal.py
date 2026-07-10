@@ -644,3 +644,162 @@ def resolve_outcomes(now: Optional[datetime] = None, resolution_window_days: Opt
             f"{tally['EXPIRED_UNRESOLVED']} expired ({tally['pending']} still pending)"
         )
     return tally
+
+
+# ─── /signals/history — Ledger Page (task 38, docs/OLLIETRADES_SIGNAL.md §6) ──
+
+_JSON_FIELDS = ("approving_models_json", "dissents_json", "context_json",
+                "gate_config_json", "outcome_detail_json")
+
+
+def _decode_ledger_row(row: dict) -> dict:
+    """SELECT * -> plain dict with the frozen/outcome JSON blob columns
+    decoded into their `_json` suffix's stripped name, and the raw *_json
+    column kept alongside (callers that just want to render don't need to
+    know the storage format; callers doing a byte-identical check still can)."""
+    d = dict(row)
+    d["approving_models"] = json.loads(d.get("approving_models_json") or "[]")
+    d["dissents"] = json.loads(d.get("dissents_json") or "[]")
+    d["context"] = json.loads(d.get("context_json") or "{}")
+    d["gate_config"] = json.loads(d.get("gate_config_json") or "{}")
+    d["outcome_detail"] = json.loads(d["outcome_detail_json"]) if d.get("outcome_detail_json") else None
+    return d
+
+
+def query_ledger(from_date: Optional[str] = None, to_date: Optional[str] = None,
+                  strategy: Optional[str] = None, status: Optional[str] = None,
+                  model: Optional[str] = None, limit: int = 200) -> list[dict]:
+    """Every signal_ledger row, newest first, JSON columns decoded. `model`
+    filters on approving_models_json membership -- not a SQL column, so it's
+    applied in Python after fetch (fine at ghost-phase volume, same reasoning
+    as get_notifications' stream filter). from_date/to_date compare directly
+    against created_at's 'YYYY-MM-DD HH:MM:SS' text format (lexicographic
+    compare is correct for this fixed-width format -- same convention as
+    _pushed_count_today's substr match)."""
+    ensure_ledger_table()
+    conn = _conn()
+    where = []
+    params: list = []
+    if from_date:
+        where.append("created_at >= ?")
+        params.append(from_date)
+    if to_date:
+        where.append("created_at <= ?")
+        params.append(to_date)
+    if strategy:
+        where.append("strategy = ?")
+        params.append(strategy)
+    if status:
+        where.append("status = ?")
+        params.append(status)
+    clause = ("WHERE " + " AND ".join(where)) if where else ""
+    # model filtering happens post-fetch, so fetch a wider window when it's
+    # active -- same starvation fix as get_notifications' stream filter.
+    sql_limit = limit * 10 if model else limit
+    rows = conn.execute(
+        f"SELECT * FROM signal_ledger {clause} ORDER BY created_at DESC LIMIT ?",
+        (*params, sql_limit),
+    ).fetchall()
+    conn.close()
+
+    result = []
+    for r in rows:
+        d = _decode_ledger_row(dict(r))
+        if model and not any(a.get("player_id") == model for a in d["approving_models"]):
+            continue
+        result.append(d)
+        if len(result) >= limit:
+            break
+    return result
+
+
+_RESOLVED_OUTCOMES = ("WIN", "LOSS")
+
+
+def _win_rate(rows: list[dict]) -> tuple[Optional[float], int]:
+    """(win_rate, n_resolved). EXPIRED_UNRESOLVED and pending (outcome NULL)
+    rows are excluded from both numerator and denominator -- they're
+    inconclusive, not losses; counting them as losses would understate a
+    genuinely-undecided call. n_resolved==0 -> (None, 0), not division by
+    zero or a misleading 0.0."""
+    resolved = [r for r in rows if r.get("outcome") in _RESOLVED_OUTCOMES]
+    if not resolved:
+        return None, 0
+    wins = sum(1 for r in resolved if r["outcome"] == "WIN")
+    return wins / len(resolved), len(resolved)
+
+
+def compute_rollup(rows: Optional[list[dict]] = None, from_date: Optional[str] = None,
+                    to_date: Optional[str] = None, strategy: Optional[str] = None,
+                    status: Optional[str] = None, model: Optional[str] = None) -> dict:
+    """Server-side rollups for /signals/history (design doc §6): overall WR,
+    WR by strategy, WR by approving-model combination, avg R multiple, the
+    "regret meter" (WR(SHOWN-ONLY|SKIPPED-BY-OWNER) - WR(TRADED), signed so
+    positive means winners are being left on the table), pushes/day, current
+    streak. Pass `rows` directly (e.g. already-fetched from query_ledger) to
+    avoid a second DB round-trip; otherwise this fetches with the given
+    filters itself (unbounded limit -- rollups need the full filtered set,
+    not a page of it)."""
+    if rows is None:
+        rows = query_ledger(from_date=from_date, to_date=to_date, strategy=strategy,
+                             status=status, model=model, limit=1_000_000)
+
+    overall_wr, overall_n = _win_rate(rows)
+
+    by_strategy: dict = {}
+    for r in rows:
+        by_strategy.setdefault(r["strategy"], []).append(r)
+    wr_by_strategy = {}
+    for key, group in by_strategy.items():
+        wr, n = _win_rate(group)
+        wr_by_strategy[key] = {"wr": wr, "n": n, "total": len(group)}
+
+    by_model_combo: dict = {}
+    for r in rows:
+        combo = tuple(sorted(a.get("player_id") for a in r.get("approving_models", []) if a.get("player_id")))
+        by_model_combo.setdefault(combo, []).append(r)
+    wr_by_model_combo = {}
+    for combo, group in by_model_combo.items():
+        wr, n = _win_rate(group)
+        wr_by_model_combo["+".join(combo) or "(none)"] = {"wr": wr, "n": n, "total": len(group)}
+
+    r_multiples = [r["outcome_r_multiple"] for r in rows
+                   if r.get("outcome") is not None and r.get("outcome_r_multiple") is not None]
+    avg_r_multiple = sum(r_multiples) / len(r_multiples) if r_multiples else None
+
+    traded = [r for r in rows if r["status"] == "TRADED"]
+    skipped = [r for r in rows if r["status"] in ("SHOWN-ONLY", "SKIPPED-BY-OWNER")]
+    wr_traded, n_traded = _win_rate(traded)
+    wr_skipped, n_skipped = _win_rate(skipped)
+    regret_meter = (wr_skipped - wr_traded) if (wr_traded is not None and wr_skipped is not None) else None
+
+    pushed_n = sum(1 for r in rows if r["status"] == "PUSHED")
+    distinct_days = {r["created_at"][:10] for r in rows if r.get("created_at")}
+    pushes_per_day = (pushed_n / len(distinct_days)) if distinct_days else None
+
+    # Current streak: rows are newest-first (query_ledger orders DESC).
+    # Pending/expired rows are skipped, not streak-breaking -- an
+    # undecided call shouldn't reset a real win/loss streak.
+    streak_type, streak_count = None, 0
+    for r in rows:
+        if r.get("outcome") not in _RESOLVED_OUTCOMES:
+            continue
+        if streak_type is None:
+            streak_type, streak_count = r["outcome"], 1
+        elif r["outcome"] == streak_type:
+            streak_count += 1
+        else:
+            break
+
+    return {
+        "overall_wr": overall_wr, "overall_n": overall_n,
+        "wr_by_strategy": wr_by_strategy,
+        "wr_by_model_combo": wr_by_model_combo,
+        "avg_r_multiple": avg_r_multiple,
+        "wr_traded": wr_traded, "n_traded": n_traded,
+        "wr_skipped": wr_skipped, "n_skipped": n_skipped,
+        "regret_meter": regret_meter,
+        "pushes_per_day": pushes_per_day,
+        "current_streak": {"type": streak_type, "count": streak_count} if streak_type else None,
+        "total_signals": len(rows),
+    }

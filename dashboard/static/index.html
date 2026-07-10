@@ -3535,6 +3535,7 @@ function registerSectionInit(sectionName, initFn, intervalFns) {
       <div class="sidebar-item" title="Real physical gold &amp; silver holdings ledger" onclick="showSection('metals')"><span class="icon">⚗️</span> Dilithium</div>
       <a class="sidebar-item" href="/backtest" style="text-decoration:none;color:inherit;"><span class="icon">🧪</span> Backtest</a>
       <div class="sidebar-item admin-only" onclick="showSection('war-room')"><span class="icon">⚔️</span> War Room</div>
+      <div class="sidebar-item" title="Unanimous-consensus alert pipeline — ghost book ledger &amp; rollups (Phase 1)" onclick="showSection('signals-history')"><span class="icon">🎯</span> OllieTrades Signal</div>
     </div>
   </div>
 
@@ -32847,6 +32848,135 @@ async function fetchAlertHistory() {
   }
 }
 registerSectionInit('alert-history', fetchAlertHistory, [{fn: fetchAlertHistory, ms: 60000}]);
+</script>
+
+<!-- HM-BUG-BATCH-2026-07-10 item 38 (docs/OLLIETRADES_SIGNAL.md §6) —
+     /signals/history: every signal_ledger row + server-side rollups.
+     Phase 1 ghost book -- every row here is SHOWN-ONLY (real pushing is
+     hard-disabled via config.OLLIETRADES_SIGNAL_PUSH_ENABLED), this is the
+     record the Phase 2 promotion decision gets measured against. -->
+<div id="section-signals-history" style="display:none;">
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">🎯 OllieTrades Signal — Ledger &amp; Rollups</div>
+      <button class="btn btn-ghost" onclick="fetchSignalsLedger()" style="font-size:13px;">Refresh</button>
+    </div>
+    <div id="signalsRollupContent" style="display:flex;flex-wrap:wrap;gap:10px;padding:14px 16px;border-bottom:1px solid var(--border);">
+      <div style="color:var(--muted);">Loading rollups...</div>
+    </div>
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:10px 16px;border-bottom:1px solid var(--border);">
+      <input id="slFrom" type="date" style="background:var(--input-bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:13px;" title="From date">
+      <input id="slTo" type="date" style="background:var(--input-bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:13px;" title="To date">
+      <select id="slStrategy" style="background:var(--input-bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:13px;">
+        <option value="">All Strategies</option>
+        <option value="bull_put_spread">Bull Put Spread</option>
+        <option value="leveraged_put">Leveraged Put</option>
+        <option value="bear_play">Bear Play</option>
+        <option value="ollie_live_swing">Ollie Live Swing</option>
+        <option value="unmatched">Unmatched</option>
+      </select>
+      <select id="slStatus" style="background:var(--input-bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:13px;">
+        <option value="">All Statuses</option>
+        <option value="PUSHED">Pushed</option>
+        <option value="SHOWN-ONLY">Shown-only</option>
+        <option value="SKIPPED-BY-OWNER">Skipped by owner</option>
+        <option value="TRADED">Traded</option>
+      </select>
+      <input id="slModel" type="text" placeholder="Model (player_id)" style="background:var(--input-bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:13px;width:140px;">
+      <button class="btn btn-primary" onclick="fetchSignalsLedger()" style="font-size:13px;">Filter</button>
+    </div>
+    <div id="signalsLedgerContent" style="max-height:600px;overflow-y:auto;">
+      <div style="color:var(--muted);text-align:center;padding:40px;">Loading signal ledger...</div>
+    </div>
+  </div>
+</div>
+<script>
+function _slStatTile(label, value, sub) {
+  return '<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:10px 14px;min-width:120px;">' +
+    '<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;">' + label + '</div>' +
+    '<div style="font-size:20px;font-weight:700;color:var(--text);">' + value + '</div>' +
+    (sub ? '<div style="font-size:11px;color:var(--muted);">' + sub + '</div>' : '') +
+    '</div>';
+}
+
+function _slPct(x) { return (x == null) ? '—' : (Math.round(x * 1000) / 10) + '%'; }
+function _slR(x) { return (x == null) ? '—' : (x >= 0 ? '+' : '') + x.toFixed(2) + 'R'; }
+
+function _slFilterParams() {
+  var p = [];
+  var from = (document.getElementById('slFrom')||{}).value;
+  var to = (document.getElementById('slTo')||{}).value;
+  var strategy = (document.getElementById('slStrategy')||{}).value;
+  var status = (document.getElementById('slStatus')||{}).value;
+  var model = (document.getElementById('slModel')||{}).value;
+  if (from) p.push('from=' + from);
+  if (to) p.push('to=' + to);
+  if (strategy) p.push('strategy=' + encodeURIComponent(strategy));
+  if (status) p.push('status=' + encodeURIComponent(status));
+  if (model) p.push('model=' + encodeURIComponent(model.trim()));
+  return p.join('&');
+}
+
+async function fetchSignalsLedger() {
+  var qs = _slFilterParams();
+  var rollupEl = document.getElementById('signalsRollupContent');
+  var tableEl = document.getElementById('signalsLedgerContent');
+  try {
+    var [rollupResp, rowsResp] = await Promise.all([
+      fetch('/api/signals/ledger/rollup' + (qs ? '?' + qs : '')),
+      fetch('/api/signals/ledger' + (qs ? '?' + qs : '') + (qs ? '&' : '?') + 'limit=200'),
+    ]);
+    var roll = await rollupResp.json();
+    var rows = await rowsResp.json();
+
+    var streak = roll.current_streak ? (roll.current_streak.count + (roll.current_streak.type === 'WIN' ? 'W' : 'L')) : '—';
+    rollupEl.innerHTML =
+      _slStatTile('Overall WR', _slPct(roll.overall_wr), roll.overall_n + ' resolved') +
+      _slStatTile('Avg R', _slR(roll.avg_r_multiple), roll.total_signals + ' total signals') +
+      _slStatTile('Regret Meter', (roll.regret_meter == null ? '—' : (roll.regret_meter >= 0 ? '+' : '') + _slPct(roll.regret_meter)),
+                  'skipped WR − traded WR') +
+      _slStatTile('Pushes/day', roll.pushes_per_day == null ? '—' : roll.pushes_per_day.toFixed(1), '') +
+      _slStatTile('Current Streak', streak, '');
+
+    if (!rows || !rows.length) {
+      tableEl.innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px;">No signals match this filter yet — Phase 1 ghost book fills in as the gate cycle runs during market hours.</div>';
+      return;
+    }
+    var h = '<table style="width:100%;border-collapse:collapse;font-size:13px;">' +
+      '<thead><tr style="text-align:left;border-bottom:1px solid var(--border);color:var(--muted);">' +
+      '<th style="padding:8px;">Time</th><th>Symbol</th><th>Dir</th><th>Strategy</th>' +
+      '<th>Entry / Stop / Target</th><th>Models</th><th>Conviction</th><th>Status</th><th>Outcome</th>' +
+      '</tr></thead><tbody>';
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      var models = (r.approving_models || []).map(function(m) {
+        return '<span style="display:inline-block;margin:1px;padding:1px 6px;border-radius:4px;background:rgba(99,102,241,0.12);font-size:11px;">' +
+          escapeHtml(m.display_name || m.player_id || '?') + (m.confidence != null ? ' ' + Math.round(m.confidence * 100) + '%' : '') + '</span>';
+      }).join('');
+      var outcomeColor = r.outcome === 'WIN' ? '#22c55e' : r.outcome === 'LOSS' ? '#ef4444' : 'var(--muted)';
+      var dirColor = r.direction === 'long' ? '#22c55e' : '#ef4444';
+      h += '<tr style="border-bottom:1px solid #1e2336;">' +
+        '<td style="padding:8px;color:var(--muted);white-space:nowrap;">' + escapeHtml((r.created_at||'').slice(0, 16)) + '</td>' +
+        '<td style="font-weight:700;">' + escapeHtml(r.symbol) + '</td>' +
+        '<td style="color:' + dirColor + ';">' + escapeHtml(r.direction) + '</td>' +
+        '<td>' + escapeHtml(r.strategy) + '</td>' +
+        '<td style="font-family:var(--font-mono);white-space:nowrap;">' +
+          (r.entry_price != null ? r.entry_price.toFixed(2) : '—') + ' / ' +
+          (r.stop_price != null ? r.stop_price.toFixed(2) : '—') + ' / ' +
+          (r.target_price != null ? r.target_price.toFixed(2) : '—') + '</td>' +
+        '<td>' + models + '</td>' +
+        '<td>' + Math.round((r.composite_conviction || 0) * 100) + '%</td>' +
+        '<td>' + escapeHtml(r.status) + '</td>' +
+        '<td style="color:' + outcomeColor + ';font-weight:600;">' + escapeHtml(r.outcome || 'pending') + '</td>' +
+        '</tr>';
+    }
+    h += '</tbody></table>';
+    tableEl.innerHTML = h;
+  } catch (e) {
+    tableEl.innerHTML = '<div style="color:var(--red);padding:20px;">Error: ' + e.message + '</div>';
+  }
+}
+registerSectionInit('signals-history', fetchSignalsLedger, [{fn: fetchSignalsLedger, ms: 60000}]);
 </script>
 
 <div id="section-dynamic-alerts" style="display:none;">

@@ -520,5 +520,175 @@ def test_cycle_logs_entry_stop_target_when_price_fetch_succeeds(temp_db):
     assert row["stop_price"] == 47.5   # 50 * (1 - 0.05)
 
 
+# ─── /signals/history — query_ledger + compute_rollup (task 38) ───────────────
+
+def _log_row(db_path, symbol, direction="long", strategy="ollie_live_swing", status="SHOWN-ONLY",
+             outcome=None, r_multiple=None, approving_models=None, created_at=None):
+    candidate = {
+        "symbol": symbol, "direction": direction, "composite_conviction": 0.85,
+        "approving_models": approving_models or [],
+    }
+    row_id = ots.log_to_ledger(candidate, status=status, strategy=strategy, gate_config={},
+                                entry_price=100.0, stop_price=95.0, target_price=110.0)
+    if created_at:
+        _backdate_ledger_row(db_path, row_id, created_at)
+    if outcome:
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "UPDATE signal_ledger SET outcome=?, outcome_r_multiple=?, outcome_resolved_at=datetime('now') WHERE id=?",
+            (outcome, r_multiple, row_id),
+        )
+        conn.commit()
+        conn.close()
+    return row_id
+
+
+def test_query_ledger_filters_by_strategy(temp_db):
+    _log_row(temp_db, "AAA", strategy="bull_put_spread")
+    _log_row(temp_db, "BBB", strategy="ollie_live_swing")
+    rows = ots.query_ledger(strategy="bull_put_spread")
+    assert [r["symbol"] for r in rows] == ["AAA"]
+
+
+def test_query_ledger_filters_by_status(temp_db):
+    _log_row(temp_db, "AAA", status="PUSHED")
+    _log_row(temp_db, "BBB", status="SHOWN-ONLY")
+    rows = ots.query_ledger(status="PUSHED")
+    assert [r["symbol"] for r in rows] == ["AAA"]
+
+
+def test_query_ledger_filters_by_date_range(temp_db):
+    _log_row(temp_db, "OLD", created_at="2026-06-01 10:00:00")
+    _log_row(temp_db, "NEW", created_at="2026-07-09 10:00:00")
+    rows = ots.query_ledger(from_date="2026-07-01", to_date="2026-07-31")
+    assert [r["symbol"] for r in rows] == ["NEW"]
+
+
+def test_query_ledger_filters_by_model(temp_db):
+    _log_row(temp_db, "AAA", approving_models=[{"player_id": "modelA"}])
+    _log_row(temp_db, "BBB", approving_models=[{"player_id": "modelB"}])
+    rows = ots.query_ledger(model="modelA")
+    assert [r["symbol"] for r in rows] == ["AAA"]
+
+
+def test_query_ledger_orders_newest_first(temp_db):
+    _log_row(temp_db, "OLD", created_at="2026-07-01 10:00:00")
+    _log_row(temp_db, "NEW", created_at="2026-07-09 10:00:00")
+    rows = ots.query_ledger()
+    assert [r["symbol"] for r in rows] == ["NEW", "OLD"]
+
+
+def test_query_ledger_decodes_json_fields(temp_db):
+    _log_row(temp_db, "AAA", approving_models=[{"player_id": "modelA", "confidence": 0.9}])
+    rows = ots.query_ledger()
+    assert rows[0]["approving_models"] == [{"player_id": "modelA", "confidence": 0.9}]
+    assert rows[0]["gate_config"] == {}
+
+
+def test_win_rate_excludes_pending_and_expired():
+    rows = [
+        {"outcome": "WIN"}, {"outcome": "LOSS"}, {"outcome": "WIN"},
+        {"outcome": None}, {"outcome": "EXPIRED_UNRESOLVED"},
+    ]
+    wr, n = ots._win_rate(rows)
+    assert n == 3  # only the 2 WIN + 1 LOSS count
+    assert wr == pytest.approx(2 / 3)
+
+
+def test_win_rate_empty_is_none_not_zero():
+    assert ots._win_rate([]) == (None, 0)
+    assert ots._win_rate([{"outcome": None}]) == (None, 0)
+
+
+def test_compute_rollup_overall_wr(temp_db):
+    _log_row(temp_db, "A", outcome="WIN", r_multiple=2.0)
+    _log_row(temp_db, "B", outcome="LOSS", r_multiple=-1.0)
+    _log_row(temp_db, "C", outcome="WIN", r_multiple=2.0)
+    roll = ots.compute_rollup(rows=ots.query_ledger())
+    assert roll["overall_wr"] == pytest.approx(2 / 3)
+    assert roll["overall_n"] == 3
+    assert roll["total_signals"] == 3
+
+
+def test_compute_rollup_wr_by_strategy(temp_db):
+    _log_row(temp_db, "A", strategy="bull_put_spread", outcome="WIN", r_multiple=2.0)
+    _log_row(temp_db, "B", strategy="bull_put_spread", outcome="LOSS", r_multiple=-1.0)
+    _log_row(temp_db, "C", strategy="ollie_live_swing", outcome="WIN", r_multiple=2.0)
+    roll = ots.compute_rollup(rows=ots.query_ledger())
+    assert roll["wr_by_strategy"]["bull_put_spread"]["wr"] == pytest.approx(0.5)
+    assert roll["wr_by_strategy"]["bull_put_spread"]["n"] == 2
+    assert roll["wr_by_strategy"]["ollie_live_swing"]["wr"] == 1.0
+
+
+def test_compute_rollup_wr_by_model_combo_sorted_regardless_of_signal_order(temp_db):
+    """The combo key is the SORTED tuple of player_ids -- {B,A} and {A,B}
+    approving the same setup must roll up into one bucket, not two."""
+    _log_row(temp_db, "A", outcome="WIN", r_multiple=2.0,
+             approving_models=[{"player_id": "modelB"}, {"player_id": "modelA"}])
+    _log_row(temp_db, "B", outcome="LOSS", r_multiple=-1.0,
+             approving_models=[{"player_id": "modelA"}, {"player_id": "modelB"}])
+    roll = ots.compute_rollup(rows=ots.query_ledger())
+    assert set(roll["wr_by_model_combo"].keys()) == {"modelA+modelB"}
+    assert roll["wr_by_model_combo"]["modelA+modelB"]["n"] == 2
+
+
+def test_compute_rollup_avg_r_multiple_includes_expired(temp_db):
+    _log_row(temp_db, "A", outcome="WIN", r_multiple=2.0)
+    _log_row(temp_db, "B", outcome="LOSS", r_multiple=-1.0)
+    _log_row(temp_db, "C", outcome="EXPIRED_UNRESOLVED", r_multiple=0.5)
+    roll = ots.compute_rollup(rows=ots.query_ledger())
+    assert roll["avg_r_multiple"] == pytest.approx((2.0 - 1.0 + 0.5) / 3)
+
+
+def test_compute_rollup_avg_r_multiple_excludes_pending(temp_db):
+    _log_row(temp_db, "A", outcome="WIN", r_multiple=2.0)
+    _log_row(temp_db, "B")  # never resolved -- outcome_r_multiple is NULL
+    roll = ots.compute_rollup(rows=ots.query_ledger())
+    assert roll["avg_r_multiple"] == 2.0
+
+
+def test_compute_rollup_regret_meter_positive_when_skipped_beats_traded(temp_db):
+    """Regret meter = WR(skipped) - WR(traded), signed positive when the
+    owner is leaving winners on the table (skipped calls outperformed the
+    ones actually traded)."""
+    _log_row(temp_db, "A", status="TRADED", outcome="LOSS", r_multiple=-1.0)
+    _log_row(temp_db, "B", status="SHOWN-ONLY", outcome="WIN", r_multiple=2.0)
+    _log_row(temp_db, "C", status="SHOWN-ONLY", outcome="WIN", r_multiple=2.0)
+    roll = ots.compute_rollup(rows=ots.query_ledger())
+    assert roll["wr_traded"] == 0.0
+    assert roll["wr_skipped"] == 1.0
+    assert roll["regret_meter"] == pytest.approx(1.0)
+
+
+def test_compute_rollup_current_streak_skips_pending_not_breaking(temp_db):
+    """Rows are newest-first. A pending (unresolved) row more recent than
+    the last decided outcomes must not break the streak count."""
+    _log_row(temp_db, "OLDEST", outcome="LOSS", r_multiple=-1.0, created_at="2026-07-01 10:00:00")
+    _log_row(temp_db, "MID1", outcome="WIN", r_multiple=2.0, created_at="2026-07-05 10:00:00")
+    _log_row(temp_db, "MID2", outcome="WIN", r_multiple=2.0, created_at="2026-07-06 10:00:00")
+    _log_row(temp_db, "NEWEST_PENDING", created_at="2026-07-07 10:00:00")  # outcome still NULL
+    roll = ots.compute_rollup(rows=ots.query_ledger())
+    assert roll["current_streak"] == {"type": "WIN", "count": 2}
+
+
+def test_compute_rollup_pushes_per_day(temp_db):
+    _log_row(temp_db, "A", status="PUSHED", created_at="2026-07-01 10:00:00")
+    _log_row(temp_db, "B", status="PUSHED", created_at="2026-07-01 11:00:00")
+    _log_row(temp_db, "C", status="PUSHED", created_at="2026-07-02 10:00:00")
+    _log_row(temp_db, "D", status="SHOWN-ONLY", created_at="2026-07-02 12:00:00")
+    roll = ots.compute_rollup(rows=ots.query_ledger())
+    # 3 pushed rows across 2 distinct days (07-01, 07-02) -> 1.5/day
+    assert roll["pushes_per_day"] == pytest.approx(1.5)
+
+
+def test_compute_rollup_empty_ledger_returns_none_not_crash(temp_db):
+    roll = ots.compute_rollup(rows=[])
+    assert roll["overall_wr"] is None
+    assert roll["avg_r_multiple"] is None
+    assert roll["regret_meter"] is None
+    assert roll["current_streak"] is None
+    assert roll["total_signals"] == 0
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))

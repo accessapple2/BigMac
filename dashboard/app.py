@@ -25,7 +25,7 @@ from rich.console import Console
 console = Console()
 # === /HM-BJ.E4 ===
 
-from fastapi import FastAPI, Request, Form, HTTPException, Body, Depends
+from fastapi import FastAPI, Request, Form, HTTPException, Body, Depends, Query
 from dashboard.auth import verify_admin_token  # HM-AUTH-PHASE1: TOTP/service/recovery admin guard
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
@@ -5060,6 +5060,31 @@ def anderson_decision_summary():
         "candidate_count": len(result.get("candidate_signals", [])),
         "selected_count": len(selected),
     }
+
+
+# ─── OllieTrades Signal ledger (HM-BUG-BATCH-2026-07-10 item 38, docs/
+# OLLIETRADES_SIGNAL.md §6). Thin route glue -- all real logic lives in
+# engine.ollietrades_signal (query_ledger/compute_rollup), tested there
+# directly without needing a FastAPI test client. ────────────────────────────
+
+@app.get("/api/signals/ledger")
+def signals_ledger(from_: str = Query("", alias="from"), to: str = "", strategy: str = "",
+                    status: str = "", model: str = "", limit: int = 200):
+    from engine.ollietrades_signal import query_ledger
+    return query_ledger(
+        from_date=from_ or None, to_date=to or None, strategy=strategy or None,
+        status=status or None, model=model or None, limit=limit,
+    )
+
+
+@app.get("/api/signals/ledger/rollup")
+def signals_ledger_rollup(from_: str = Query("", alias="from"), to: str = "", strategy: str = "",
+                           status: str = "", model: str = ""):
+    from engine.ollietrades_signal import compute_rollup
+    return compute_rollup(
+        from_date=from_ or None, to_date=to or None, strategy=strategy or None,
+        status=status or None, model=model or None,
+    )
 
 
 @app.get("/api/signals/recent")
