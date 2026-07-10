@@ -502,6 +502,13 @@ def _close_original_position(underlying: str, strategy: str, occ_symbols: list[s
 
 
 # ── fill polling (updates options_trades by broker_order_id) ──────────────────
+# Terminal order states that mean the order died WITHOUT ever putting on a
+# position -- distinct from _LIVE_STATUSES (still working) and from 'filled'
+# (a real position exists). No pnl/fill-price ambiguity applies here: by
+# definition these have zero fill, so there's nothing to price.
+_DEAD_UNFILLED_STATUSES = frozenset({"canceled", "expired", "rejected"})
+
+
 def poll_fill(broker_order_id: str) -> dict:
     """Re-read Alpaca order status and update the options_trades row. Returns {status,...}."""
     client = _get_paper_client()
@@ -511,14 +518,31 @@ def poll_fill(broker_order_id: str) -> dict:
         order = client.get_order_by_id(broker_order_id)
         status = _norm_status(order.status)   # consistent token (matches the L2 guard)
         filled = order.filled_avg_price
+        filled_qty = float(getattr(order, "filled_qty", 0) or 0)
         conn = sqlite3.connect(str(_DB), timeout=30)
         try:
             conn.execute("PRAGMA busy_timeout=30000")
-            # Only the broker fill-state (exec_status) moves here; lifecycle
-            # `status` (open→closed) is owned by the close path, not fill polling.
-            conn.execute(
-                "UPDATE options_trades SET exec_status=? WHERE broker_order_id=?",
-                (status, broker_order_id))
+            if status in _DEAD_UNFILLED_STATUSES and filled_qty == 0:
+                # HM-SWINGDESK-ZOMBIE-OPEN-ROWS 2026-07-10: an order that died
+                # (canceled/expired/rejected) before ever filling never put on
+                # a real position, but `status` stayed 'open' forever -- this
+                # is the OPEN-side counterpart to
+                # HM-SWINGDESK-CLOSE-PHANTOM-ROW (the close side). Mirror
+                # `status` to the same dead value as `exec_status` directly --
+                # not 'closed', which would imply a position that was actually
+                # opened and closed with real accounting. Guarded on
+                # filled_qty==0 so a partially-filled-then-canceled order
+                # (a real partial position exists) is left alone.
+                conn.execute(
+                    "UPDATE options_trades SET exec_status=?, status=? "
+                    "WHERE broker_order_id=?",
+                    (status, status, broker_order_id))
+            else:
+                # Only the broker fill-state (exec_status) moves here; lifecycle
+                # `status` (open→closed) is owned by the close path, not fill polling.
+                conn.execute(
+                    "UPDATE options_trades SET exec_status=? WHERE broker_order_id=?",
+                    (status, broker_order_id))
             conn.commit()
         finally:
             conn.close()
