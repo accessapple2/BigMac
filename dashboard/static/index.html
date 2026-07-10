@@ -23791,8 +23791,14 @@ function updateFleetBar() {
   html += '<span style="color:var(--muted);">BEST</span> <span style="font-weight:700;color:' + bestColor + ';">' + bestName + ' ' + (parseFloat(bestPct) >= 0 ? '+' : '') + bestPct + '%</span>';
   html += '<span style="color:var(--border);margin:0 4px;">|</span>';
 
-  // POS N
-  html += '<span style="color:var(--muted);">POS</span> <span style="font-weight:700;color:var(--text);">' + totalPositions + '</span>';
+  // FLEET POS N — HM-BUG-BATCH-2026-07-09: was plain "POS", which read as
+  // if it were the same figure as bridge-v2's "POSITIONS" (the real Alpaca
+  // broker account). It isn't -- this sums positions_count across every
+  // active fleet agent's own internal simulated positions row (includes
+  // shadow options legs, metals players, etc.), not the live broker book.
+  // Relabeled + tooltipped rather than forced to match, same pattern as
+  // FLEET P&L's "(lifetime)" qualifier just above.
+  html += '<span style="color:var(--muted);" title="Sum of positions_count across every active fleet agent\'s own simulated book (incl. shadow options legs) -- NOT the live Alpaca broker account. See bridge-v2 POSITIONS for that.">FLEET POS</span> <span style="font-weight:700;color:var(--text);">' + totalPositions + '</span>';
 
   el.innerHTML = html;
 
