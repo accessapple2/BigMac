@@ -6960,7 +6960,11 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
         </div>
         <div class="oe-book-sub">
           <span class="oe-agent-slot">IC Squadron <em>queued — shadow pending</em></span>
-          <span class="oe-agent-slot">Wheel CSPs <em style="color:#10b981;">ACTIVE — Troi/McCoy</em></span>
+          <!-- HM-BUG-BATCH-2026-07-09: was the one hardcoded slot with no
+               data-player-id, so it never got the same halt-status truth
+               pass every slot below it gets -- would keep claiming ACTIVE
+               forever even if Troi (options-sosnoff) got halted. -->
+          <span class="oe-agent-slot" data-player-id="options-sosnoff">Wheel CSPs <em style="color:#10b981;">ACTIVE — Troi/McCoy</em></span>
           <!-- HM-DASHBOARD-OPTIONS-LIE 2026-05-27: data-player-id lets the
                oe-halt-status IIFE below replace the placeholder <em> text with
                truthful retired/exit_only labels pulled from ai_players. -->
@@ -36628,7 +36632,13 @@ function loadGlanceData() {
         + '<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:13px;font-family:var(--font-mono);">'
         + '<span>Puts Open: <b style="color:'+col+';">'+puts+'</b></span>'
         + '<span>Covered: <b style="color:'+col+';">'+stocks+'</b></span>'
-        + (premium > 0 ? '<span>Premium: <b style="color:#22c55e;">$'+premium.toFixed(0)+'</b></span>' : '')
+        // HM-BUG-BATCH-2026-07-09: `premium` was never declared anywhere in
+        // this scope -- referencing it threw ReferenceError on every single
+        // successful fetch (collected/realized/unrealized were the actual
+        // in-scope vars, computed a few lines above), which the outer
+        // .catch() below silently swallowed and used to stomp the just-set
+        // "ACTIVE"/"STANDBY" status with "Wheel unavailable" every time.
+        + (collected > 0 ? '<span>Premium: <b style="color:#22c55e;">$'+collected.toFixed(0)+'</b></span>' : '')
         + '</div>'
         + (d.positions && d.positions.length > 0 ? '<div style="margin-top:8px;">'
           // Round 3 Item 5: previous .slice(0,6) hid 3 of 9 active puts —
@@ -36758,11 +36768,18 @@ function loadGlanceData() {
     }
   }).catch(function(){ var el=document.getElementById('g-volradar-text'); if(el) el.textContent='Scanner offline'; });
 
-  // Fleet P&L glance row
-  fetch('/api/capital').then(function(r){return r.json();}).then(function(d) {
+  // Fleet P&L glance row — HM-BUG-BATCH-2026-07-09: was fetching /api/capital,
+  // which returns a plain dict keyed by player name ({name: {cash,total_value,
+  // starting,pnl}, ...}), not the {players:[...]} array of {return_pct,
+  // display_name,...} rows this code expects. d.players was always undefined,
+  // so it always fell back to [] and always showed "No agent data" regardless
+  // of whether the fleet actually had data. /api/arena/leaderboard is the
+  // endpoint that actually returns that shape (same source updateFleetBar()
+  // and the Fleet Report Card use).
+  fetch('/api/arena/leaderboard').then(function(r){return r.json();}).then(function(resp) {
     var fpEl = document.getElementById('g-fleetpnl-text');
     if (!fpEl) return;
-    var players = d.players || [];
+    var players = Array.isArray(resp) ? resp : (resp.leaderboard || []);
     if (!players.length) { fpEl.textContent = 'No agent data'; return; }
     var totalPnl = players.reduce(function(s,p){ return s + (p.return_pct||0); }, 0) / players.length;
     var pos = players.filter(function(p){ return (p.return_pct||0) >= 0; }).length;
@@ -40708,11 +40725,36 @@ window.createLiveChart=function(id,sym){var c=document.getElementById(id);if(!c|
     window._scrollFixApplied = true;
     window.showSection = function(section) {
       origShow.apply(this, arguments);
-      // Scroll to the section after a brief delay for rendering
+      // Scroll to the section after a brief delay for rendering (and for
+      // the guide-render wrapper's own 60ms setTimeout to have inserted the
+      // Captain's Guide block, since this runs at 150ms).
+      // HM-BUG-BATCH-2026-07-09: this used to hard-reset to scrollTop=0,
+      // which lands at the TOP of the guide block, not the section's real
+      // content. An expanded (not-yet-dismissed) guide can run 200-300px
+      // tall, so scrollTop=0 visually read as "content starts a screen
+      // down" on most sections' first view -- nothing was actually hidden,
+      // the guide was just filling the whole first viewport. Scroll past
+      // the guide's rendered height instead, when it's expanded.
       setTimeout(function() {
         var main = document.querySelector('.main');
-        if (main) main.scrollTop = 0;
+        if (!main) return;
+        var sectionName = (typeof section === 'string') ? section : ((section && section.id) || '');
+        var guideId = (typeof _guidePageMap !== 'undefined') ? _guidePageMap[sectionName] : null;
+        var guideEl = guideId ? document.getElementById('guide-container-' + guideId) : null;
+        // >40px = expanded guide (vs. the small dismissed reopen-pill, which
+        // isn't worth scrolling past).
+        var target = (guideEl && guideEl.offsetHeight > 40) ? (guideEl.offsetTop + guideEl.offsetHeight) : 0;
+        main.scrollTop = target;
         window.scrollTo({ top: 0, behavior: 'smooth' });
+        // Two sections (#section-ollie-ai, #section-sector-watch) manage
+        // their own internal overflow-y:auto scrollbox decoupled from
+        // .main's scroll -- their scrollTop persists across section
+        // switches (nothing above resets it), so re-entering shows
+        // whatever position was left scrolled to. Reset those too.
+        ['section-ollie-ai', 'section-sector-watch'].forEach(function(id) {
+          var innerEl = document.getElementById(id);
+          if (innerEl) innerEl.scrollTop = 0;
+        });
       }, 150);
     };
     console.log('Sidebar scroll-to-section fix applied');
