@@ -5087,6 +5087,19 @@ def signals_ledger_rollup(from_: str = Query("", alias="from"), to: str = "", st
     )
 
 
+# HM-BUG-BATCH-2026-07-10 item 39 (docs/OLLIETRADES_SIGNAL.md §7). Registered
+# AFTER the literal /rollup route above -- Starlette matches path operations
+# in registration order, so a request to .../ledger/rollup must hit the
+# literal route first, never get swallowed by this {ledger_id} pattern.
+@app.get("/api/signals/ledger/{ledger_id}")
+def signals_ledger_detail(ledger_id: int):
+    from engine.ollietrades_signal import get_ledger_row_decoded
+    row = get_ledger_row_decoded(ledger_id)
+    if row is None:
+        return JSONResponse(status_code=404, content={"error": "signal not found"})
+    return row
+
+
 @app.get("/api/signals/recent")
 def recent_signals(limit: int = 50, season: int = 0, timeframe: str = ""):
     conn = _conn()

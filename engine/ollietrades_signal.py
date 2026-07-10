@@ -339,10 +339,29 @@ def log_to_ledger(candidate: dict, status: str, strategy: str, gate_config: dict
 
 
 def get_ledger_row(ledger_id: int) -> Optional[dict]:
+    ensure_ledger_table()
     conn = _conn()
     row = conn.execute("SELECT * FROM signal_ledger WHERE id = ?", (ledger_id,)).fetchone()
     conn.close()
     return dict(row) if row else None
+
+
+def get_ledger_row_decoded(ledger_id: int) -> Optional[dict]:
+    """Single-row equivalent of query_ledger's decoding, plus risk_reward
+    (task 39, docs/OLLIETRADES_SIGNAL.md §7 -- "/signal/<id> scorecard page").
+    Renders directly from the frozen row, no live lookups -- the no-repaint
+    rule applies to the render layer too, not just storage."""
+    row = get_ledger_row(ledger_id)
+    if row is None:
+        return None
+    d = _decode_ledger_row(row)
+    entry, stop, target = d.get("entry_price"), d.get("stop_price"), d.get("target_price")
+    if entry is not None and stop is not None and target is not None:
+        risk = abs(entry - stop)
+        d["risk_reward"] = round(abs(target - entry) / risk, 2) if risk > 0 else None
+    else:
+        d["risk_reward"] = None
+    return d
 
 
 # ─── Entry/stop/target (task 37 — required for resolve_outcomes to have

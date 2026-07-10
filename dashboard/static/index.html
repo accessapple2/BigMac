@@ -32955,7 +32955,7 @@ async function fetchSignalsLedger() {
       }).join('');
       var outcomeColor = r.outcome === 'WIN' ? '#22c55e' : r.outcome === 'LOSS' ? '#ef4444' : 'var(--muted)';
       var dirColor = r.direction === 'long' ? '#22c55e' : '#ef4444';
-      h += '<tr style="border-bottom:1px solid #1e2336;">' +
+      h += '<tr onclick="openSignalScorecard(' + r.id + ')" style="cursor:pointer;border-bottom:1px solid #1e2336;" onmouseover="this.style.background=\'rgba(0,200,255,0.05)\'" onmouseout="this.style.background=\'\'">' +
         '<td style="padding:8px;color:var(--muted);white-space:nowrap;">' + escapeHtml((r.created_at||'').slice(0, 16)) + '</td>' +
         '<td style="font-weight:700;">' + escapeHtml(r.symbol) + '</td>' +
         '<td style="color:' + dirColor + ';">' + escapeHtml(r.direction) + '</td>' +
@@ -32977,6 +32977,120 @@ async function fetchSignalsLedger() {
   }
 }
 registerSectionInit('signals-history', fetchSignalsLedger, [{fn: fetchSignalsLedger, ms: 60000}]);
+
+// HM-BUG-BATCH-2026-07-10 item 39 (docs/OLLIETRADES_SIGNAL.md §7) —
+// /signal/<id> scorecard, shipped as a modal (Phase 1 ships inside /classic,
+// same pattern as openAlertPopup -- reuses its overlay/card CSS classes
+// rather than adding a new route). Renders directly from the frozen
+// signal_ledger row returned by GET /api/signals/ledger/{id} -- no live
+// re-lookup of model ratings etc, per the no-repaint rule.
+function closeSignalScorecard() {
+  var el = document.getElementById('signalScorecardOverlay');
+  if (el) el.remove();
+  _ssChart = null;
+}
+
+var _ssChart = null;
+
+async function _ssRenderChart(symbol, entry, stop, target) {
+  var container = document.getElementById('ssChartContainer');
+  if (!container || typeof LightweightCharts === 'undefined') return;
+  try {
+    var r = await fetch('/api/chart/intraday?ticker=' + encodeURIComponent(symbol) + '&interval=5m&period=5d');
+    var d = await r.json();
+    var candles = d.candles || [];
+    if (!candles.length) {
+      container.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px;">No chart data available.</div>';
+      return;
+    }
+    var chart = LightweightCharts.createChart(container, {
+      width: container.clientWidth, height: 260,
+      layout: { background: { color: 'transparent' }, textColor: '#94a3b8' },
+      grid: { vertLines: { color: '#1e2336' }, horzLines: { color: '#1e2336' } },
+      timeScale: { timeVisible: true, secondsVisible: false },
+    });
+    var candleSeries = chart.addCandlestickSeries({
+      upColor: '#22c55e', downColor: '#ef4444', borderVisible: false,
+      wickUpColor: '#22c55e', wickDownColor: '#ef4444',
+    });
+    candleSeries.setData(candles.map(function(c) {
+      return { time: c.time, open: c.open, high: c.high, low: c.low, close: c.close };
+    }));
+    if (entry != null) candleSeries.createPriceLine({ price: entry, color: '#6b7280', lineWidth: 1, lineStyle: 2, title: 'entry' });
+    if (target != null) candleSeries.createPriceLine({ price: target, color: '#22c55e', lineWidth: 2, lineStyle: 0, title: 'target' });
+    if (stop != null) candleSeries.createPriceLine({ price: stop, color: '#ef4444', lineWidth: 2, lineStyle: 0, title: 'stop' });
+    chart.timeScale().fitContent();
+    _ssChart = chart;
+  } catch (e) {
+    container.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px;">Chart unavailable.</div>';
+  }
+}
+
+async function openSignalScorecard(ledgerId) {
+  closeAlertPopup();
+  closeSignalScorecard();
+  var html = '<div class="alert-popup-overlay" id="signalScorecardOverlay" onclick="closeSignalScorecard()">'
+    + '<div class="alert-popup-card" style="max-width:640px;" onclick="event.stopPropagation()">'
+    + '<button class="alert-popup-close" onclick="closeSignalScorecard()">✕</button>'
+    + '<div id="ssBody" style="min-height:120px;"><div style="color:var(--muted);text-align:center;padding:30px;">Loading signal...</div></div>'
+    + '</div></div>';
+  document.body.insertAdjacentHTML('beforeend', html);
+
+  try {
+    var r = await fetch('/api/signals/ledger/' + ledgerId);
+    if (!r.ok) {
+      document.getElementById('ssBody').innerHTML = '<div style="color:var(--red);padding:20px;">Signal not found.</div>';
+      return;
+    }
+    var s = await r.json();
+    var dirColor = s.direction === 'long' ? '#22c55e' : '#ef4444';
+    var outcomeColor = s.outcome === 'WIN' ? '#22c55e' : s.outcome === 'LOSS' ? '#ef4444' : 'var(--muted)';
+    var models = (s.approving_models || []).map(function(m) {
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:var(--surface);border-radius:6px;margin-bottom:4px;">' +
+        '<span style="font-weight:600;">' + escapeHtml(m.display_name || m.player_id || '?') + '</span>' +
+        '<span style="font-size:12px;color:var(--muted);">' + escapeHtml(m.action || '') +
+        (m.confidence != null ? ' · ' + Math.round(m.confidence * 100) + '% conf' : '') +
+        (m.rating ? ' · rating ' + escapeHtml(m.rating) : '') + '</span></div>';
+    }).join('') || '<div style="color:var(--muted);font-size:13px;">No approving models recorded.</div>';
+    var dissents = (s.dissents || []).map(function(m) {
+      return '<div style="font-size:12px;color:var(--muted);padding:2px 0;">' + escapeHtml(m.display_name || m.player_id || '?') +
+        ' — ' + escapeHtml(m.action || 'disagreed') + '</div>';
+    }).join('') || '<div style="color:var(--muted);font-size:13px;">No dissenting models.</div>';
+    var contextKeys = Object.keys(s.context || {});
+    var contextHtml = contextKeys.length
+      ? contextKeys.map(function(k) { return '<div style="font-size:12px;color:var(--muted);">' + escapeHtml(k) + ': ' + escapeHtml(String(s.context[k])) + '</div>'; }).join('')
+      : '<div style="color:var(--muted);font-size:13px;">No additional context captured this cycle.</div>';
+
+    var body =
+      '<div style="margin-bottom:14px;">' +
+        '<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">' +
+          '<span style="font-size:22px;font-weight:800;font-family:var(--font-mono);">' + escapeHtml(s.symbol) + '</span>' +
+          '<span style="color:' + dirColor + ';font-weight:700;text-transform:uppercase;">' + escapeHtml(s.direction) + '</span>' +
+          '<span style="padding:2px 8px;border-radius:4px;font-size:11px;background:rgba(99,102,241,0.15);color:#a5b4fc;">' + escapeHtml(s.strategy) + '</span>' +
+        '</div>' +
+        '<div style="font-size:12px;color:var(--muted);">' + escapeHtml((s.created_at||'').slice(0,16)) + ' · status ' + escapeHtml(s.status) +
+          (s.outcome ? ' · <span style="color:' + outcomeColor + ';font-weight:700;">' + escapeHtml(s.outcome) + '</span>' : ' · pending') + '</div>' +
+      '</div>' +
+      '<div id="ssChartContainer" style="width:100%;height:260px;margin-bottom:14px;border:1px solid var(--border);border-radius:8px;"></div>' +
+      '<div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;">' +
+        '<div style="flex:1;min-width:90px;background:var(--surface);border-radius:8px;padding:8px 12px;"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;">Entry</div><div style="font-family:var(--font-mono);font-weight:700;">' + (s.entry_price != null ? s.entry_price.toFixed(2) : '—') + '</div></div>' +
+        '<div style="flex:1;min-width:90px;background:var(--surface);border-radius:8px;padding:8px 12px;"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;">Stop</div><div style="font-family:var(--font-mono);font-weight:700;color:#ef4444;">' + (s.stop_price != null ? s.stop_price.toFixed(2) : '—') + '</div></div>' +
+        '<div style="flex:1;min-width:90px;background:var(--surface);border-radius:8px;padding:8px 12px;"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;">Target</div><div style="font-family:var(--font-mono);font-weight:700;color:#22c55e;">' + (s.target_price != null ? s.target_price.toFixed(2) : '—') + '</div></div>' +
+        '<div style="flex:1;min-width:90px;background:var(--surface);border-radius:8px;padding:8px 12px;"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;">R:R</div><div style="font-family:var(--font-mono);font-weight:700;">' + (s.risk_reward != null ? s.risk_reward + ':1' : '—') + '</div></div>' +
+      '</div>' +
+      '<div style="margin-bottom:14px;"><div style="font-size:11px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em;">Approving Models (' + (s.approving_models||[]).length + ')</div>' + models + '</div>' +
+      '<div style="margin-bottom:14px;"><div style="font-size:11px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em;">Dissents</div>' + dissents + '</div>' +
+      '<div style="margin-bottom:14px;"><div style="font-size:11px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em;">Context / Data Sources</div>' + contextHtml + '</div>' +
+      '<button disabled title="Phase 1 ghost book — real pushing is disabled (config.OLLIETRADES_SIGNAL_PUSH_ENABLED=False), nothing live to trade through yet" ' +
+        'style="width:100%;padding:10px;border-radius:8px;background:rgba(107,114,128,0.15);color:var(--muted);border:1px solid var(--border);font-weight:700;cursor:not-allowed;">' +
+        '🔒 TRADE — unavailable in Phase 1 ghost mode</button>';
+
+    document.getElementById('ssBody').innerHTML = body;
+    _ssRenderChart(s.symbol, s.entry_price, s.stop_price, s.target_price);
+  } catch (e) {
+    document.getElementById('ssBody').innerHTML = '<div style="color:var(--red);padding:20px;">Error: ' + e.message + '</div>';
+  }
+}
 </script>
 
 <div id="section-dynamic-alerts" style="display:none;">

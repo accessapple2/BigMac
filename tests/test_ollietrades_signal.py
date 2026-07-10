@@ -690,5 +690,32 @@ def test_compute_rollup_empty_ledger_returns_none_not_crash(temp_db):
     assert roll["total_signals"] == 0
 
 
+# ─── /signal/<id> scorecard — get_ledger_row_decoded (task 39) ────────────────
+
+def test_get_ledger_row_decoded_computes_risk_reward(temp_db):
+    candidate = {
+        "symbol": "AAPL", "direction": "long", "composite_conviction": 0.9,
+        "approving_models": [{"player_id": "modelA", "display_name": "Model A",
+                               "action": "BUY", "confidence": 0.9, "option_type": None,
+                               "rating": "A", "rating_score": 90}],
+    }
+    row_id = ots.log_to_ledger(candidate, status="SHOWN-ONLY", strategy="ollie_live_swing",
+                                gate_config={}, entry_price=100.0, stop_price=95.0, target_price=110.0)
+    row = ots.get_ledger_row_decoded(row_id)
+    assert row["risk_reward"] == 2.0  # (110-100)/(100-95)
+    assert row["approving_models"][0]["player_id"] == "modelA"
+
+
+def test_get_ledger_row_decoded_none_entry_gives_none_risk_reward(temp_db):
+    candidate = {"symbol": "AAPL", "direction": "long", "composite_conviction": 0.9, "approving_models": []}
+    row_id = ots.log_to_ledger(candidate, status="SHOWN-ONLY", strategy="unmatched", gate_config={})
+    row = ots.get_ledger_row_decoded(row_id)
+    assert row["risk_reward"] is None
+
+
+def test_get_ledger_row_decoded_returns_none_for_missing_id(temp_db):
+    assert ots.get_ledger_row_decoded(999999) is None
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
