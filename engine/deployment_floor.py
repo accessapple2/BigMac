@@ -33,8 +33,12 @@ console = Console()
 logger = logging.getLogger("deployment_floor")
 
 # Alert when actual long-equity weight is below this fraction of the regime
-# target (e.g. target 65%, floor 1/3 -> page below ~21.7% deployed).
-FLOOR_FRACTION = 1.0 / 3.0
+# target (e.g. target 65%, floor 1/2 -> page below 32.5% deployed).
+# HM-DEPLOYMENT-FLOOR-CALIBRATION 2026-07-10 (Admiral): tightened from 1/3
+# after target switched from long_equity_pct to long_equity_max_pct (see
+# regime_equity_target_pct below) -- 1/3 of the now-larger target ceiling
+# would have under-alerted relative to the original intent.
+FLOOR_FRACTION = 1.0 / 2.0
 
 # Only advise in regimes where being in cash is a cost, not a virtue.
 BULL_FAMILY = ("BULL", "BULL_CROSS", "BULL_LOW_VOL", "CAUTIOUS_BULL")
@@ -104,8 +108,19 @@ def fleet_long_equity_weight() -> tuple[float, float] | None:
 
 
 def regime_equity_target_pct(regime: str | None) -> float | None:
-    """Blend E long_equity_pct for the regime; fallback to the router matrix
-    cap when no regime_allocations row exists. None if regime unknown."""
+    """Blend E long_equity_max_pct (the regime's equity-deployment CEILING)
+    for the regime; fallback to the router matrix cap when no
+    regime_allocations row exists. None if regime unknown.
+
+    HM-DEPLOYMENT-FLOOR-CALIBRATION 2026-07-10 (Admiral decision): uses the
+    ceiling, not the narrower long_equity_pct strategy-bucket target.
+    long_equity_pct is what paper_trader._apply_regime_long_equity_cap
+    actually enforces for new-position sizing day to day (confirmed by
+    reading that code directly) -- but for THIS advisory ("is the fleet
+    dangerously under-deployed relative to what the regime allows"), the
+    ceiling is the intended reference point, not the tighter bucket
+    allocation. See FLOOR_FRACTION above for the matching tightened floor.
+    """
     if not regime:
         return None
     try:
@@ -120,9 +135,9 @@ def regime_equity_target_pct(regime: str | None) -> float | None:
         )
         return None
     alloc = get_regime_allocation(regime)
-    if alloc and alloc.get("long_equity_pct") is not None:
-        return float(alloc["long_equity_pct"]) * (
-            100.0 if float(alloc["long_equity_pct"]) <= 1.0 else 1.0
+    if alloc and alloc.get("long_equity_max_pct") is not None:
+        return float(alloc["long_equity_max_pct"]) * (
+            100.0 if float(alloc["long_equity_max_pct"]) <= 1.0 else 1.0
         )
     profile = REGIME_STRATEGY_MATRIX.get(regime)
     if profile and profile.get("long_equity_max_pct") is not None:
@@ -171,8 +186,8 @@ def check_deployment_floor() -> dict | None:
             send_alert(
                 message=(
                     f"Fleet is {actual_pct:.1f}% long equity in {regime} — "
-                    f"floor is {floor_pct:.1f}% (⅓ of the {target:.0f}% Blend E "
-                    f"target). Cash drag was the #1 S6 leak (-2.95% edge). "
+                    f"floor is {floor_pct:.1f}% ({FLOOR_FRACTION:.0%} of the {target:.0f}% Blend E "
+                    f"ceiling). Cash drag was the #1 S6 leak (-2.95% edge). "
                     f"Book ${total:,.0f}. Advisory only — no auto-deployment."
                 ),
                 level=AlertLevel.WARNING,

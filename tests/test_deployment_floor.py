@@ -1,13 +1,14 @@
 """Tests for engine.deployment_floor — the under-deployment advisory
 (HM-DEPLOYMENT-FLOOR 2026-07-10, S6 findings Finding 1 / P1).
 
-Incoming patch had zero test coverage. Note: this test suite pins
-regime_equity_target_pct() preferring `long_equity_pct` (the real BINDING
-target per engine.paper_trader._apply_regime_long_equity_cap) over
-`long_equity_max_pct` (a looser backstop ceiling that rarely binds) --
-confirmed correct by reading the actual enforcement code, even though the
-originating findings report's "65% cap" framing was itself imprecise
-(that number is long_equity_max_pct, not the real binding target).
+HM-DEPLOYMENT-FLOOR-CALIBRATION 2026-07-10 (Admiral decision): pins
+regime_equity_target_pct() preferring `long_equity_max_pct` (the regime's
+equity-deployment ceiling, e.g. 0.65 for BULL_CROSS) over the narrower
+`long_equity_pct` strategy-bucket target (0.15 for BULL_CROSS -- the real
+binding cap for new-position sizing per paper_trader._apply_regime_
+long_equity_cap, but not the intended reference for THIS advisory).
+FLOOR_FRACTION tightened from 1/3 to 1/2 to match -- see engine/
+deployment_floor.py module docstring for the full reasoning.
 """
 from __future__ import annotations
 
@@ -117,16 +118,29 @@ def test_fleet_long_equity_weight_none_on_db_error():
 
 # ─── regime_equity_target_pct() ────────────────────────────────────────────
 
-def test_regime_equity_target_prefers_long_equity_pct_over_ceiling():
-    """The real binding target per _apply_regime_long_equity_cap is
-    long_equity_pct, NOT long_equity_max_pct (a looser backstop ceiling
-    that only binds when it's LOWER than the target, which it normally
-    isn't). BULL_CROSS in production: long_equity_pct=0.15, ceiling=0.65 --
-    the correct target is 15%, not 65%."""
+def test_regime_equity_target_prefers_max_pct_ceiling_over_bucket_target():
+    """Admiral calibration decision 2026-07-10: this advisory uses the
+    equity-deployment CEILING (long_equity_max_pct), not the narrower
+    long_equity_pct strategy-bucket target (which IS what actually binds
+    new-position sizing elsewhere, but is the wrong reference for "are we
+    dangerously under-deployed for what the regime allows"). BULL_CROSS in
+    production: long_equity_pct=0.15, ceiling=0.65 -- target here is 65%."""
     with patch("engine.regime_router.get_regime_allocation",
                return_value={"long_equity_pct": 0.15, "long_equity_max_pct": 0.65}):
         result = df.regime_equity_target_pct("BULL_CROSS")
-    assert result == pytest.approx(15.0)
+    assert result == pytest.approx(65.0)
+
+
+def test_regime_equity_target_handles_fraction_and_percent_units():
+    """long_equity_max_pct may be stored as a fraction (<=1.0, e.g. 0.65)
+    or already as a percent (>1.0, e.g. 65.0) -- both must normalize to the
+    same percent output."""
+    with patch("engine.regime_router.get_regime_allocation",
+               return_value={"long_equity_max_pct": 0.65}):
+        assert df.regime_equity_target_pct("BULL_CROSS") == pytest.approx(65.0)
+    with patch("engine.regime_router.get_regime_allocation",
+               return_value={"long_equity_max_pct": 65.0}):
+        assert df.regime_equity_target_pct("BULL_CROSS") == pytest.approx(65.0)
 
 
 def test_regime_equity_target_falls_back_to_matrix_ceiling_when_no_allocation_row():
@@ -161,28 +175,35 @@ def test_check_deployment_floor_no_alert_when_above_floor(temp_db):
     _insert_player(temp_db, "modelA", cash=5000.0)
     _insert_position(temp_db, "modelA", "AAPL", 10, 500.0)  # $5000/$10000 = 50%
     with patch("engine.regime_router.get_current_regime", return_value="BULL_CROSS"), \
-         patch.object(df, "regime_equity_target_pct", return_value=15.0), \
+         patch.object(df, "regime_equity_target_pct", return_value=65.0), \
          patch("engine.alert_channels.send_alert") as mock_alert:
         result = df.check_deployment_floor()
-    # floor = 15% * 1/3 = 5%; actual 50% is well above -> no alert
+    # floor = 65% * 1/2 = 32.5%; actual 50% is above -> no alert
     assert result["breached"] is False
     mock_alert.assert_not_called()
 
 
 def test_check_deployment_floor_fires_alert_when_below_floor(temp_db):
-    _insert_player(temp_db, "modelA", cash=9900.0)
-    _insert_position(temp_db, "modelA", "AAPL", 1, 100.0)  # $100/$10000 = 1%
+    _insert_player(temp_db, "modelA", cash=9300.0)
+    _insert_position(temp_db, "modelA", "AAPL", 7, 100.0)  # $700/$10000 = 7% -- the S6 report's own motivating figure
     with patch("engine.regime_router.get_current_regime", return_value="BULL_CROSS"), \
-         patch.object(df, "regime_equity_target_pct", return_value=15.0), \
+         patch.object(df, "regime_equity_target_pct", return_value=65.0), \
          patch("engine.alert_channels.send_alert") as mock_alert:
         result = df.check_deployment_floor()
-    # floor = 15% * 1/3 = 5%; actual 1% is below -> alert fires
+    # floor = 65% * 1/2 = 32.5%; actual 7% is below -> alert fires (this is
+    # exactly the scenario the S6 findings report was built to catch)
     assert result["breached"] is True
     mock_alert.assert_called_once()
     call_kwargs = mock_alert.call_args.kwargs
     assert call_kwargs["alert_type"] == "deployment_floor"
     assert call_kwargs["rate_limit_secs"] == 86400
     assert "source" not in call_kwargs  # HM-BUG-BATCH fix: no longer passes source="INFORMATIONAL"
+    # HM-DEPLOYMENT-FLOOR-CALIBRATION fix: message text must reflect the
+    # ACTUAL fraction used, not a hardcoded symbol left over from 1/3 -- this
+    # literally shipped stale to production once already (notification id
+    # 2538, live-verified, said "⅓" while the code used 1/2).
+    assert "⅓" not in call_kwargs["message"]
+    assert "50%" in call_kwargs["message"]
 
 
 def test_check_deployment_floor_none_when_no_target(temp_db):
@@ -250,6 +271,14 @@ def test_run_deployment_floor_check_exception_does_not_propagate(temp_db):
          patch("engine.market_calendar.az_now", return_value=in_window), \
          patch.object(df, "check_deployment_floor", side_effect=RuntimeError("boom")):
         df.run_deployment_floor_check()  # must not raise
+
+
+# ─── Calibration constant (Admiral decision 2026-07-10) ────────────────────
+
+def test_floor_fraction_is_one_half():
+    """Pins the tightened calibration -- was 1/3, tightened to 1/2 to match
+    the switch from long_equity_pct to long_equity_max_pct as the target."""
+    assert df.FLOOR_FRACTION == pytest.approx(0.5)
 
 
 if __name__ == "__main__":
