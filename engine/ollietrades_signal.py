@@ -368,23 +368,41 @@ def get_ledger_row_decoded(ledger_id: int) -> Optional[dict]:
 # anything to resolve; the design doc left this computation unspecified) ──────
 
 def compute_entry_stop_target(symbol: str, direction: str, stop_pct: float,
-                               target_r_multiple: float) -> Optional[tuple[float, float, float]]:
+                               target_r_multiple: float,
+                               as_of: Optional[datetime] = None) -> Optional[tuple[float, float, float]]:
     """Entry = latest 5min bar close (same get_intraday_candles cascade as the
-    session-VWAP fix, so this never invents a second price source). Stop/target
-    are symmetric % moves off entry -- stop_pct is the fleet's own canonical
-    STOP_LOSS_PCT by default (config.py), target is stop_pct * target_r_multiple
-    away (a fixed reward:risk, not a data-driven level -- Phase 1 ghost book
-    only needs a consistent, direction-aware yardstick for WIN/LOSS, not a
-    "real" technical stop). Returns None (never raises) on any data failure --
-    the candidate still logs to the ledger with entry_price=None; resolve_
-    outcomes() simply has nothing to resolve for that row, which is correct:
-    silence/no-signal is not corruption."""
+    session-VWAP fix, so this never invents a second price source) -- or, if
+    `as_of` is given, the first bar AT OR AFTER that timestamp (task 40's
+    solo-model comparison resolves signals from days/weeks ago; using
+    "latest" there would silently price a historical signal at TODAY's
+    price, comparing a fictional entry against real forward candles -- found
+    live while verifying item 40: every capitol-trades solo signal was
+    resolving EXPIRED_UNRESOLVED because its "entry" was always today's
+    price regardless of how old the signal actually was). Stop/target are
+    symmetric % moves off entry -- stop_pct is the fleet's own canonical
+    STOP_LOSS_PCT by default (config.py), target is stop_pct *
+    target_r_multiple away (a fixed reward:risk, not a data-driven level --
+    Phase 1 ghost book only needs a consistent, direction-aware yardstick
+    for WIN/LOSS, not a "real" technical stop). Returns None (never raises)
+    on any data failure -- the candidate still logs to the ledger with
+    entry_price=None; resolve_outcomes() simply has nothing to resolve for
+    that row, which is correct: silence/no-signal is not corruption."""
     try:
         from engine.market_data import get_intraday_candles
-        candles = get_intraday_candles(symbol, interval="5m", range_="1d")
-        if not candles:
-            return None
-        entry = float(candles[-1]["close"])
+        if as_of is None:
+            candles = get_intraday_candles(symbol, interval="5m", range_="1d")
+            if not candles:
+                return None
+            entry = float(candles[-1]["close"])
+        else:
+            days_back = max((datetime.utcnow() - as_of).days + 1, 1)
+            candles = get_intraday_candles(symbol, interval="5m", range_=_range_for_days(days_back))
+            if not candles:
+                return None
+            at_or_after = [c for c in candles if _parse_candle_time(c["time"]) >= as_of]
+            # as_of newer than any bar returned (edge of the fetched range) --
+            # fall back to the closest bar available rather than failing outright.
+            entry = float((at_or_after[0] if at_or_after else candles[-1])["close"])
         if entry <= 0:
             return None
     except Exception as e:
@@ -821,4 +839,279 @@ def compute_rollup(rows: Optional[list[dict]] = None, from_date: Optional[str] =
         "pushes_per_day": pushes_per_day,
         "current_streak": {"type": streak_type, "count": streak_count} if streak_type else None,
         "total_signals": len(rows),
+    }
+
+
+# ─── /signals/compare — Performance Comparison View (task 40, docs/
+# OLLIETRADES_SIGNAL.md §8). "Does unanimity produce better calls, or just
+# fewer calls?" Five series, same window, same §5 resolution rules applied
+# uniformly so the comparison is apples-to-apples. ─────────────────────────
+
+def _range_for_days(window_days: int) -> str:
+    """Map an arbitrary day count to get_intraday_candles' fixed range_
+    buckets (it only accepts a small fixed set, not arbitrary day counts)."""
+    if window_days <= 1:
+        return "1d"
+    if window_days <= 5:
+        return "5d"
+    if window_days <= 30:
+        return "1mo"
+    if window_days <= 90:
+        return "3mo"
+    if window_days <= 180:
+        return "6mo"
+    return "1y"
+
+
+def _resolve_ollietrades_signal_series(window_days: int, traded_only: bool) -> dict:
+    """Series 1: signal_ledger itself -- reuses task 38's query_ledger/
+    compute_rollup directly (no new resolution logic needed, this data is
+    already resolved by resolve_outcomes())."""
+    from_date = (datetime.utcnow() - timedelta(days=window_days)).strftime("%Y-%m-%d")
+    rows = query_ledger(from_date=from_date, status="TRADED" if traded_only else None, limit=1_000_000)
+    roll = compute_rollup(rows=rows)
+    return {"wr": roll["overall_wr"], "n": roll["overall_n"],
+            "avg_r_multiple": roll["avg_r_multiple"], "total_signals": roll["total_signals"]}
+
+
+def _resolve_signals_table_rows(player_id: str, window_days: int, stop_pct: float,
+                                 target_r_multiple: float, resolution_window_days: int,
+                                 sample_cap: int = 8) -> dict:
+    """Series 2: one winning model's SOLO calls, resolved with the identical
+    §5 walk-forward engine (_resolve_one_row) instead of signal_ledger.id --
+    a parallel, lighter-weight pass over the raw `signals` table. This is
+    genuinely different from series 3 (fleet_report_card): that's realized
+    trade P&L from `trades`; this is "what would unresolved solo signals
+    have done," the actual counterfactual unanimity is being compared
+    against. Capped at `sample_cap` most-recent signals -- each resolution
+    costs 1-2 live candle fetches (compute_entry_stop_target + _resolve_
+    one_row), so resolving every historical signal in a wide window would
+    be very slow for a live page load. Never a SILENT cap: total_available/
+    sample_capped are always returned.
+
+    Sample is drawn from signals OLD ENOUGH to plausibly have resolved
+    (created before resolution_window_days ago), not simply "most recent in
+    window" -- a naive most-recent-first sample systematically biases toward
+    still-pending rows (found live: a model with 135 signals in-window
+    returned wr=None because all 15 of its most-recent signals hadn't had
+    time to hit target/stop/expiry yet, even though earlier signals in the
+    same window plausibly had). This filter still samples most-recent-first
+    WITHIN the resolvable pool, so it stays as fresh as the resolution
+    window allows."""
+    now = datetime.utcnow()
+    conn = _conn()
+    window_cutoff = (now - timedelta(days=window_days)).strftime("%Y-%m-%d %H:%M:%S")
+    resolvable_cutoff = (now - timedelta(days=resolution_window_days)).strftime("%Y-%m-%d %H:%M:%S")
+    rows = conn.execute(
+        "SELECT symbol, signal, created_at FROM signals WHERE player_id = ? AND created_at >= ? AND created_at <= ? "
+        "ORDER BY created_at DESC",
+        (player_id, window_cutoff, resolvable_cutoff),
+    ).fetchall()
+    conn.close()
+
+    directional = [r for r in rows if _direction_bucket(r["signal"]) is not None]
+    total_available = len(directional)
+    sample = directional[:sample_cap]
+    resolved = []
+    for r in sample:
+        direction = _direction_bucket(r["signal"])
+        signal_time = datetime.strptime(r["created_at"][:19], "%Y-%m-%d %H:%M:%S")
+        est = compute_entry_stop_target(r["symbol"], direction, stop_pct, target_r_multiple, as_of=signal_time)
+        if est is None:
+            continue
+        entry, stop, target = est
+        row = {"symbol": r["symbol"], "direction": direction, "created_at": r["created_at"],
+               "entry_price": entry, "stop_price": stop, "target_price": target}
+        try:
+            outcome, r_mult, _detail = _resolve_one_row(row, now, resolution_window_days)
+        except Exception as e:
+            console.log(f"[yellow]ollietrades_signal: compare solo-resolve failed for {player_id}/{r['symbol']}: {e}")
+            continue
+        resolved.append({"outcome": outcome, "outcome_r_multiple": r_mult})
+
+    wr, n = _win_rate(resolved)
+    r_mults = [x["outcome_r_multiple"] for x in resolved
+               if x.get("outcome") is not None and x.get("outcome_r_multiple") is not None]
+    avg_r = sum(r_mults) / len(r_mults) if r_mults else None
+    return {"wr": wr, "n": n, "avg_r_multiple": avg_r,
+            "sample_size": len(sample), "total_available": total_available,
+            "sample_capped": total_available > sample_cap}
+
+
+def _resolve_fleet_average(window_days: int) -> dict:
+    """Series 3: existing fleet_report_card() data -- realized trade P&L,
+    no new resolution needed (already carries a realized WR). Maps the
+    arbitrary window_days onto calculate_rating's fixed period buckets
+    (daily/weekly/alltime -- it doesn't take an arbitrary day count) and
+    averages win_rate/total_pnl across the active fleet."""
+    from engine.agent_ratings import fleet_report_card, calculate_rating
+    period = "daily" if window_days <= 1 else "weekly" if window_days <= 7 else "alltime"
+    if period == "alltime":
+        rows = fleet_report_card()
+    else:
+        fleet = [(r["player_id"], r["display_name"]) for r in fleet_report_card()]
+        rows = []
+        for pid, dname in fleet:
+            r = calculate_rating(pid, period)
+            r["display_name"] = dname
+            rows.append(r)
+    with_trades = [r for r in rows if (r.get("total_trades") or 0) > 0]
+    if not with_trades:
+        return {"wr": None, "n": 0, "total_pnl": None}
+    avg_wr = sum(r["win_rate"] for r in with_trades) / len(with_trades) / 100.0  # -> fraction, matches other series
+    total_pnl = sum(r["total_pnl"] for r in with_trades)
+    return {"wr": avg_wr, "n": sum(r["total_trades"] for r in with_trades), "total_pnl": round(total_pnl, 2)}
+
+
+def _resolve_strategy_signals(window_days: int, resolution_window_days: int, sample_cap: int = 15) -> dict:
+    """Series 4: Ollie Live scanner picks from `strategy_signals` -- already
+    has entry/stop/target stored (no compute_entry_stop_target call needed,
+    only the resolution-walk candle fetch). Simplification, documented: this
+    resolves every row with a complete price triple in the window rather
+    than reproducing api_scanner_convergence()'s exact T1/T2/T3 90min-window
+    tier-counting join -- the comparison's purpose is measuring the scanner
+    source's raw pick quality, not re-deriving its tier-labeling business
+    logic.
+
+    Same resolvable-window sampling fix as _resolve_signals_table_rows --
+    most-recent-first alone biases toward still-pending rows."""
+    now = datetime.utcnow()
+    conn = _conn()
+    window_cutoff = (now - timedelta(days=window_days)).strftime("%Y-%m-%d %H:%M:%S")
+    resolvable_cutoff = (now - timedelta(days=resolution_window_days)).strftime("%Y-%m-%d %H:%M:%S")
+    rows = conn.execute(
+        "SELECT ticker, entry_price, stop_price, target_price, created_at FROM strategy_signals "
+        "WHERE created_at >= ? AND created_at <= ? "
+        "AND entry_price IS NOT NULL AND stop_price IS NOT NULL AND target_price IS NOT NULL "
+        "ORDER BY created_at DESC",
+        (window_cutoff, resolvable_cutoff),
+    ).fetchall()
+    conn.close()
+
+    total_available = len(rows)
+    sample = rows[:sample_cap]
+    resolved = []
+    for r in sample:
+        direction = "long" if r["target_price"] >= r["entry_price"] else "short"
+        row = {"symbol": r["ticker"], "direction": direction, "created_at": r["created_at"],
+               "entry_price": r["entry_price"], "stop_price": r["stop_price"], "target_price": r["target_price"]}
+        try:
+            outcome, r_mult, _detail = _resolve_one_row(row, now, resolution_window_days)
+        except Exception as e:
+            console.log(f"[yellow]ollietrades_signal: compare scanner-resolve failed for {r['ticker']}: {e}")
+            continue
+        resolved.append({"outcome": outcome, "outcome_r_multiple": r_mult})
+
+    wr, n = _win_rate(resolved)
+    r_mults = [x["outcome_r_multiple"] for x in resolved
+               if x.get("outcome") is not None and x.get("outcome_r_multiple") is not None]
+    avg_r = sum(r_mults) / len(r_mults) if r_mults else None
+    return {"wr": wr, "n": n, "avg_r_multiple": avg_r,
+            "sample_size": len(sample), "total_available": total_available,
+            "sample_capped": total_available > sample_cap}
+
+
+def _resolve_buy_hold_spy(window_days: int) -> dict:
+    """Series 5: trivial baseline -- entry = window start close, no stop/
+    target, pure return. Not comparable on WR/avg-R (a single continuous
+    holding, not discrete trades) -- those fields stay None."""
+    try:
+        from engine.market_data import get_intraday_candles
+        candles = get_intraday_candles("SPY", interval="1d", range_=_range_for_days(window_days))
+    except Exception as e:
+        console.log(f"[yellow]ollietrades_signal: compare SPY fetch failed: {e}")
+        return {"wr": None, "n": 0, "avg_r_multiple": None, "total_return_pct": None}
+    if not candles:
+        return {"wr": None, "n": 0, "avg_r_multiple": None, "total_return_pct": None}
+    start_price = float(candles[0]["close"])
+    end_price = float(candles[-1]["close"])
+    total_return_pct = round((end_price - start_price) / start_price * 100, 2) if start_price else None
+    return {"wr": None, "n": 0, "avg_r_multiple": None, "total_return_pct": total_return_pct,
+            "start_price": start_price, "end_price": end_price}
+
+
+_compare_cache: dict = {}   # {(window_days, traded_only): {"data": ..., "ts": float}}
+_COMPARE_CACHE_TTL = 60.0   # seconds
+
+
+def compute_compare(window_days: int = 30, traded_only: bool = False) -> dict:
+    """Cached wrapper around _compute_compare_uncached -- found live while
+    verifying task 40: this endpoint does 15-45+ sequential live candle
+    fetches per request (design doc §8 explicitly accepts live-computing
+    every request at "ghost-phase volume," but that assumed one request at
+    a time). Two overlapping requests to the SAME window/toggle (a page
+    refresh, two tabs open, a slow first load retried) pile up and compete
+    for the same rate-limited upstream, which can push total latency past a
+    minute -- reproduced live. A short TTL cache (not a correctness change,
+    the design doc's "no cache-invalidation logic needed" reasoning still
+    holds since nothing here needs invalidating on write) absorbs exactly
+    that pile-up without adding staleness that matters at ghost-phase
+    signal volume."""
+    import time as _time
+    cache_key = (window_days, traded_only)
+    cached = _compare_cache.get(cache_key)
+    now = _time.time()
+    if cached and (now - cached["ts"]) < _COMPARE_CACHE_TTL:
+        return cached["data"]
+    result = _compute_compare_uncached(window_days, traded_only)
+    _compare_cache[cache_key] = {"data": result, "ts": now}
+    return result
+
+
+def _compute_compare_uncached(window_days: int = 30, traded_only: bool = False) -> dict:
+    """Full 5-series comparison (design doc §8). The question this endpoint
+    must answer: is signal_ledger's WR materially above the best individual
+    winning model's solo WR over the same window? Verdict is computed, never
+    prescribed -- a real, useful, non-flattering finding (unanimity filters
+    for agreement, not quality) is exactly as valid an answer as a flattering
+    one, and this function doesn't editorialize past the raw numbers."""
+    try:
+        from config import (
+            OLLIETRADES_SIGNAL_STOP_PCT, OLLIETRADES_SIGNAL_TARGET_R_MULTIPLE,
+            OLLIETRADES_SIGNAL_RESOLUTION_WINDOW_DAYS, OLLIETRADES_SIGNAL_MIN_RATING,
+            OLLIETRADES_SIGNAL_MIN_TRADES, OLLIETRADES_SIGNAL_MIN_RETURN_PCT,
+        )
+    except Exception:
+        OLLIETRADES_SIGNAL_STOP_PCT, OLLIETRADES_SIGNAL_TARGET_R_MULTIPLE = 0.05, 2.0
+        OLLIETRADES_SIGNAL_RESOLUTION_WINDOW_DAYS = 5
+        OLLIETRADES_SIGNAL_MIN_RATING, OLLIETRADES_SIGNAL_MIN_TRADES, OLLIETRADES_SIGNAL_MIN_RETURN_PCT = "B", 20, 0.0
+
+    series = []
+
+    ots_series = _resolve_ollietrades_signal_series(window_days, traded_only)
+    series.append({"key": "ollietrades_signal", "name": "OllieTrades Signal", **ots_series})
+
+    solo_entries = []
+    try:
+        winners = get_winning_models(OLLIETRADES_SIGNAL_MIN_RATING, OLLIETRADES_SIGNAL_MIN_TRADES,
+                                      OLLIETRADES_SIGNAL_MIN_RETURN_PCT)
+    except Exception as e:
+        console.log(f"[yellow]ollietrades_signal: compare winning-models fetch failed: {e}")
+        winners = []
+    for w in winners:
+        r = _resolve_signals_table_rows(w["player_id"], window_days, OLLIETRADES_SIGNAL_STOP_PCT,
+                                         OLLIETRADES_SIGNAL_TARGET_R_MULTIPLE, OLLIETRADES_SIGNAL_RESOLUTION_WINDOW_DAYS)
+        entry = {"key": f"solo:{w['player_id']}", "name": f"{w['display_name']} (solo)", **r}
+        series.append(entry)
+        solo_entries.append(entry)
+
+    series.append({"key": "fleet_average", "name": "Fleet Average", **_resolve_fleet_average(window_days)})
+    series.append({"key": "ollie_live_scanner", "name": "Ollie Live Scanner",
+                    **_resolve_strategy_signals(window_days, OLLIETRADES_SIGNAL_RESOLUTION_WINDOW_DAYS)})
+    series.append({"key": "buy_hold_spy", "name": "Buy & Hold SPY", **_resolve_buy_hold_spy(window_days)})
+
+    best_solo = max((s for s in solo_entries if s.get("wr") is not None), key=lambda s: s["wr"], default=None)
+    consensus_wr = ots_series.get("wr")
+    consensus_beats_best_solo = None
+    if consensus_wr is not None and best_solo is not None:
+        consensus_beats_best_solo = consensus_wr > best_solo["wr"]
+
+    return {
+        "window_days": window_days, "traded_only": traded_only, "series": series,
+        "verdict": {
+            "consensus_wr": consensus_wr, "consensus_n": ots_series.get("n"),
+            "best_solo_wr": best_solo["wr"] if best_solo else None,
+            "best_solo_model": best_solo["name"] if best_solo else None,
+            "consensus_beats_best_solo": consensus_beats_best_solo,
+        },
     }

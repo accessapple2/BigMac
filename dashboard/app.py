@@ -5100,6 +5100,16 @@ def signals_ledger_detail(ledger_id: int):
     return row
 
 
+# HM-BUG-BATCH-2026-07-10 item 40 (docs/OLLIETRADES_SIGNAL.md §8). "Does
+# unanimity produce better calls, or just fewer calls?" -- five series, same
+# window, same resolution rules, computed live each request (ghost-phase
+# volume is cheap; the design doc explicitly accepts this over caching).
+@app.get("/api/signals/compare")
+def signals_compare(window_days: int = 30, traded_only: bool = False):
+    from engine.ollietrades_signal import compute_compare
+    return compute_compare(window_days=window_days, traded_only=traded_only)
+
+
 @app.get("/api/signals/recent")
 def recent_signals(limit: int = 50, season: int = 0, timeframe: str = ""):
     conn = _conn()

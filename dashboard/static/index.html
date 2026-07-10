@@ -3536,6 +3536,7 @@ function registerSectionInit(sectionName, initFn, intervalFns) {
       <a class="sidebar-item" href="/backtest" style="text-decoration:none;color:inherit;"><span class="icon">🧪</span> Backtest</a>
       <div class="sidebar-item admin-only" onclick="showSection('war-room')"><span class="icon">⚔️</span> War Room</div>
       <div class="sidebar-item" title="Unanimous-consensus alert pipeline — ghost book ledger &amp; rollups (Phase 1)" onclick="showSection('signals-history')"><span class="icon">🎯</span> OllieTrades Signal</div>
+      <div class="sidebar-item" title="Does unanimity produce better calls, or just fewer calls? Signal vs. solo models vs. fleet vs. scanner vs. buy-and-hold SPY" onclick="showSection('signals-compare')"><span class="icon">📊</span> Signal Compare</div>
     </div>
   </div>
 
@@ -32862,7 +32863,7 @@ registerSectionInit('alert-history', fetchAlertHistory, [{fn: fetchAlertHistory,
       <button class="btn btn-ghost" onclick="fetchSignalsLedger()" style="font-size:13px;">Refresh</button>
     </div>
     <div id="signalsRollupContent" style="display:flex;flex-wrap:wrap;gap:10px;padding:14px 16px;border-bottom:1px solid var(--border);">
-      <div style="color:var(--muted);">Loading rollups...</div>
+      <div style="color:var(--muted);">Fetching rollups…</div>
     </div>
     <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:10px 16px;border-bottom:1px solid var(--border);">
       <input id="slFrom" type="date" style="background:var(--input-bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:13px;" title="From date">
@@ -32886,7 +32887,7 @@ registerSectionInit('alert-history', fetchAlertHistory, [{fn: fetchAlertHistory,
       <button class="btn btn-primary" onclick="fetchSignalsLedger()" style="font-size:13px;">Filter</button>
     </div>
     <div id="signalsLedgerContent" style="max-height:600px;overflow-y:auto;">
-      <div style="color:var(--muted);text-align:center;padding:40px;">Loading signal ledger...</div>
+      <div style="color:var(--muted);text-align:center;padding:40px;">Fetching signal ledger…</div>
     </div>
   </div>
 </div>
@@ -33091,6 +33092,95 @@ async function openSignalScorecard(ledgerId) {
     document.getElementById('ssBody').innerHTML = '<div style="color:var(--red);padding:20px;">Error: ' + e.message + '</div>';
   }
 }
+</script>
+
+<!-- HM-BUG-BATCH-2026-07-10 item 40 (docs/OLLIETRADES_SIGNAL.md §8) —
+     /signals/compare: "does unanimity produce better calls, or just fewer
+     calls?" Five series, same window/resolution rules, computed live each
+     request (ghost-phase volume is cheap per the design doc). -->
+<div id="section-signals-compare" style="display:none;">
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">📊 OllieTrades Signal — Performance Comparison</div>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <select id="scWindow" onchange="fetchSignalsCompare()" style="background:var(--input-bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:13px;">
+          <option value="7">7 days</option>
+          <option value="30" selected>30 days</option>
+          <option value="90">90 days</option>
+        </select>
+        <label style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px;cursor:pointer;">
+          <input type="checkbox" id="scTradedOnly" onchange="fetchSignalsCompare()"> traded-only
+        </label>
+        <button class="btn btn-ghost" onclick="fetchSignalsCompare()" style="font-size:13px;">Refresh</button>
+      </div>
+    </div>
+    <div id="scVerdictContent" style="padding:14px 16px;border-bottom:1px solid var(--border);">
+      <div style="color:var(--muted);">Resolving comparison — this computes live price data for each series and can take up to 30s…</div>
+    </div>
+    <div id="scTableContent" style="padding:0 0 12px 0;">
+    </div>
+  </div>
+</div>
+<script>
+function _scPct(x) { return (x == null) ? '—' : (Math.round(x * 1000) / 10) + '%'; }
+function _scR(x) { return (x == null) ? '—' : (x >= 0 ? '+' : '') + x.toFixed(2) + 'R'; }
+
+async function fetchSignalsCompare() {
+  var windowDays = (document.getElementById('scWindow')||{}).value || '30';
+  var tradedOnly = (document.getElementById('scTradedOnly')||{}).checked || false;
+  var verdictEl = document.getElementById('scVerdictContent');
+  var tableEl = document.getElementById('scTableContent');
+  try {
+    var r = await fetch('/api/signals/compare?window_days=' + windowDays + '&traded_only=' + tradedOnly);
+    var d = await r.json();
+    var v = d.verdict || {};
+
+    var verdictHtml;
+    if (v.consensus_wr == null || v.best_solo_wr == null) {
+      verdictHtml = '<div style="color:var(--muted);font-size:13px;">Not enough resolved signals yet to compare consensus vs. best solo model — Phase 1 ghost book fills in as the gate cycle runs during market hours.</div>';
+    } else {
+      var beats = v.consensus_beats_best_solo;
+      var color = beats ? '#22c55e' : '#eab308';
+      var verb = beats ? 'BEATS' : 'does NOT beat';
+      verdictHtml = '<div style="display:flex;align-items:center;gap:10px;">' +
+        '<span style="font-size:18px;">' + (beats ? '✅' : '⚠️') + '</span>' +
+        '<div><div style="font-weight:700;color:' + color + ';">Consensus ' + verb + ' the best solo model</div>' +
+        '<div style="font-size:12px;color:var(--muted);">OllieTrades Signal WR ' + _scPct(v.consensus_wr) + ' (n=' + v.consensus_n + ') vs. ' +
+        escapeHtml(v.best_solo_model || '') + ' solo WR ' + _scPct(v.best_solo_wr) + '</div></div></div>';
+    }
+    verdictEl.innerHTML = verdictHtml;
+
+    var series = d.series || [];
+    var maxWr = Math.max.apply(null, series.map(function(s) { return s.wr || 0; }).concat([0.01]));
+    var h = '<table style="width:100%;border-collapse:collapse;font-size:13px;">' +
+      '<thead><tr style="text-align:left;border-bottom:1px solid var(--border);color:var(--muted);">' +
+      '<th style="padding:8px 16px;">Series</th><th>Win Rate</th><th>N</th><th>Avg R</th><th>Total Return</th><th>Sample</th>' +
+      '</tr></thead><tbody>';
+    for (var i = 0; i < series.length; i++) {
+      var s = series[i];
+      var isConsensus = s.key === 'ollietrades_signal';
+      var barWidth = s.wr != null ? Math.round((s.wr / maxWr) * 100) : 0;
+      var sampleNote = s.sample_capped ? ('capped ' + s.sample_size + '/' + s.total_available) :
+                        (s.total_available != null ? s.total_available + ' available' : '');
+      h += '<tr style="border-bottom:1px solid #1e2336;' + (isConsensus ? 'background:rgba(99,102,241,0.06);' : '') + '">' +
+        '<td style="padding:8px 16px;font-weight:' + (isConsensus ? '700' : '400') + ';">' + escapeHtml(s.name) + '</td>' +
+        '<td><div style="display:flex;align-items:center;gap:6px;">' +
+          '<div style="width:60px;height:6px;background:rgba(255,255,255,0.08);border-radius:3px;overflow:hidden;"><div style="width:' + barWidth + '%;height:100%;background:' + (isConsensus ? '#6366f1' : '#64748b') + ';"></div></div>' +
+          '<span>' + _scPct(s.wr) + '</span></div></td>' +
+        '<td>' + (s.n != null ? s.n : '—') + '</td>' +
+        '<td>' + _scR(s.avg_r_multiple) + '</td>' +
+        '<td>' + (s.total_return_pct != null ? (s.total_return_pct >= 0 ? '+' : '') + s.total_return_pct + '%' : '—') + '</td>' +
+        '<td style="color:var(--muted);font-size:11px;">' + escapeHtml(sampleNote) + '</td>' +
+        '</tr>';
+    }
+    h += '</tbody></table>';
+    tableEl.innerHTML = h;
+  } catch (e) {
+    verdictEl.innerHTML = '';
+    tableEl.innerHTML = '<div style="color:var(--red);padding:20px;">Error: ' + e.message + '</div>';
+  }
+}
+registerSectionInit('signals-compare', fetchSignalsCompare, [{fn: fetchSignalsCompare, ms: 120000}]);
 </script>
 
 <div id="section-dynamic-alerts" style="display:none;">

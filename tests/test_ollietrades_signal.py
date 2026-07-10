@@ -327,6 +327,30 @@ def test_compute_entry_stop_target_returns_none_on_fetch_error():
         assert ots.compute_entry_stop_target("AAPL", "long", 0.05, 2.0) is None
 
 
+def test_compute_entry_stop_target_as_of_uses_historical_price_not_todays(temp_db):
+    """The bug found live while verifying item 40: resolving a signal from
+    days ago must price it at ITS OWN time, not "latest" (today's price) --
+    otherwise every historical solo-signal resolution silently compares a
+    fictional today-priced entry against real forward candles."""
+    as_of = datetime(2026, 7, 1, 14, 30, 0)
+    candles = [
+        _candle("2026-07-01T14:00:00Z", 200, 201, 199, 200.0),   # before as_of
+        _candle("2026-07-01T14:35:00Z", 204, 205, 203, 204.38),  # first bar AT/AFTER as_of -> this is entry
+        _candle("2026-07-10T13:00:00Z", 240, 241, 239, 240.0),   # "today" -- must NOT be used as entry
+    ]
+    with patch("engine.market_data.get_intraday_candles", return_value=candles):
+        entry, stop, target = ots.compute_entry_stop_target("NVDA", "long", 0.05, 2.0, as_of=as_of)
+    assert entry == 204.38
+
+
+def test_compute_entry_stop_target_as_of_falls_back_to_last_bar_if_none_after():
+    as_of = datetime(2026, 7, 9, 23, 0, 0)  # newer than every candle returned
+    candles = [_candle("2026-07-09T14:00:00Z", 100, 101, 99, 100.0)]
+    with patch("engine.market_data.get_intraday_candles", return_value=candles):
+        entry, stop, target = ots.compute_entry_stop_target("AAPL", "long", 0.05, 2.0, as_of=as_of)
+    assert entry == 100.0
+
+
 # ─── Trading-days-elapsed (resolution window) ──────────────────────────────────
 
 def test_trading_days_elapsed_skips_weekend():
@@ -715,6 +739,227 @@ def test_get_ledger_row_decoded_none_entry_gives_none_risk_reward(temp_db):
 
 def test_get_ledger_row_decoded_returns_none_for_missing_id(temp_db):
     assert ots.get_ledger_row_decoded(999999) is None
+
+
+# ─── /signals/compare (task 40) ────────────────────────────────────────────────
+
+def test_range_for_days_buckets():
+    assert ots._range_for_days(1) == "1d"
+    assert ots._range_for_days(5) == "5d"
+    assert ots._range_for_days(30) == "1mo"
+    assert ots._range_for_days(90) == "3mo"
+    assert ots._range_for_days(180) == "6mo"
+    assert ots._range_for_days(365) == "1y"
+
+
+def test_resolve_ollietrades_signal_series_uses_ledger(temp_db):
+    """created_at left at real insert time (log_to_ledger always stamps
+    real wall-clock) -- window_days=30 comfortably covers "just inserted"
+    without needing to freeze/mock the clock."""
+    _log_row(temp_db, "A", outcome="WIN", r_multiple=2.0)
+    _log_row(temp_db, "B", outcome="LOSS", r_multiple=-1.0)
+    result = ots._resolve_ollietrades_signal_series(window_days=30, traded_only=False)
+    assert result["wr"] == pytest.approx(0.5)
+    assert result["n"] == 2
+
+
+def test_resolve_ollietrades_signal_series_traded_only_filters(temp_db):
+    _log_row(temp_db, "A", status="PUSHED", outcome="WIN", r_multiple=2.0)
+    _log_row(temp_db, "B", status="TRADED", outcome="LOSS", r_multiple=-1.0)
+    result = ots._resolve_ollietrades_signal_series(window_days=30, traded_only=True)
+    assert result["n"] == 1  # only the TRADED row
+    assert result["wr"] == 0.0
+
+
+def test_resolve_signals_table_rows_caps_sample_and_reports_it(temp_db):
+    # minutes_ago must clear the resolvable cutoff (resolution_window_days=5
+    # -> 7200 min ago) -- signals more recent than that are structurally
+    # unresolvable yet and correctly excluded from the sampling pool
+    # (see the "resolvable window" fix in _resolve_signals_table_rows).
+    for i in range(20):
+        _insert_signal(temp_db, "modelA", f"SYM{i}", "BUY", 0.9, minutes_ago=7300 + i)
+    with patch.object(ots, "compute_entry_stop_target", return_value=(100.0, 95.0, 110.0)), \
+         patch.object(ots, "_resolve_one_row", return_value=("WIN", 2.0, {})):
+        result = ots._resolve_signals_table_rows("modelA", window_days=30, stop_pct=0.05,
+                                                   target_r_multiple=2.0, resolution_window_days=5, sample_cap=5)
+    assert result["total_available"] == 20
+    assert result["sample_size"] == 5
+    assert result["sample_capped"] is True
+    assert result["wr"] == 1.0
+    assert result["n"] == 5
+
+
+def test_resolve_signals_table_rows_skips_rows_price_fetch_fails(temp_db):
+    _insert_signal(temp_db, "modelA", "GOOD", "BUY", 0.9, minutes_ago=7300)
+    _insert_signal(temp_db, "modelA", "BAD", "BUY", 0.9, minutes_ago=7301)
+    def _fake_compute(symbol, direction, stop_pct, target_r_multiple, as_of=None):
+        return None if symbol == "BAD" else (100.0, 95.0, 110.0)
+    with patch.object(ots, "compute_entry_stop_target", side_effect=_fake_compute), \
+         patch.object(ots, "_resolve_one_row", return_value=("WIN", 2.0, {})):
+        result = ots._resolve_signals_table_rows("modelA", window_days=30, stop_pct=0.05,
+                                                   target_r_multiple=2.0, resolution_window_days=5)
+    assert result["n"] == 1  # BAD skipped, not counted as a resolved row
+
+
+def test_resolve_signals_table_rows_excludes_too_recent_to_resolve(temp_db):
+    """The literal bug this fix addresses: signals more recent than the
+    resolution window can't possibly have resolved yet -- sampling
+    most-recent-first without this filter would starve the series down to
+    all-pending even when older, resolvable signals exist in the window."""
+    _insert_signal(temp_db, "modelA", "OLD_ENOUGH", "BUY", 0.9, minutes_ago=7300)
+    _insert_signal(temp_db, "modelA", "TOO_RECENT", "BUY", 0.9, minutes_ago=5)
+    with patch.object(ots, "compute_entry_stop_target", return_value=(100.0, 95.0, 110.0)), \
+         patch.object(ots, "_resolve_one_row", return_value=("WIN", 2.0, {})):
+        result = ots._resolve_signals_table_rows("modelA", window_days=30, stop_pct=0.05,
+                                                   target_r_multiple=2.0, resolution_window_days=5)
+    assert result["total_available"] == 1
+    assert result["n"] == 1
+
+
+def test_resolve_fleet_average_alltime(temp_db):
+    ratings = [
+        {"player_id": "a", "display_name": "A", "win_rate": 60.0, "total_pnl": 100.0, "total_trades": 10},
+        {"player_id": "b", "display_name": "B", "win_rate": 40.0, "total_pnl": -50.0, "total_trades": 5},
+        {"player_id": "c", "display_name": "C", "win_rate": 0.0, "total_pnl": 0.0, "total_trades": 0},  # no trades
+    ]
+    with patch("engine.agent_ratings.fleet_report_card", return_value=ratings):
+        result = ots._resolve_fleet_average(window_days=365)  # -> alltime bucket
+    assert result["wr"] == pytest.approx((0.60 + 0.40) / 2)
+    assert result["total_pnl"] == 50.0
+    assert result["n"] == 15  # 10 + 5, the zero-trade agent excluded
+
+
+def test_resolve_fleet_average_no_trades_returns_none_not_crash(temp_db):
+    with patch("engine.agent_ratings.fleet_report_card", return_value=[]):
+        result = ots._resolve_fleet_average(window_days=365)
+    assert result["wr"] is None
+    assert result["n"] == 0
+
+
+def _make_strategy_signals_table(db_path):
+    conn = sqlite3.connect(db_path)
+    conn.execute("""CREATE TABLE strategy_signals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, scan_date DATE NOT NULL, ticker TEXT NOT NULL,
+        strategy_name TEXT NOT NULL, signal_type TEXT, confidence REAL,
+        entry_price REAL, stop_price REAL, target_price REAL, notes TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )""")
+    conn.commit()
+    conn.close()
+
+
+def test_resolve_strategy_signals_only_rows_with_complete_price_triple(temp_db):
+    _make_strategy_signals_table(temp_db)
+    # created_at must clear the resolvable cutoff (resolution_window_days=5)
+    # -- same "old enough to resolve" requirement as the signals-table fix.
+    old_ts = (datetime.utcnow() - timedelta(days=10)).strftime("%Y-%m-%d %H:%M:%S")
+    conn = sqlite3.connect(temp_db)
+    conn.execute("INSERT INTO strategy_signals (scan_date, ticker, strategy_name, entry_price, stop_price, target_price, created_at) "
+                 "VALUES ('2026-06-30','AAPL','orb',100,95,110,?)", (old_ts,))
+    conn.execute("INSERT INTO strategy_signals (scan_date, ticker, strategy_name, entry_price, stop_price, target_price, created_at) "
+                 "VALUES ('2026-06-30','MSFT','orb',NULL,NULL,NULL,?)", (old_ts,))  # incomplete -- must be excluded
+    conn.commit()
+    conn.close()
+    with patch.object(ots, "_resolve_one_row", return_value=("WIN", 2.0, {})):
+        result = ots._resolve_strategy_signals(window_days=30, resolution_window_days=5)
+    assert result["sample_size"] == 1
+    assert result["total_available"] == 1
+
+
+def test_resolve_buy_hold_spy_computes_return(temp_db):
+    candles = [_candle("2026-06-10T14:00:00Z", 100, 101, 99, 100.0),
+               _candle("2026-07-09T14:00:00Z", 110, 111, 109, 110.0)]
+    with patch("engine.market_data.get_intraday_candles", return_value=candles):
+        result = ots._resolve_buy_hold_spy(window_days=30)
+    assert result["total_return_pct"] == pytest.approx(10.0)
+    assert result["wr"] is None  # not a WR-comparable series
+
+
+def test_resolve_buy_hold_spy_empty_candles_returns_none(temp_db):
+    with patch("engine.market_data.get_intraday_candles", return_value=[]):
+        result = ots._resolve_buy_hold_spy(window_days=30)
+    assert result["total_return_pct"] is None
+
+
+def test_compute_compare_verdict_consensus_beats_best_solo(temp_db):
+    ots._compare_cache.clear()  # different tests share cache keys (window_days=30, traded_only=False)
+    with patch.object(ots, "_resolve_ollietrades_signal_series", return_value={"wr": 0.8, "n": 5, "avg_r_multiple": 1.5, "total_signals": 5}), \
+         patch.object(ots, "get_winning_models", return_value=[{"player_id": "a", "display_name": "Agent A"}]), \
+         patch.object(ots, "_resolve_signals_table_rows", return_value={"wr": 0.5, "n": 10, "avg_r_multiple": 0.2,
+                                                                          "sample_size": 10, "total_available": 10, "sample_capped": False}), \
+         patch.object(ots, "_resolve_fleet_average", return_value={"wr": 0.45, "n": 100, "total_pnl": 500.0}), \
+         patch.object(ots, "_resolve_strategy_signals", return_value={"wr": 0.5, "n": 8, "avg_r_multiple": 0.3,
+                                                                        "sample_size": 8, "total_available": 8, "sample_capped": False}), \
+         patch.object(ots, "_resolve_buy_hold_spy", return_value={"wr": None, "n": 0, "avg_r_multiple": None, "total_return_pct": 4.0}):
+        result = ots.compute_compare(window_days=30, traded_only=False)
+
+    assert len(result["series"]) == 5  # ollietrades_signal + 1 solo + fleet + scanner + spy
+    assert result["verdict"]["consensus_wr"] == 0.8
+    assert result["verdict"]["best_solo_wr"] == 0.5
+    assert result["verdict"]["best_solo_model"] == "Agent A (solo)"
+    assert result["verdict"]["consensus_beats_best_solo"] is True
+
+
+def test_compute_compare_verdict_none_when_no_solo_models(temp_db):
+    ots._compare_cache.clear()
+    with patch.object(ots, "_resolve_ollietrades_signal_series", return_value={"wr": None, "n": 0, "avg_r_multiple": None, "total_signals": 0}), \
+         patch.object(ots, "get_winning_models", return_value=[]), \
+         patch.object(ots, "_resolve_fleet_average", return_value={"wr": None, "n": 0, "total_pnl": None}), \
+         patch.object(ots, "_resolve_strategy_signals", return_value={"wr": None, "n": 0, "avg_r_multiple": None,
+                                                                        "sample_size": 0, "total_available": 0, "sample_capped": False}), \
+         patch.object(ots, "_resolve_buy_hold_spy", return_value={"wr": None, "n": 0, "avg_r_multiple": None, "total_return_pct": None}):
+        result = ots.compute_compare(window_days=30, traded_only=False)
+
+    assert len(result["series"]) == 4  # no solo-model series since get_winning_models returned []
+    assert result["verdict"]["consensus_beats_best_solo"] is None
+    assert result["verdict"]["best_solo_model"] is None
+
+
+def test_compute_compare_caches_repeat_calls_same_key(temp_db):
+    """The literal fix for the concurrent-pile-up latency found live: a
+    second call with the SAME (window_days, traded_only) within the TTL
+    must NOT re-invoke the expensive resolvers."""
+    ots._compare_cache.clear()
+    call_count = {"n": 0}
+
+    def _counted(*a, **kw):
+        call_count["n"] += 1
+        return {"wr": None, "n": 0, "avg_r_multiple": None, "total_signals": 0}
+
+    with patch.object(ots, "_resolve_ollietrades_signal_series", side_effect=_counted), \
+         patch.object(ots, "get_winning_models", return_value=[]), \
+         patch.object(ots, "_resolve_fleet_average", return_value={"wr": None, "n": 0, "total_pnl": None}), \
+         patch.object(ots, "_resolve_strategy_signals", return_value={"wr": None, "n": 0, "avg_r_multiple": None,
+                                                                        "sample_size": 0, "total_available": 0, "sample_capped": False}), \
+         patch.object(ots, "_resolve_buy_hold_spy", return_value={"wr": None, "n": 0, "avg_r_multiple": None, "total_return_pct": None}):
+        first = ots.compute_compare(window_days=14, traded_only=False)
+        second = ots.compute_compare(window_days=14, traded_only=False)
+
+    assert call_count["n"] == 1  # second call served from cache, resolver not re-invoked
+    assert first == second
+
+
+def test_compute_compare_cache_key_is_per_window_and_toggle(temp_db):
+    """A different window_days (or traded_only) must NOT hit another key's
+    cached entry -- each combination gets its own live compute."""
+    ots._compare_cache.clear()
+    call_count = {"n": 0}
+
+    def _counted(*a, **kw):
+        call_count["n"] += 1
+        return {"wr": None, "n": 0, "avg_r_multiple": None, "total_signals": 0}
+
+    with patch.object(ots, "_resolve_ollietrades_signal_series", side_effect=_counted), \
+         patch.object(ots, "get_winning_models", return_value=[]), \
+         patch.object(ots, "_resolve_fleet_average", return_value={"wr": None, "n": 0, "total_pnl": None}), \
+         patch.object(ots, "_resolve_strategy_signals", return_value={"wr": None, "n": 0, "avg_r_multiple": None,
+                                                                        "sample_size": 0, "total_available": 0, "sample_capped": False}), \
+         patch.object(ots, "_resolve_buy_hold_spy", return_value={"wr": None, "n": 0, "avg_r_multiple": None, "total_return_pct": None}):
+        ots.compute_compare(window_days=7, traded_only=False)
+        ots.compute_compare(window_days=30, traded_only=False)
+        ots.compute_compare(window_days=7, traded_only=True)
+
+    assert call_count["n"] == 3  # three distinct cache keys -> three live computes
 
 
 if __name__ == "__main__":
