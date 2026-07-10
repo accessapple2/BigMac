@@ -272,6 +272,32 @@ def _find_open_duplicate(underlying: str, strategy: str, occ_symbols: list[str])
     return None
 
 
+def _find_open_position_id(underlying: str, strategy: str, occ_symbols: list[str]) -> Optional[int]:
+    """id of an existing status='open' row with identical legs + strategy, for a
+    close to update -- any exec_status (unlike _find_open_duplicate's _LIVE_STATUSES
+    guard, which only cares about not-yet-filled orders). Most-recent match wins if
+    more than one (HM-SWINGDESK-CLOSE-PHANTOM-ROW 2026-07-10 found real duplicate
+    open rows from repeated manual test submissions)."""
+    target = sorted(occ_symbols)
+    conn = sqlite3.connect(str(_DB), timeout=10)
+    try:
+        rows = conn.execute(
+            "SELECT id, legs_json FROM options_trades "
+            "WHERE symbol=? AND strategy_id=? AND status='open' "
+            "ORDER BY id DESC",
+            (underlying, strategy)).fetchall()
+    finally:
+        conn.close()
+    for trade_id, legs_json in rows:
+        try:
+            syms = sorted(l.get("symbol") for l in json.loads(legs_json or "[]"))
+        except Exception:
+            continue
+        if syms == target:
+            return trade_id
+    return None
+
+
 def build_mleg_order(legs: list[dict], qty: int, net_debit_limit: float,
                      client_order_id: Optional[str] = None, action: str = "open"):
     """Return (LimitOrderRequest, serializable payload dict). Debit → positive limit_price.
@@ -421,13 +447,58 @@ def submit_spread(legs: list[dict], qty: int = 1, structure: str = "vertical_spr
         order = client.submit_order(req)   # L1: req carries client_order_id
         oid = str(order.id)
         exec_status = _norm_status(getattr(order, "status", "pending"))
-        trade_id = _persist(underlying, structure, strategy, expiration,
-                            norm, debit, qty, oid, exec_status)
+        # HM-SWINGDESK-CLOSE-PHANTOM-ROW 2026-07-10: action='close' used to fall
+        # through to _persist() (the same open-insert function) unconditionally,
+        # creating a brand-new row for the close order instead of closing the
+        # original -- the original stayed status='open' forever (invisible to
+        # every P&L/win-rate query, same failure mode as
+        # strategies/executor.py's HM-STRATEGIES-EXECUTOR-STATUS-NEVER-SET) and
+        # a second, indistinguishable-from-a-fresh-position row appeared for
+        # the close itself. Confirmed against real 2026-06-11 data (ids 93-95).
+        # pnl/exit_credit_debit are deliberately NOT computed here -- same
+        # unverified MLEG close fill-price sign-convention risk as the
+        # strategies/executor.py fix; see docs/XO_BACKLOG.md.
+        if action == "close":
+            trade_id = _close_original_position(underlying, strategy, occ_symbols, oid)
+            if trade_id is None:
+                # No matching open row found -- fall back to _persist() so the
+                # close event is still recorded somewhere rather than silently
+                # dropped, but flag it clearly since this is the anomaly path.
+                trade_id = _persist(underlying, structure, strategy, expiration,
+                                    norm, debit, qty, oid, exec_status)
+                base["note"] = ("no matching open position found to close -- "
+                                "persisted as a new row instead (anomaly)")
+        else:
+            trade_id = _persist(underlying, structure, strategy, expiration,
+                                norm, debit, qty, oid, exec_status)
         base.update({"submitted": True, "broker_order_id": oid,
                      "exec_status": exec_status, "options_trade_id": trade_id})
         return base
     except Exception as e:
         return {"ok": False, "error": f"{type(e).__name__}: {e}", "payload": payload}
+
+
+def _close_original_position(underlying: str, strategy: str, occ_symbols: list[str],
+                             close_broker_order_id: str) -> Optional[int]:
+    """Update the existing open row to status='closed' instead of inserting a
+    new one. Returns the closed row's id, or None if no matching open row was
+    found. pnl is left NULL (see HM-SWINGDESK-CLOSE-PHANTOM-ROW note above)."""
+    trade_id = _find_open_position_id(underlying, strategy, occ_symbols)
+    if trade_id is None:
+        return None
+    conn = sqlite3.connect(str(_DB), timeout=30)
+    try:
+        conn.execute("PRAGMA busy_timeout=30000")
+        conn.execute(
+            "UPDATE options_trades SET status='closed', exit_date=?, "
+            "exit_reason=COALESCE(exit_reason || ' | ', '') || ? WHERE id=?",
+            (datetime.now(timezone.utc).isoformat(timespec="seconds"),
+             f"swingdesk_close order={close_broker_order_id}", trade_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return trade_id
 
 
 # ── fill polling (updates options_trades by broker_order_id) ──────────────────
