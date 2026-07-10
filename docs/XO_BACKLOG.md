@@ -8658,3 +8658,70 @@ for this pattern going forward, in `engine/crew_scanner.py`).
   mechanisms with different fixes).
 - Not urgent — `is_confidence_reliable('ollama-plutus')` now surfaces
   the symptom automatically; this ticket is about the underlying cause.
+
+## HM-CF-502-BLIP-2026-07-09 — investigated, no origin-side cause found
+
+**Reported:** Cloudflare returned 502 error pages for every `/api/*` fetch
+for ~2 minutes starting ~16:43 MST (23:43 UTC — the audit's "16:43 ET" is
+the known TZ-display-mislabel, not a real ET timestamp; see
+`feedback_trader_process_clock_skew_utc` doctrine). Self-recovered.
+
+**Checked and ruled out:**
+- **`trader.log`** shows fully continuous `[ENDPOINT-DUR]` traffic through
+  16:40-16:46 MST with no gap and no abnormal `wall=` time — the origin
+  process (`main.py`, pid 10120 at the time) was never unresponsive or
+  blocked in that window.
+- **`trader_error.log` / `hm_ops_sentinel.py`'s own byte-offset-tracked
+  lock check** show zero `database is locked` occurrences since 10:33 MST
+  today — this morning's lock storm (06:50-10:33 MST, confirmed real: many
+  `sqlite3.OperationalError: database is locked` across `paper_trader.py`,
+  `war_room.py`, `main.py` Autopilot, and LRS rating writes) had already
+  ended almost 6 hours before tonight's blip and has **not recurred**.
+  **Tonight's 502 is a different incident from this morning's lock storm,
+  not a repeat of it.**
+- **`logs/cloudflared-daemon.log`** (the tunnel's own connection log — quic
+  dial failures, stream errors, reconnects) has no entries at all in the
+  16:43-16:45 MST window; the nearest logged reconnect activity was
+  16:51-16:57 MST, 46-52 minutes earlier, and nothing since. The tunnel's
+  own edge connection was stable through the reported blip.
+
+**Conclusion:** no origin-side (app process, SQLite, or our own tunnel
+client) cause correlates with the timing. Most likely a transient
+Cloudflare-edge-side routing blip external to our infrastructure, which
+self-recovered as reported. Nothing actionable found — flagging as
+investigated-and-closed rather than leaving it open with no lead.
+
+**Sentinel conditions checked in the same pass:**
+- **(a) `rikers_log` heartbeat staleness (153→198 min stale):** RESOLVED.
+  Root cause was the `ModuleNotFoundError: No module named 'engine'`
+  crash-loop in `riker_synthesis.py`'s cron invocation (missing repo-root
+  `sys.path` insertion), fixed in commit `224292b` (2026-07-09 14:55 MST —
+  landed before tonight's audit). Verified live: `rikers_log` has persisted
+  every 10 minutes with zero gaps since ~15:00 MST (latest row
+  `2026-07-10 00:30:00`, 3 min old at check time); `hm_ops_sentinel.py`'s
+  own heartbeat `age_min` reads 0-10 continuously, well under the 25-min
+  RED_ALERT threshold. No further action needed.
+- **(b) `signals_v2` FIFO starvation (oldest-pending ~360h):** still open,
+  confirmed live (`hm_ops_sentinel_cron.log` shows `oldest_age_hours`
+  climbing 362.8→364.9 tonight, WARNING firing every cycle, rate-limited to
+  ~1 ntfy push/30min — the sentinel is working correctly, the underlying
+  condition is real). **Recommendation #1 from `HM-SIGNALS-V2-FIFO-STARVATION`
+  above (expire pending rows from halted/non-active sources) was already
+  applied** via the one-time `scripts/hm_signals_v2_expire_halted_backlog.py`
+  cleanup — pending dropped from 15,061 to 739, `navigator`'s 13,063 dead
+  rows are gone. **Recommendation #2 (priority-lane / age-ordering for the
+  remaining active-source rows) is still not built** — the oldest pending
+  row is still the same `2026-06-24 19:42:20` signal, now blocking strict
+  FIFO ahead of every fresh active-source signal. Confirmed the consumer
+  itself (`run_events_bus_consumer`, `main.py:3441`) is healthy, not
+  stalled — it drained normally all day and stopped exactly at 16:00 ET
+  market close (correct by-design `is_us_market_open()` gating, 1-min
+  cadence), so the queue will resume strict-FIFO draining tomorrow at open,
+  still behind the same 15-day-old row. **Deferring, not applying #2** —
+  this is a live-trading dequeue-order policy change (FIFO-age-cap vs.
+  newest-first vs. hybrid-drain are genuinely different behaviors, not a
+  single obviously-correct bug fix) and the backlog entry above already
+  explicitly gates it on Admiral sign-off. If asked to pick one: option
+  (a) — reorder by `created_at DESC` within active sources only — matches
+  the swing-surge intent with the least behavioral surprise for the other
+  ~1,285 legacy active-source rows already in queue.
