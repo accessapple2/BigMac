@@ -6509,6 +6509,16 @@ def _canonical_gex_cached(symbol: str) -> dict:
             threading.Thread(target=_refresh, daemon=True, name=f"gex_refresh_{symbol}").start()
         stale = dict(entry["data"])
         stale["_stale_since"] = entry["ts"]
+        # HM-BUG-BATCH-2026-07-09: market_closed was whatever it was AT
+        # CACHE-WRITE TIME and never got re-evaluated for staler reads --
+        # a cache entry warmed while the market was open (market_closed=
+        # False) keeps reporting False forever after close, since nothing
+        # re-refreshes it once _gex_market_open() goes False (the
+        # background-refresh kick above is itself gated on market hours).
+        # Recompute fresh on every serve so the frontend's "last session
+        # close" labeling (bridge-v2.html loadGex/loadMacroGex) actually
+        # fires when it should.
+        stale["market_closed"] = not _gex_market_open()
         return stale
 
     # Cold cache — bounded synchronous fetch so the request thread never hangs.
@@ -6561,6 +6571,13 @@ def _preload_gex_cache():
         if not data or (data.get("call_wall") is not None and data["call_wall"] == data.get("put_wall") == data.get("king_node")):
             continue
         data["as_of"] = data.get("_asof")
+        # HM-BUG-BATCH-2026-07-09: this seed never set market_closed at all
+        # (defaults to bool(None)=False downstream), so the FIRST request
+        # after every restart briefly showed a bare "as of HH:MM:SS" instead
+        # of the "last session close" label -- exactly the transient gap
+        # this preload function exists to avoid. Same fix as the SWR
+        # stale-serve branch below.
+        data["market_closed"] = not _gex_market_open()
         _gex_symbol_cache[sym] = {"data": data, "ts": now}
 
     if not _gex_market_open():
