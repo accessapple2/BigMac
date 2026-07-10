@@ -10200,56 +10200,58 @@ def portfolio_real():
     liquid_total += result["ibkr"]["total"]
 
     # ── 4. Physical metals (live spot × held oz) ───────────────────────────
-    gold_oz = 1.0
-    gold_avg_cost = 5249.99
-    silver_oz = 65.0
-    silver_avg_cost = 77.67
+    # HM-BUG-BATCH-2026-07-10 item 9: this section used to hardcode
+    # gold_oz/gold_avg_cost/silver_oz/silver_avg_cost as literals
+    # (silver_oz=65.0) -- a second, independent, stale copy of what the
+    # metals_ledger purchase-transaction table already tracks authoritatively
+    # (7 real silver purchases summing to 75.0 oz, not 65.0). That's exactly
+    # why result["unified"]["by_symbol"] (below, sourced from
+    # engine.total_portfolio._load_metals() over the SAME ledger) disagreed
+    # with result["metals"] in the same API response -- two independently
+    # maintained copies of one physical holding, guaranteed to drift the
+    # moment a new purchase was logged to the ledger but not also hand-typed
+    # here. Fixed by calling _load_metals() directly instead of
+    # reimplementing its query a second time -- one function, one ledger
+    # read, both consumers of this response now structurally cannot disagree
+    # (see tests/test_portfolio_real_metals_agreement.py).
+    from engine.total_portfolio import _load_metals as _load_metals_for_real
+    _metals_positions = {}
     try:
-        from engine.metals_tracker import get_spot_prices
-        spot = get_spot_prices(fresh=False) or {}
-        # HM-METALS-SPOT-KEY-CASE 2026-05-23: engine.metals_tracker.get_spot_prices
-        # emits keys in UPPERCASE ({"GOLD": {...}, "SILVER": {...}, "PLATINUM":...,
-        # "PALLADIUM":..., "GSR": ...}). This consumer was reading them lowercase
-        # (.get("gold") / .get("silver")) and silently returned None forever —
-        # surfaced as "spot unavailable" / no gain-loss on the Real Portfolio tab
-        # gold/silver cards. Fix is purely the case mismatch; the underlying
-        # Polygon→yfinance fetch chain in engine.market_data.get_stock_price is
-        # already correct (Polygon is the primary, yfinance is the fallback —
-        # both verified returning live prices: GOLD $4523.20, SILVER $76.20).
-        # Belt-and-braces: try uppercase first (canonical), fall back to lowercase
-        # in case a future refactor of metals_tracker normalizes keys downward.
-        def _spot(k):
-            return ((spot.get(k.upper()) or {}).get("price")
-                    or (spot.get(k.lower()) or {}).get("price"))
-        gold_spot = _spot("gold")
-        silver_spot = _spot("silver")
-    except Exception:
-        gold_spot = None
-        silver_spot = None
-    gold_mv = round(gold_spot * gold_oz, 2) if isinstance(gold_spot, (int, float)) else None
-    silver_mv = round(silver_spot * silver_oz, 2) if isinstance(silver_spot, (int, float)) else None
-    result["metals"]["gold"] = {
-        "oz": gold_oz,
-        "avg_cost": gold_avg_cost,
-        "spot_price": gold_spot,
-        "current_value": gold_mv,
-        "cost_basis": round(gold_oz * gold_avg_cost, 2),
-        "unrealized": (round(gold_mv - gold_oz * gold_avg_cost, 2)
-                       if gold_mv is not None else None),
-    }
-    result["metals"]["silver"] = {
-        "oz": silver_oz,
-        "avg_cost": silver_avg_cost,
-        "spot_price": silver_spot,
-        "current_value": silver_mv,
-        "cost_basis": round(silver_oz * silver_avg_cost, 2),
-        "unrealized": (round(silver_mv - silver_oz * silver_avg_cost, 2)
-                       if silver_mv is not None else None),
-    }
-    if gold_mv is not None:
-        liquid_total += gold_mv
-    if silver_mv is not None:
-        liquid_total += silver_mv
+        _metals_positions = {
+            p["symbol"]: p for p in (_load_metals_for_real().get("positions") or [])
+        }
+    except Exception as _ledger_err:
+        result["notes"].append(
+            f"metals_ledger read failed ({type(_ledger_err).__name__}): "
+            "gold/silver unavailable"
+        )
+
+    def _metal_result(sym: str) -> dict:
+        p = _metals_positions.get(sym)
+        if p is None:
+            return {"oz": None, "avg_cost": None, "spot_price": None,
+                    "current_value": None, "cost_basis": None, "unrealized": None}
+        oz = p.get("qty")
+        avg_cost = p.get("avg_cost")
+        mv = p.get("market_value")
+        cost_basis = round(oz * avg_cost, 2) if oz is not None and avg_cost is not None else None
+        spot_price = (mv / oz) if (mv is not None and oz) else None
+        return {
+            "oz": oz,
+            "avg_cost": avg_cost,
+            "spot_price": spot_price,
+            "current_value": round(mv, 2) if mv is not None else None,
+            "cost_basis": cost_basis,
+            "unrealized": (round(mv - cost_basis, 2)
+                           if mv is not None and cost_basis is not None else None),
+        }
+
+    result["metals"]["gold"] = _metal_result("GOLD")
+    result["metals"]["silver"] = _metal_result("SILVER")
+    if result["metals"]["gold"]["current_value"] is not None:
+        liquid_total += result["metals"]["gold"]["current_value"]
+    if result["metals"]["silver"]["current_value"] is not None:
+        liquid_total += result["metals"]["silver"]["current_value"]
 
     result["net_worth_liquid"] = round(liquid_total, 2)
     # W5-D 2026-05-23 — additively enrich the response with the richer
