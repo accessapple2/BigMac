@@ -999,7 +999,7 @@ proposal (e.g., a wider catch-up window, or firing once immediately on
 `main.py` startup if today's earliest slot was missed).
 
 ---
-## 🟡 HM-ERROR-FILTER-CONSOLIDATION — filed 2026-07-05, RE-SCOPED 2026-07-11 (Phase 3, bigger than originally filed)
+## 🟡 HM-ERROR-FILTER-CONSOLIDATION — filed 2026-07-05, DECIDED 2026-07-11 — KEEP for now, real follow-up identified but bigger than a "consolidation"
 
 `scripts/daily_report.py::get_error_summary()` filters real errors with a
 blanket `"[LRS]" not in line` exclusion — this hides ANY error tagged `[LRS]`
@@ -1045,23 +1045,55 @@ against today's logs (not guessed):
   would need its own allowlist entry to avoid false-positive inflation if
   ever counted.)
 
-**Fix, re-scoped:** `engine/error_filter.py` (mirrors the existing
-`engine/trades_filter.py::CLEAN_TRADES_WHERE` precedent — one canonical
-definition both scripts import, same pattern already used in this repo),
-carrying `genuine_error_count()` + `KNOWN_FALSE_POSITIVE_PATTERNS`
-(migrated from `eod_report.py`, plus the new `🔴🔴 CRITICAL` entry). BUT the
-date-filtering defect against `trader_error.log` needs a real fix first
-(the file needs a per-line date, or the filter needs a different
-date-inference strategy) — the shared function is not meaningful against
-that file until then. Migrating `eod_report.py` to the shared module
-should be a zero-behavior-change refactor (its `trader.log`-derived count
-stays the same). Migrating `daily_report.py` will NOT be zero-behavior-
-change: once both the allowlist fix and the date-filter fix land, its
-reported count will jump from ~0 today to potentially several hundred/day
-— **flag this to the Admiral and get sign-off before shipping**, don't
-silently change what a report's numbers mean. Not actioned this pass —
-scoped only, per Phase 3's own "not urgent" framing, but now understood
-correctly rather than as a one-line allowlist swap.
+**Admiral decision 2026-07-11: KEEP, not FIX — but a real, bigger
+follow-up was found underneath.** Went to implement the "shared
+`engine/error_filter.py`" fix and traced `trader_error.log`'s origin
+first, since the scoping pass flagged the date-format defect as needing
+resolution "not guessed." Found it's deeper than a formatter tweak:
+
+- `trader_error.log` is **plain shell stderr redirection**
+  (`scripts/trader_restart.sh:98`: `nohup "$PYTHON" "$ENTRYPOINT" >>
+  "$LOG" 2>> "$ERR" &`), not a single Python `logging` handler with one
+  controllable format string. Whatever any code anywhere in the trader
+  process writes to stderr — `console.log`/`logger` calls from dozens of
+  different call sites each with their own ad-hoc prefix, PLUS raw
+  Python tracebacks (which have no timestamp or tag prefix at all) —
+  lands in this file verbatim, in whatever format that individual call
+  site happens to use. There is no single source to patch.
+- Making this file genuinely, correctly date-filterable would mean
+  either (a) auditing and standardizing many independent logging call
+  sites across the codebase to emit a consistent `[YYYY-MM-DD HH:MM:SS]`
+  prefix (`trader.log`'s format) — a real, multi-file undertaking, not a
+  quick fix, with ongoing risk that new call sites drift out of sync
+  again — or (b) a fragile heuristic (file-position/rotation-boundary
+  inference) that wouldn't produce a trustworthy "genuine error count."
+  Neither is a same-session, low-risk change.
+- Given that, extracting just `engine/error_filter.py` +
+  `KNOWN_FALSE_POSITIVE_PATTERNS` right now would either (a) leave
+  `daily_report.py`'s count near-zero regardless (since the shared
+  function's date match still can't read `trader_error.log`, same
+  problem as `eod_report.py` has today) — cosmetic, not a real fix — or
+  (b) require doing the bigger date-format standardization in the same
+  pass, which is genuinely out of scope for a "consolidate a filter
+  function" ticket.
+
+**Practical impact of KEEPing as-is:** `daily_report.py`'s error count
+stays low-stakes — it's a 10 PM cron writing to `drafts/DAILY_REPORT_
+<date>.md` only, **no ntfy push**, purely archival (confirmed via its
+own docstring + cron entry, `0 22 * * 1-5`). `eod_report.py`'s ntfy-pushed
+count (the one that actually matters day to day) is unaffected by this
+decision — it already correctly counts everything from `trader.log`,
+and its blind spot against `trader_error.log`-only errors (ntfy
+timeouts, Ollama 503s, Yahoo 404s) is real but has existed unnoticed
+this whole time; fixing it now would require the same bigger
+log-standardization work.
+
+**Real follow-up identified, not actioned:** if `trader_error.log`'s
+errors should ever be visible in the actively-pushed `eod_report.py`,
+that's its own dedicated project (standardize log line prefixes across
+the codebase's stderr-writing call sites) — bigger than "error filter
+consolidation," genuinely worth scoping separately if this becomes a
+priority, not something to rush under a same-turn keep-vs-fix decision.
 
 ---
 ## 🟢 HM-TUNING-CREW-REPAIR — SHIPPED 2026-07-06 (from the degraded 2026-07-05 21:30 run)
@@ -1609,25 +1641,18 @@ window and the sweep's 22:10 kickoff both finish). Needs Admiral go-ahead
 before adding to `crontab -e`, same durability caveat as `HM-SWEEP-
 CADENCE` above (a manual dry-run doesn't survive session death).
 
-**9. Error-filter consolidation — RE-SCOPED 2026-07-11, bigger than
-originally filed.** See `HM-ERROR-FILTER-CONSOLIDATION` above for the
-full finding: the `[LRS]`-blanket-exclusion bug is real, but it's
-currently masked by a SEPARATE, more severe bug — `trader_error.log`
-lines have no per-line date prefix at all (`HH:MM:SS [TAG] ...`, not
-`[YYYY-MM-DD ...`), so BOTH `eod_report.py`'s bracket-prefix filter and
-`daily_report.py`'s date-substring filter effectively fail to read that
-file's errors by date at all. `eod_report.py`'s "genuine errors" count
-today only reflects `trader.log`, zero contribution from
-`trader_error.log`, silently. Recommended: `engine/error_filter.py`
-(shared `genuine_error_count()` + `KNOWN_FALSE_POSITIVE_PATTERNS`,
-mirroring the existing `engine/trades_filter.py::CLEAN_TRADES_WHERE`
-precedent) — but the date-filtering defect needs a real fix (not
-guessed) before the shared function is meaningful against
-`trader_error.log`, and `daily_report.py`'s reported count will jump
-visibly (~0 → several hundred/day) once both land — flag this to the
-Admiral before shipping, don't silently change a report's numbers. Not
-actioned this pass — filed as its own scoped fix, `engine/trades_filter.py`
-precedent confirms the design direction is right.
+**9. Error-filter consolidation — DECIDED 2026-07-11: KEEP, not FIX.**
+See `HM-ERROR-FILTER-CONSOLIDATION` above for the full finding: went to
+implement the fix and found `trader_error.log` is plain shell stderr
+redirection with no single controllable format (dozens of independent
+call sites, each with their own ad-hoc prefix, plus raw tracebacks with
+no timestamp at all) — standardizing it into something genuinely
+date-filterable is a real multi-file undertaking, not a quick
+consolidation. `daily_report.py`'s broken count is low-stakes (archival
+only, no ntfy push); `eod_report.py`'s actively-pushed count is
+unaffected either way. Real follow-up identified (standardize log line
+prefixes codebase-wide) but explicitly not actioned — bigger than this
+ticket, worth its own dedicated session if ever prioritized.
 
 **10. Pre-flight alarm test, day before departure.** Kill each service
 (trader/dashboards/tunnel) one at a time and confirm the Phase-1-item-1
