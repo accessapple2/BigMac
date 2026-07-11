@@ -24,3 +24,8 @@ check_and_restart "main.py (bridge)" "http://localhost:8080/api/status" "scripts
 check_and_restart "signal-center"    "http://localhost:9000/api/health" "scripts/signal_center_restart.sh"
 check_and_restart "swingdesk"        "http://localhost:8889/api/health" "scripts/swingdesk_restart.sh"
 check_and_restart "status_page"      "http://localhost:8090/"           "scripts/status_page_restart.sh"
+# HM-DEPARTURE-HARDENING-P1-ITEM-2 2026-07-10 — tour_api had no healthcheck
+# coverage at all (confirmed via docs/XO_BACKLOG.md XO-DEPARTURE-HARDENING
+# status check). tour_api_restart.sh handles its self-respawn-loop
+# architecture correctly (kills the wrapper too, not just the process).
+check_and_restart "tour-api"         "http://localhost:8088/api/tour/health" "scripts/tour_api_restart.sh"

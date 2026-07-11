@@ -1076,7 +1076,7 @@ silently inert, not merely a line in a commit message. Anyone auditing past
 not a signal-quality or gating problem.
 
 ---
-## 🟡 XO-DEPARTURE-HARDENING — Phase 1 remaining, filed 2026-07-06 (Admiral restated), current status checked 2026-07-10
+## 🟢 XO-DEPARTURE-HARDENING — Phase 1, filed 2026-07-06 (Admiral restated), all four gap-closing scripts WIRED LIVE 2026-07-10
 
 Context: Admiral departs in a few days; after that the system runs
 monitoring-only (phone push, no hands-on). All unattended automation in this
@@ -1115,16 +1115,21 @@ much better shape than filed — most of both are already live:
   `track_incumbent_auditions()` and correctly reports both auditions as
   suspended (`HM-EDGE-PROVENANCE` ruling).
 
-**PROPOSED (not yet wired into cron or origin_healthcheck.sh — pending
-sign-off), all syntax-checked and dry-run-verified against live data:**
+**WIRED IN LIVE 2026-07-10** (all four; syntax-checked and dry-run-verified
+against live data before wiring, per-script behavior confirmed safe
+before scheduling):
 - `scripts/tour_api_restart.sh` — kills both tour_api's respawn-loop
   wrapper and the underlying process (it has its own self-respawn loop,
   unlike the other services, so a plain process kill would just get
-  instantly re-spawned with the same wedge), relaunches detached. Wiring
-  step: add one `check_and_restart` line to `origin_healthcheck.sh`.
+  instantly re-spawned with the same wedge), relaunches detached. Added
+  as a fifth `check_and_restart` line in `origin_healthcheck.sh`
+  (live-scheduled cron `*/5`) — confirmed tour_api healthy (200) before
+  wiring, then manually ran the updated script and confirmed a clean
+  silent pass (no restart triggered, no false positive).
 - `scripts/disk_space_alert.sh` — WARN 85% / ALARM 95% used, one push per
   severity per day, independent of the backup scripts by construction.
-  Dry-ran clean against the real box (29% used, 40GB free).
+  Crontab: `0 6,13,20 * * *` (3x/day, every day). Dry-ran clean against
+  the real box (29% used, 40GB free).
 - `scripts/door1_kill_gate_check.py` — computes and pushes G1-G4 per
   `OLLIETRADES_KILL_GATE.md`'s pre-committed criteria. Compute-and-push
   only, never acts. G4 correctly reports inconclusive (no parallel-
@@ -1133,12 +1138,18 @@ sign-off), all syntax-checked and dry-run-verified against live data:**
   since no queryable DAY-0 baseline was ever stored. G3 scoped to
   `structure='csp'` (an explicit interpretation call, flagged in the push
   itself, since the doc's own G3 SQL note doesn't state the filter
-  explicitly). Dry-run against live data today: G1 PASS ($2,511.39 vs
-  $500), G3 PASS (2.9% worst-loss ratio vs 20% threshold), G4 N/A.
+  explicitly). Dry-run against live data: G1 PASS ($2,511.39 vs $500), G3
+  PASS (2.9% worst-loss ratio vs 20% threshold), G2 PASS post equity-curve
+  fix (0.17% acct DD vs 0.55% SPY DD), G4 N/A. Crontab: `5 14 * * 1-5`
+  (5min after `eod_report.py` to avoid an exact-minute collision).
 - `scripts/ollie_machine_kill_gate_check.py` — checks both `trades` and
   `options_trades` for the single-agent 2026-07-24 gate
   (`HM-OLLIE-MACHINE-KILLGATE` below). Dry-run: still zero trades, 14
-  days remaining as of today.
+  days remaining as of today. Crontab: `10 14 * * 1-5`.
+
+Crontab verified post-install: 77 → 87 lines, diff showed only the 3 new
+additive blocks (disk-space-alert + both gate scripts), nothing else
+touched or reordered.
 
 **SHIPPED 2026-07-10, found while dry-running the Door-1 script:**
 `dashboard/app.py::_get_alpaca_equity_and_spy_raw()` — the source behind
