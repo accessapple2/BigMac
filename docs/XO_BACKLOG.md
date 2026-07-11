@@ -1258,7 +1258,7 @@ Fully reversible if ever needed: flip the settings flag back, re-add the
 crontab line, uncomment the three calls in `war_room.py`, restart.
 
 ---
-## 🟡 HM-DESK-CHAIN-PROVENANCE — filed 2026-07-05, SCOPED 2026-07-11 — both root causes found, fix is forward-only
+## 🟡 HM-DESK-CHAIN-PROVENANCE — filed 2026-07-05, DECIDED 2026-07-11 — KEEP, not FIX (re-scoped: one half isn't a bug, the other isn't gate-critical)
 
 Two data-integrity anomalies surfaced building the Desk's chain view
 (`GET /api/desk/chain/<signal_id>`, commit `9bb56e6`), not fixed — the Desk
@@ -1326,36 +1326,63 @@ to explicitly guard around.
    links (`ollama-plutus`, `deepseek-7b-grok4`, `ollama-qwen3`,
    `capitol-trades`) are in the legacy whitelist.
 
-**Proposed fix (forward-only, both pieces):**
-- Mislink: add an assertion in `buy()` (`engine/paper_trader.py:690`)
-  that rejects/logs any `signal_id` whose `signals.symbol != symbol`
-  before insert — turns future silent corruption into a loud, catchable
-  failure. The unresolved write-site trace (above) is a prerequisite to
-  actually stopping new bad rows, not just detecting them.
-- `execution_status`: replace the static `_EXECUTION_PORTFOLIO_BY_PLAYER`
-  whitelist gate (3 call sites: `engine/paper_trader.py:1759`, `:2100`,
-  `:4902`) with a check against the real fill confirmation already
-  written elsewhere (`alpaca_status='filled'` / `execution_type=
-  'alpaca_paper'` via `_persist_alpaca_fill`) instead of a stale
-  portfolio-routing table.
+**Admiral decision 2026-07-11: KEEP, not FIX.** Re-examined both pieces
+before implementing the "proposed fix" drafted in the first scoping
+pass, and found that pass over-stated both the bug-ness and the urgency:
 
-**Blast radius — do NOT backfill.** Nothing sacred depends on this data
-yet (only ~3% of trades even carry `signal_id`). A backfill is **not
-safely computable** — same "retrospective join is a DEAD END" trap
-CLAUDE.md's ALPHA READ section already documents for `acted_by_fleet`
-("Fix = emit-time 'acted' tagging... FORWARD-ONLY build"). Recommend:
-leave existing mislinked/never-EXECUTED rows exactly as-is (don't
-"correct" 47/65 historical rows into new guesswork), fix emission
-forward only, and have both 2026-07-24 kill-gates filter on
-`trades.executed_at >= <fix-deploy-date>` when reading `signal_id`/
-`execution_status` as gate-grade evidence — otherwise they'd silently
-inherit this exact blind spot on historical rows even after the code fix
-ships.
+1. **`execution_status` is NOT a bug — verified the full write path.**
+   `engine/paper_trader.py`'s own module docstring (lines 1-35) documents
+   a deliberate three-tier routing model: `trading` (real Alpaca order,
+   `EXECUTED`), `paper` (simulated, DB-only, **"No external broker
+   calls"** by design, `SIMULATED`), `tracking` (log-only). Traced the
+   full path live: `buy()`'s return dict (`:1759`) →
+   `engine/ai_brain.py:1653` (`result.get("execution_status", ...)`) →
+   `:1657` `update_signal_status(signal_id, _signal_status, _reason)` —
+   this IS actually persisted to `signals.execution_status`, working
+   exactly as the module documents. The "fix" drafted in the first pass
+   (swap the whitelist gate for a check against
+   `alpaca_status='filled'`) would have been **a no-op at best, actively
+   misleading at worst** — `paper`-mode trades never call
+   `_forward_to_alpaca`/`_persist_alpaca_fill` at all (confirmed at
+   `:1732-1746`, gated `if route["route_mode"] == "trading":`), so they
+   would never satisfy a fill-confirmation check either. Relabeling them
+   `EXECUTED` would misrepresent trades that are genuinely, intentionally
+   internal-simulation-only. **No code change warranted — this is
+   correct, documented behavior, not a scoping gap.**
 
-Not actioned this pass (scoping only) — the write-site trace for the
-72% mislink is the one piece that needs a dedicated follow-up session
-before any code change lands; the execution_status fix is fully scoped
-and ready to implement whenever prioritized.
+2. **The 2026-07-24 kill-gates do NOT actually read this data — verified
+   directly, corrects the first pass's stated urgency.** Both
+   `scripts/door1_kill_gate_check.py` and
+   `scripts/ollie_machine_kill_gate_check.py` (built 2026-07-10, i.e.
+   AFTER this ticket was filed 2026-07-05) were re-read line by line:
+   neither references `signal_id` or `execution_status` anywhere. G1/G3
+   read `options_trades` directly (`mtm_intrinsic`, `entry_credit_debit`,
+   `pnl`); `ollie-machine`'s `trade_counts()` is a raw
+   `SELECT COUNT(*) FROM trades/options_trades WHERE player_id=?` — no
+   chain-provenance filter of any kind. **The "matters more now... gates
+   read exactly this kind of chain data" framing from the original
+   2026-07-05 filing (and repeated uncorrected in the first 2026-07-11
+   scoping pass) was a reasonable anticipation at filing time that never
+   got re-verified once the gate scripts actually shipped — it does not
+   hold for the gates as built.** Correcting it here rather than letting
+   it stand.
+
+**The 72% `signal_id` mislink remains a real, open, UNFIXED data-quality
+issue** — kept 🔵 open, deprioritized (not gate-critical per the above),
+still needs its own dedicated write-site trace before any code change
+(the actual corrupted rows don't match any currently-visible write
+path, per the first pass's finding — a defensive insert-time assertion
+would only prevent NEW instances, not explain or fix the existing
+pattern, and touching `paper_trader.py`'s execution path without knowing
+the real cause risks papering over a bug instead of catching it). The
+Desk's own display already guards against ever showing a wrong fill
+(`trade.symbol == signal.symbol` check), so the user-facing risk from
+leaving this unfixed is already mitigated. **Do NOT backfill** — same
+"retrospective join is a DEAD END" trap CLAUDE.md's ALPHA READ section
+documents for `acted_by_fleet`; any backfill of the 47/65 historical
+mismatches would just encode new guesswork, not truth.
+
+No code touched this pass. Re-scoping only, correcting the record.
 
 ---
 ## 🔵 HM-CLAUDE-TRADER-GHOST-DEFAULT — filed 2026-07-05 (historical finding, HM-DECISION-DESK-MVP Phase 1)
@@ -1549,14 +1576,18 @@ is dead, not the onboarding design.
 `SHADOW_WITNESS_ENABLED` settings flag flipped false, `ab-witness-*`
 cron removed, trader restarted. Fully executed, reversible.
 
-**7. Desk provenance fix — SCOPED 2026-07-11**, full ticket:
-`HM-DESK-CHAIN-PROVENANCE` below (72% `signal_id` mislink rate +
-`execution_status` never set). Both root causes traced; fix is
-forward-only, no safe backfill exists. Matters more now than when first
-filed: the gate-day scripts in Phase 1 item 4 above read exactly this
-kind of chain data — recommend those gates filter on
-`executed_at >= <fix-deploy-date>` once the forward fix ships. Not
-actioned beyond scoping.
+**7. Desk provenance fix — DECIDED 2026-07-11: KEEP, not FIX**, full
+ticket: `HM-DESK-CHAIN-PROVENANCE` below. Re-scoped on closer look:
+`execution_status` "never EXECUTED" turned out to be correct, documented
+behavior (a deliberate trading/paper/tracking routing model), not a bug
+— no fix needed. The "gate-day scripts read this chain data" concern
+from the original 2026-07-05 filing was **verified false** against the
+actual shipped gate scripts (`door1_kill_gate_check.py`,
+`ollie_machine_kill_gate_check.py`, built 2026-07-10) — neither
+references `signal_id` or `execution_status` at all, both just do raw
+trade counts. Urgency claim corrected. The 72% `signal_id` mislink
+remains real and open but deprioritized (not gate-critical, write-site
+still unknown, needs its own dedicated trace) — no code touched.
 
 ---
 ## 🔴 XO-DEPARTURE-HARDENING — Phase 3, filed 2026-07-06
