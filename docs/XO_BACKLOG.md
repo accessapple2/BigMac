@@ -1701,7 +1701,7 @@ cron line is now redundant (harmless — dup-guarded) given the
 LaunchDaemon; worth removing in a future cleanup pass, not blocking.
 
 ---
-## 🔵 HM-STATUS-PAGE-STALE-CACHE — filed 2026-07-05 (bigmac cold-start test)
+## 🟡 HM-STATUS-PAGE-STALE-CACHE — filed 2026-07-05 (bigmac cold-start test), RE-CHECKED 2026-07-11 — currently fresh under normal operation, cold-start scenario untested since filing
 
 Surfaced during the bigmac cold-start test (`docs/REBOOT_POSTURE.md`):
 `status.ollietrades.com` serves a Cloudflare-cached page with a stale "Last
@@ -1719,9 +1719,35 @@ zone-level Cache Rule / Page Rule ("Cache Everything" or similar) or an Edge
 Cache TTL setting that doesn't respect origin `Cache-Control` for this
 hostname. Real fix is a Cloudflare Zero Trust dashboard change (a Cache Rule
 that bypasses cache for `status.ollietrades.com`, or setting Edge Cache TTL
-to "respect existing headers" / bypass), not a code change. Not actioned
-this pass — dashboard-side, needs Admiral/XO to apply in the Cloudflare
-dashboard.
+to "respect existing headers" / bypass), not a code change.
+
+**Re-checked live 2026-07-11 (normal operation, no reboot in progress):**
+fetched `https://status.ollietrades.com/` three times, ~3-4 seconds apart.
+The "Last checked" timestamp matched real UTC time to the second on every
+fetch — the page is genuinely fresh right now, not stale. Response headers
+confirm why: `cache-control: no-cache, no-store, must-revalidate` (the
+origin header) is reaching the client unmodified, and Cloudflare's own
+`cf-cache-status: DYNAMIC` header confirms the edge is NOT caching this
+response during normal steady-state serving — it's passing every request
+through to origin live.
+
+**This does not close the ticket — it narrows it.** The original
+observation was specific to a real physical cold-start (power-cut) test,
+not steady-state operation; no cold-start test has been re-run since
+2026-07-05 to confirm whether the specific symptom (edge serving a stale
+cached copy right after/during an origin outage window) still recurs. A
+plausible mechanism that would explain "fine in steady state, stale right
+after a reboot" and wasn't previously considered: Cloudflare's "Always
+Online" / stale-while-origin-is-down behavior serves a last-known-good
+cached copy specifically WHILE the origin looks unreachable, independent
+of `Cache-Control` headers (which only govern normal-operation caching,
+not down-origin fallback behavior) — this is a hypothesis, not confirmed;
+no Cloudflare API token exists in this repo's `.env` to inspect the zone's
+actual Cache Rules / Always Online setting programmatically (only
+`CF_ACCESS_TEAM_DOMAIN` is present, scoped to Access, not zone/cache
+config), so this can't be verified without either Cloudflare dashboard
+access or another real cold-start test. Not actioned this pass — still
+dashboard-side if the hypothesis is right, needs Admiral/XO either way.
 
 ---
 ## 🔵 HM-SWEEP-CADENCE — proposed 2026-07-05, cron not yet installed
