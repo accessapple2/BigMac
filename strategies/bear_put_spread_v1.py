@@ -10,8 +10,12 @@ IV-rank-driven structure selection:
   IV rank > 60  → bear_call_spread (credit: sell ATM call, buy OTM call above)
 
 Signal consumer (tiered):
-  Tier 1 (high): BBD bar trigger + TB tiebreaker active  → fire alone
-  Tier 2 (low):  PED/SHORT vote + TB active + P/C > 1.0  → all three required
+  Tier 1 (high): BBD bar trigger → fire alone
+  Tier 2 (low):  PED/SHORT vote + P/C > 1.0 → both required
+  (HM-TB-DEAD-GATE-DROPPED 2026-07-10: TB tiebreaker dropped from both
+  tiers -- its signal source has been dead since 2026-04-14, before this
+  strategy was written. See docs/XO_BACKLOG.md HM-ARMED-DORMANT-SPREAD-
+  STRATEGIES.)
 
 Strategy ID: "bear_put_spread_v1"
 """
@@ -403,8 +407,8 @@ class BearPutSpreadV1(Strategy):
     enabled_default = False
     description = (
         "Adaptive bear spread: debit put (IV<30) or credit call (IV>60). "
-        "14 DTE, $750 cap. Tier-1 signals: BBD+TB. "
-        "Tier-2: PED/SHORT+TB+P/C>1.0. "
+        "14 DTE, $750 cap. Tier-1 signals: BBD. "
+        "Tier-2: PED/SHORT+P/C>1.0. "
         "Paper gate: 15 trades + positive expectancy."
     )
 
@@ -422,15 +426,26 @@ class BearPutSpreadV1(Strategy):
 
             # ── 1. Signal tier detection ──────────────────────────────────
             bbd_fired = _check_bbd(ticker)
+            # HM-TB-DEAD-GATE-DROPPED 2026-07-10: tb_active no longer gates
+            # entry. Tractor Beam's signal source (signal-center/signals.db
+            # agent_name='tractor-beam') has been dead since 2026-04-14 --
+            # before this strategy was even written (2026-05-01) -- so
+            # tb_active has been False 100% of the time for this strategy's
+            # entire operational history, blocking both tiers unconditionally
+            # regardless of price action. Traced end-to-end, see
+            # docs/XO_BACKLOG.md HM-ARMED-DORMANT-SPREAD-STRATEGIES: none of
+            # the four files CLAUDE.md's Fleet Roster doctrine names as "the
+            # live Tractor Beam functionality" actually produce fresh
+            # tractor-beam signals -- there is nothing live to gate on. Still
+            # computed (cheap, harmless) so this is a one-line revert if a
+            # real TB replacement ever exists.
             tb_active = _get_tb_active(ticker)
 
-            tier1 = bbd_fired and tb_active
+            tier1 = bbd_fired
             if not tier1:
-                # Tier 2: require SHORT signal + TB + bearish P/C
+                # Tier 2: require SHORT signal + bearish P/C
                 short_signal = _check_tier2_short_signal(ticker)
                 if not short_signal:
-                    continue
-                if not tb_active:
                     continue
                 pc_ratio = _get_pc_ratio(ticker)
                 if pc_ratio <= 1.0:

@@ -66,7 +66,7 @@ any specific number in this card; the card describes what was true as of
 2026-07-06 ~22:20 MST, not a live view.
 
 ---
-## 🔴 HM-ARMED-DORMANT-SPREAD-STRATEGIES — filed 2026-07-10 (S6 P&L-reconciliation sweep), closer look done 2026-07-10, ALL THREE now definitively silently broken, decision needed
+## 🟢 HM-ARMED-DORMANT-SPREAD-STRATEGIES — filed 2026-07-10 (S6 P&L-reconciliation sweep), tb_active gate SHIPPED-DROPPED 2026-07-10, bull_spread_v1 self-healing in progress
 
 `strategies/bull_call_spread_v1.py` and `strategies/bear_put_spread_v1.py`
 are both imported and scheduled every tick in `main.py` (signal scan +
@@ -140,27 +140,52 @@ cause was found in this closer look and is NOT yet fixed:
    boost (line 1624-1637) — a fourth confirmed consumer of the same
    stale dependency, not yet fixed either.
 
-**NOT fixed — needs a design decision, not a quick patch:** per
-`CLAUDE.md`'s Fleet Roster doctrine, "the live Tractor Beam tiebreaker
-functionality is in-repo today (`engine/strategies.py`,
-`engine/crew_scanner.py`, `engine/phaser_lock.py`, `engine/reveille.py`)"
-— but it's unconfirmed whether that in-repo implementation writes its
-output anywhere queryable that `_get_tb_active()` could be repointed to,
-or whether a genuinely new TB-signal-availability check needs to be
-designed from scratch. Filed for a dedicated session: trace what the
-in-repo TB implementation currently produces, decide whether/how
-`_get_tb_active()` (×2 strategies) and `chekov_rules()`'s `_tb_conf_map`
-lookup should be rewired, or whether `tb_active` should simply be
-dropped as a gate condition if TB tiebreaking has moved elsewhere
-entirely.
+**UPDATE 2026-07-10 (Tractor Beam traced end-to-end, per Admiral
+request): confirmed there is nothing live to repoint to.** Traced all
+four files `CLAUDE.md`'s Fleet Roster doctrine names as "the live
+Tractor Beam tiebreaker functionality":
+- `engine/strategies.py::get_tb_direct_signals()` /
+  `inject_tractor_beam_signals()` — both still query the same dead
+  `agent_name='tractor-beam'` table, AND **neither function has a single
+  caller anywhere in the codebase** — fully orphaned dead code, not just
+  data-starved.
+- `engine/crew_scanner.py::chekov_rules()` — reads the same dead table,
+  IS called from a live scan path, but its only consumer agent
+  (`navigator`, "Ensign Chekov") is `halt_mode='exit_only'` — not
+  opening new positions — so this dependency has zero practical effect
+  today regardless of the dead data.
+- `engine/phaser_lock.py` — a completely unrelated system ("Highest-
+  Conviction Setup Generator"). Computes its own conviction score from
+  strategy-convergence/fleet-agreement data, writes to
+  `data/phaser_lock_pick.json`. No functional connection to
+  `agent_name='tractor-beam'` at all — its one "tractor" reference is a
+  doctrine comment confirming it does NOT write to the archived
+  `tractor.db`.
+- `engine/reveille.py` — a pre-market briefing generator (ntfy/email
+  delivery). Zero Tractor Beam references whatsoever.
 
-**Given all three strategies are now confirmed silently broken (not a
-market-conditions/calibration question), this entry is upgraded to 🔴**
-— worth an Admiral decision sooner rather than later on priority:
-(a) fix the Tractor Beam dependency so bull_call_spread_v1/
-bear_put_spread_v1 can actually trade, (b) halt them until that's fixed
-(stop burning scan-cycle slots on strategies that structurally cannot
-fire), or (c) something else.
+**Conclusion: `CLAUDE.md`'s doctrine text describing this as "live... in-
+repo today" is stale/inaccurate.** The old standalone Tractor Beam
+process died 2026-04-17 (already documented in `CLAUDE.md`'s own sacred-
+data section for `tractor.db`) and nothing has replaced it. Every
+consumer of `agent_name='tractor-beam'` has been reading an empty well
+for ~3 months. `CLAUDE.md`'s Fleet Roster section should be corrected in
+a future pass to stop describing this as live.
+
+**DECISION (Admiral, 2026-07-10): drop the `tb_active` gate.** No
+rebuild attempted — building a genuine TB-signal replacement is a real
+project of its own, out of scope here. **SHIPPED:** `tb_active` no
+longer gates either Tier-1 or Tier-2 entry in `bull_call_spread_v1.py`
+or `bear_put_spread_v1.py` — both tiers now fire on their other
+conditions alone (BMB/BBD momentum, or Kirk/PED vote + P/C ratio).
+`_get_tb_active()` is still called and the result still computed (cheap,
+harmless single query) so this is a one-line revert if a real TB
+replacement ever exists. Top-of-file docstrings and the `description`
+strings (surfaced in the `strategies` DB table) updated to match. NOT
+touched: `chekov_rules()`'s TB-confidence boost — moot today
+(`navigator` is `exit_only`), left alone rather than bundled into this
+fix; `engine/strategies.py`'s two orphaned TB functions — genuinely dead
+code, not wired anywhere, left as-is (no live behavior to change).
 
 ---
 ## 🟡 HM-STRATEGIES-EXECUTOR-STATUS-NEVER-SET — filed 2026-07-10 (S6 P&L-reconciliation sweep, part 3)

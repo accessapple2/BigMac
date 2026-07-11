@@ -470,6 +470,17 @@ P&L-reconciliation-style investigations. A "work block" is any unit of
 work that ends in a commit — if there's nothing to commit, there's nothing
 to relay.
 
+## Question Relay Doctrine (standing rule, 2026-07-10)
+Whenever about to ask the Admiral a decision question with options
+(AskUserQuestion or equivalent — any point where the assistant would stop
+and present choices): **first** write the full question and every option
+verbatim to `data/reports/relay/QUESTION_<topic>.md`, commit and push it,
+**then** show the question in-session and wait for the answer. Applies to
+every such question, not just push/permission incidents. If the push
+itself is blocked (e.g. the same permission classifier that triggered the
+question in the first place), say so plainly when presenting the
+question rather than silently skipping the relay step.
+
 ## 2026-06-24 Structural Changes (canon)
 
 ### Gamma grounding (commit c8c021d, DAY0-gamma-grounding)

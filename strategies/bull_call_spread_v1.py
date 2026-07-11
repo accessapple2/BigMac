@@ -10,8 +10,12 @@ IV-rank-driven structure (inverted from bear):
   IV rank > 60  → bull_put_spread  (credit: sell OTM put, buy further OTM put)
 
 Signal consumer (tiered):
-  Tier 1 (high): BMB bar trigger + TB tiebreaker active → fire alone
-  Tier 2 (low):  Kirk/BUY vote + TB active + P/C < 0.7 → all three required
+  Tier 1 (high): BMB bar trigger → fire alone
+  Tier 2 (low):  Kirk/BUY vote + P/C < 0.7 → both required
+  (HM-TB-DEAD-GATE-DROPPED 2026-07-10: TB tiebreaker dropped from both
+  tiers -- its signal source has been dead since 2026-04-14, before this
+  strategy was written. See docs/XO_BACKLOG.md HM-ARMED-DORMANT-SPREAD-
+  STRATEGIES.)
 
 Regime gate:
   Allow: BULL, BULL_STRONG, NEUTRAL, CAUTIOUS
@@ -375,8 +379,8 @@ class BullCallSpreadV1(Strategy):
     enabled_default = False
     description = (
         "Adaptive bull spread: debit call (IV<30) or credit put (IV>60). "
-        "14 DTE, $750 cap. Tier-1: BMB+TB. "
-        "Tier-2: Kirk/BUY+TB+P/C<0.7. "
+        "14 DTE, $750 cap. Tier-1: BMB. "
+        "Tier-2: Kirk/BUY+P/C<0.7. "
         "Skips symbol if bull_spread_v1 has open position. "
         "Paper gate: 15 trades + positive expectancy."
     )
@@ -399,13 +403,26 @@ class BullCallSpreadV1(Strategy):
 
             # ── Tier detection ────────────────────────────────────────────
             bmb_fired = _check_bmb(ticker)
+            # HM-TB-DEAD-GATE-DROPPED 2026-07-10: tb_active no longer gates
+            # entry. Tractor Beam's signal source (signal-center/signals.db
+            # agent_name='tractor-beam') has been dead since 2026-04-14 --
+            # before this strategy was even written (2026-05-01) -- so
+            # tb_active has been False 100% of the time for this strategy's
+            # entire operational history, blocking both tiers unconditionally
+            # regardless of price action. Traced end-to-end, see
+            # docs/XO_BACKLOG.md HM-ARMED-DORMANT-SPREAD-STRATEGIES: none of
+            # the four files CLAUDE.md's Fleet Roster doctrine names as "the
+            # live Tractor Beam functionality" actually produce fresh
+            # tractor-beam signals -- there is nothing live to gate on. Still
+            # computed (cheap, harmless) so this is a one-line revert if a
+            # real TB replacement ever exists.
             tb_active = _get_tb_active(ticker)
 
-            if bmb_fired and tb_active:
+            if bmb_fired:
                 tier = 1
             else:
                 buy_signal = _check_tier2_buy_signal(ticker)
-                if not (buy_signal and tb_active):
+                if not buy_signal:
                     continue
                 pc_ratio = _get_pc_ratio(ticker)
                 if pc_ratio >= 0.7:
