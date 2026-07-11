@@ -20,8 +20,6 @@ from pathlib import Path
 
 import os
 
-import requests
-
 # HM-RIKER-SYNTHESIS-SYSPATH-2026-07-09: this script is invoked by cron as
 # `python3 /abs/path/to/engine/riker_synthesis.py` (crontab: */10 * * * *).
 # Running a script by path sets sys.path[0] to the SCRIPT'S OWN directory
@@ -61,13 +59,16 @@ SIGNIFICANT: dict[str, int] = {
 
 # ── ntfy ─────────────────────────────────────────────────────────────────────
 def _ntfy(title: str, body: str, priority: str = "default") -> None:
+    """HM-NTFY-IPV6-NOROUTE-RIKER-FIX 2026-07-10: this used to POST directly
+    via requests with no IPv4 fallback -- this box has no working IPv6
+    route to ntfy.sh (HM-NTFY-IPV6-NOROUTE, 2026-07-07), confirmed hitting
+    this function via real evidence in its own log (21 failures). Delegates
+    to the already-hardened engine.alert_channels._send_ntfy() (forces
+    IPv4) instead of a separate implementation of the same POST, same
+    NTFY_TOPIC destination preserved via the explicit topic= param."""
     try:
-        requests.post(
-            f"https://ntfy.sh/{NTFY_TOPIC}",
-            data=body.encode("utf-8"),
-            headers={"Title": title, "Priority": priority},
-            timeout=10,
-        )
+        from engine.alert_channels import _send_ntfy
+        _send_ntfy(title=title, message=body, priority=priority, topic=NTFY_TOPIC)
     except Exception as e:
         log.warning(f"ntfy error: {e}")
 

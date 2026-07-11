@@ -16,6 +16,8 @@ Restart: launchctl kickstart (Bridge, Signal Center, Tunnel). Ollama is
 """
 from __future__ import annotations  # HM-BH hotfix: defer annotation evaluation (venv is Py3.9, no PEP 604 unions)
 import subprocess
+import socket
+import threading
 import time
 import urllib.request
 import urllib.error
@@ -97,6 +99,24 @@ def mac_notify(title: str, body: str, key: str = "") -> None:
         log.warning(f"osascript failed: {e}")
 
 
+# HM-NTFY-IPV6-NOROUTE-WATCHDOG-FIX 2026-07-10: this box has no working
+# IPv6 route to ntfy.sh (HM-NTFY-IPV6-NOROUTE, engine/alert_channels.py,
+# 2026-07-07) -- confirmed watchdog.py's own push_alert() was hit by this
+# too, via real evidence in its own log (12 "ntfy push failed: <urlopen
+# error [Errno 65] No route to host>" occurrences, 2026-07-09). Standalone
+# fix (not importing engine.alert_channels) because watchdog.py is
+# deliberately dependency-free from the engine/ package it monitors --
+# it needs to keep working even if that package has an import-time
+# problem. Same lock-and-monkeypatch technique alert_channels.py already
+# uses, self-contained here.
+_ntfy_ipv4_lock = threading.Lock()
+_orig_getaddrinfo = socket.getaddrinfo
+
+
+def _ipv4_only_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+    return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+
+
 def push_alert(title: str, body: str, key: str = "", priority: str = "high") -> None:
     """iPhone push via ntfy.sh — free, no account needed.
     Install 'ntfy' from App Store → subscribe to: Ollie-Alert-35
@@ -119,8 +139,13 @@ def push_alert(title: str, body: str, key: str = "", priority: str = "high") -> 
             },
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=8) as r:
-            log.info(f"Push sent [{r.status}]: {ascii_title}")
+        with _ntfy_ipv4_lock:
+            socket.getaddrinfo = _ipv4_only_getaddrinfo
+            try:
+                with urllib.request.urlopen(req, timeout=8) as r:
+                    log.info(f"Push sent [{r.status}]: {ascii_title}")
+            finally:
+                socket.getaddrinfo = _orig_getaddrinfo
     except Exception as e:
         log.warning(f"ntfy push failed: {e}")
 
