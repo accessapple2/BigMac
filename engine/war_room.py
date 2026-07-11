@@ -1332,11 +1332,24 @@ def run_war_room(providers: dict, prices: dict):
     _finish_debate(_debate_id, _debate_expected, _debate_completed)
     console.log(f"[magenta]War Room round complete: {len(round_takes)} responses on {symbol}")
 
-    # HM-FORGE P1.2: report-only witness (A/B gemma4 vs plutus-v1). After the
-    # round + vote, never influences them. Fail-safe inside _record_witness.
-    _record_witness(_debate_id, symbol, price_data, round_takes, providers)
-    # HM-SHADOW-WITNESS-V7D: logged-only v1-vs-v7d pair (flag-gated, off-thread, fail-safe).
-    _record_shadow_witness(_debate_id, symbol, price_data, round_takes, providers)
-    # HM-SHADOW-AB-WITNESS: queue debate context for off-hours gpt-oss/deepseek scoring.
-    # DB write only — no model loading. Scorer runs post-RTH via cron. Fail-safe.
-    _queue_ab_witness(_debate_id, symbol, price_data, round_takes)
+    # HM-SHADOW-PIPELINE-COST-AUDIT 2026-07-11 KILL DECISION: the whole
+    # witness/shadow pipeline below (_record_witness, _record_shadow_witness,
+    # _queue_ab_witness) was scoped 2026-07-11 and found to have ZERO
+    # downstream consumers -- plutus_shadow_critiques.realized_outcome 0/4383
+    # populated, witness_ab.agreed_with_mccoy written but never read, no
+    # dashboard route or report queries any of it. _record_witness's own
+    # docstring called it "report-only until the 2-week A/B closes" -- it
+    # shipped 2026-06-10 (commit ab222a0) and was still running unbounded 31
+    # days later. Retired in place per this repo's Archive Convention: code
+    # kept, not deleted -- rehab path is "wire a real consumer to
+    # plutus_shadow_critiques/witness_ab, then uncomment these three calls."
+    # See docs/XO_BACKLOG.md HM-SHADOW-PIPELINE-COST-AUDIT for full findings.
+    #
+    # # HM-FORGE P1.2: report-only witness (A/B gemma4 vs plutus-v1). After the
+    # # round + vote, never influences them. Fail-safe inside _record_witness.
+    # _record_witness(_debate_id, symbol, price_data, round_takes, providers)
+    # # HM-SHADOW-WITNESS-V7D: logged-only v1-vs-v7d pair (flag-gated, off-thread, fail-safe).
+    # _record_shadow_witness(_debate_id, symbol, price_data, round_takes, providers)
+    # # HM-SHADOW-AB-WITNESS: queue debate context for off-hours gpt-oss/deepseek scoring.
+    # # DB write only — no model loading. Scorer runs post-RTH via cron. Fail-safe.
+    # _queue_ab_witness(_debate_id, symbol, price_data, round_takes)
