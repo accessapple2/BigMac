@@ -1076,7 +1076,7 @@ silently inert, not merely a line in a commit message. Anyone auditing past
 not a signal-quality or gating problem.
 
 ---
-## 🔴 XO-DEPARTURE-HARDENING — Phase 1 remaining, filed 2026-07-06 (Admiral restated)
+## 🟡 XO-DEPARTURE-HARDENING — Phase 1 remaining, filed 2026-07-06 (Admiral restated), current status checked 2026-07-10
 
 Context: Admiral departs in a few days; after that the system runs
 monitoring-only (phone push, no hands-on). All unattended automation in this
@@ -1085,6 +1085,81 @@ alert channel throughout**; **propose-first per item**, same as every other
 ticket in this file. This was previously only stated in conversation — the
 2026-07-05 start card flagged it as missing from the document; this is that
 restatement.
+
+**UPDATE 2026-07-10 (status check + proposals, per Admiral request):**
+re-verified all four Phase 1 items directly against the live crontab and
+scripts rather than trusting this 4-day-old entry. Items 1 and 3 are in
+much better shape than filed — most of both are already live:
+
+- **Item 1 (service watchdog): largely already built.** `watchdog.py`
+  (kept alive by `watchdog_supervisor.sh`, cron */5, reboot-survives)
+  covers trader/bridge/signal-center/ollama/cloudflared with ntfy push.
+  `origin_healthcheck.sh` (also */5) adds a second independent layer —
+  actual HTTP response checks, not just process liveness — for bridge/
+  signal-center/swingdesk/status_page, auto-restart + ntfy on failure.
+- **Item 2 (health cron): partially built, two gaps confirmed** — (a)
+  `tour_api`'s `/api/tour/health` checked nowhere; (b) the Cloudflare-
+  edge-cache staleness for `status.ollietrades.com` unmonitored (checks
+  hit localhost, bypassing the CDN layer where the staleness actually
+  lives — see `HM-STATUS-PAGE-STALE-CACHE` below, still needs a
+  Cloudflare dashboard change only the Admiral can make).
+- **Item 3 (DB/log hygiene): largely already built, one gap confirmed** —
+  daily DB backup w/ exact 7-day retention (`db_snapshot.sh`, `KEEP=7`),
+  off-host nightly backup, a backup-freshness alarm, and weekly archived
+  log rotation are all live. Gap: **no automated disk-space alert** —
+  `scripts/vitals.sh` can report usage but isn't scheduled anywhere.
+- **Item 4 (gate-day automation): not built at all** for the two dated
+  fleet/agent gates. The Aug 15/16 incumbent-audition piece needs no new
+  script — already computed and pushed daily via the existing
+  `scripts/eod_report.py` (2pm weekdays), which already calls
+  `track_incumbent_auditions()` and correctly reports both auditions as
+  suspended (`HM-EDGE-PROVENANCE` ruling).
+
+**PROPOSED (not yet wired into cron or origin_healthcheck.sh — pending
+sign-off), all syntax-checked and dry-run-verified against live data:**
+- `scripts/tour_api_restart.sh` — kills both tour_api's respawn-loop
+  wrapper and the underlying process (it has its own self-respawn loop,
+  unlike the other services, so a plain process kill would just get
+  instantly re-spawned with the same wedge), relaunches detached. Wiring
+  step: add one `check_and_restart` line to `origin_healthcheck.sh`.
+- `scripts/disk_space_alert.sh` — WARN 85% / ALARM 95% used, one push per
+  severity per day, independent of the backup scripts by construction.
+  Dry-ran clean against the real box (29% used, 40GB free).
+- `scripts/door1_kill_gate_check.py` — computes and pushes G1-G4 per
+  `OLLIETRADES_KILL_GATE.md`'s pre-committed criteria. Compute-and-push
+  only, never acts. G4 correctly reports inconclusive (no parallel-
+  benchmark tracking exists anywhere in the codebase — the doc's own
+  rules allow this). G1 uses the doc's own "~$500" absolute approximation
+  since no queryable DAY-0 baseline was ever stored. G3 scoped to
+  `structure='csp'` (an explicit interpretation call, flagged in the push
+  itself, since the doc's own G3 SQL note doesn't state the filter
+  explicitly). Dry-run against live data today: G1 PASS ($2,511.39 vs
+  $500), G3 PASS (2.9% worst-loss ratio vs 20% threshold), G4 N/A.
+- `scripts/ollie_machine_kill_gate_check.py` — checks both `trades` and
+  `options_trades` for the single-agent 2026-07-24 gate
+  (`HM-OLLIE-MACHINE-KILLGATE` below). Dry-run: still zero trades, 14
+  days remaining as of today.
+
+**SHIPPED 2026-07-10, found while dry-running the Door-1 script:**
+`dashboard/app.py::_get_alpaca_equity_and_spy_raw()` — the source behind
+`/api/account/equity-curve`, which both G2 above and the Admiral-facing
+Door-1 equity chart depend on — was silently stuck at 2026-05-23 for 7+
+weeks. Root cause verified directly against the live Alpaca API (not
+guessed): the `portfolio/history` endpoint defaults to a ~1-month window
+measured FROM `start` when `period` is omitted, not "start to now" as
+the code assumed — confirmed by moving `start` forward and watching the
+window move with it. **This would never have self-healed, and worse, a
+fixed `period` like "3M" would have resurfaced the identical bug right
+around the real 2026-07-24 verdict date** (also confirmed via a live
+test) — the kill-gate doc's own rule is "if a gate is ambiguous on the
+day, it fails," so this was a real risk to Door-1's validity, not
+cosmetic. Fixed: switched to `period="all"` (dropping `start`
+entirely) — pre-season rows it returns are already filtered out for free
+via the existing SPY-bars join. Live-verified post-restart:
+`/api/account/equity-curve` now returns 42 dates through today
+(2026-07-10), and the Door-1 script's G2 now resolves (PASS, 0.17% acct
+DD vs 0.55% SPY DD) instead of reporting no data. Test added:
+`tests/test_equity_curve_period_cap.py`.
 
 **1. Service watchdog.** launchd keepalive coverage for trader/dashboards/
 tunnel, ntfy on any unexpected death/restart with timestamp + last log

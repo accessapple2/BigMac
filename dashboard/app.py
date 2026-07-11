@@ -10468,10 +10468,27 @@ def _get_alpaca_equity_and_spy_raw() -> dict:
         _SEASON_START = "2026-04-24T00:00:00Z"
 
         try:
+            # HM-EQUITY-CURVE-PERIOD-CAP 2026-07-10: Alpaca's portfolio/history
+            # endpoint silently defaults to a ~1-month window measured FROM
+            # `start` when `period` is omitted -- NOT "start to now" as this
+            # code originally assumed. Verified directly against the live API:
+            # start=_SEASON_START with no period returned exactly one month of
+            # data (2026-04-24 to 2026-05-23) and never advanced past that,
+            # regardless of how much later the request was made -- the account
+            # equity curve had been silently stuck there for 7+ weeks. A fixed
+            # `period` (e.g. "3M") anchors to `start` the same way, so it would
+            # have resurfaced the identical bug once 3 months had elapsed --
+            # confirmed by testing period=3M, which also stopped short of a
+            # permanently-current window. `period="all"` (no `start`) is the
+            # only combination that returns a window that always reaches
+            # "now" without ever expiring again; it returns some pre-season
+            # rows too, but those are already dropped for free below via the
+            # SPY-bars join (spy_map only contains dates >= _SEASON_START,
+            # since that call's own `start` param has no such quirk).
             _ph = _fetch_with_backoff(
                 "https://paper-api.alpaca.markets/v2/account/portfolio/history",
                 _hdrs,
-                {"timeframe": "1D", "start": _SEASON_START, "intraday_reporting": "market_hours"},
+                {"timeframe": "1D", "period": "all", "intraday_reporting": "market_hours"},
             )
             _ph_data = _ph.json()
 
