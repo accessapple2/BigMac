@@ -1163,7 +1163,7 @@ Not to be confused with the pre-existing 2026-07-24 G1-G4 Door-1 kill-gate
 This is a single-agent trigger scoped only to `ollie-machine`.
 
 ---
-## 🟡 HM-SHADOW-PIPELINE-COST-AUDIT — filed 2026-07-05, SCOPED 2026-07-11 — cost is $0/day live, compute waste is the real open question
+## 🟢 HM-SHADOW-PIPELINE-COST-AUDIT — filed 2026-07-05, KILLED 2026-07-11 — Admiral decision: kill, executed
 
 Surfaced while checking `api_costs` for q-witness's paid-xAI spend: five ids
 NOT in `ai_players` show real metered API cost, last 30 days —
@@ -1223,22 +1223,39 @@ entirely outside the ai_players-scoped leaderboard.
    fixed 2026-06-29; historical rows left intact"*). **No cron/scheduler
    kill needed for cost.**
 
-**Real remaining open item: compute waste, not dollars.** Both pipelines
-run continuously (~200-230 Ollama calls/day/id) and write to tables
-nobody reads. Either (a) build the promised grading consumer
-(`realized_outcome`, `agreed_with_mccoy`), or (b) if not prioritized,
-disable at the source. **Two anomalies surfaced worth flagging directly
-to the Admiral, not silently fixed:**
-- `settings` table has `SHADOW_WITNESS_ENABLED` live-overridden to
-  `'true'`, contradicting `config.py`'s code default of `False` — who/
-  when set that live override is unknown, worth asking before touching.
-- `scripts/witness_ab_scorer.log` shows repeated `errno 24 "Too many open
-  files"` connection failures against the Ollama host — a live
-  reliability bug, unrelated to cost, not previously known.
+**Remaining open item was compute waste, not dollars.** Both pipelines
+ran continuously (~200-230 Ollama calls/day/id) and wrote to tables
+nobody read. Two anomalies had surfaced worth flagging rather than
+silently fixing: `settings.SHADOW_WITNESS_ENABLED` was live-overridden
+to `'true'` against `config.py`'s `False` code default (no audit trail
+for who/when), and `scripts/witness_ab_scorer.log` showed a live
+`errno 24 "Too many open files"` connection-failure bug against the
+Ollama host.
 
-Not actioned this pass (scoping only, per this ticket's own "own session
-when scoped" framing) — but the "is this dead spend" question the ticket
-was filed to answer is now conclusively answered: no.
+**Admiral decision 2026-07-11: kill.** Given zero consumers on either
+side, and `_record_witness` specifically overdue its own "2-week A/B"
+window by 17+ days, chose to disable rather than build the missing
+consumer. **Executed, all three steps confirmed live:**
+
+1. Retired all three call sites (`_record_witness`,
+   `_record_shadow_witness`, `_queue_ab_witness`) in-place inside
+   `engine/war_room.py`'s debate-round function — commented out, not
+   deleted, per this repo's Archive Convention; rehab path documented
+   inline (wire a real consumer to `plutus_shadow_critiques`/
+   `witness_ab`, then uncomment). Commit `2a59e0c`.
+2. Flipped the live `settings.SHADOW_WITNESS_ENABLED` row to `'false'`
+   (now matches `config.py`'s code default) — this also resolves the
+   unexplained-override anomaly by returning it to the documented
+   default rather than leaving it unexplained.
+3. Removed the `HM-SHADOW-AB-WITNESS` crontab line
+   (`witness_ab_scorer.py`, `30 13 * * 1-5`) — this stops both the
+   compute waste and the live "too many open files" bug from recurring
+   daily.
+4. Restarted `main.py`/trader to pick up the code-level retirement
+   (PID 61058, bound `:8080`, clean startup log, no import errors).
+
+Fully reversible if ever needed: flip the settings flag back, re-add the
+crontab line, uncomment the three calls in `war_room.py`, restart.
 
 ---
 ## 🟡 HM-DESK-CHAIN-PROVENANCE — filed 2026-07-05, SCOPED 2026-07-11 — both root causes found, fix is forward-only
@@ -1524,13 +1541,13 @@ broker-execution-required onboarding criteria below both carry over
 unchanged to whatever model replaces Qwen3.6 — only the specific model_id
 is dead, not the onboarding design.
 
-**6. Shadow-pipeline verdict — SCOPED 2026-07-11**, full ticket:
-`HM-SHADOW-PIPELINE-COST-AUDIT` below. Verdict: **not dead spend** — cost
-has been $0/day since 2026-07-06 (already fixed, historical rows just
-left intact). Real remaining question is compute waste (write-only
-pipelines, nobody reads the output) plus two new anomalies flagged for
-the Admiral (a live config drift + a live reliability bug). Not actioned
-beyond scoping.
+**6. Shadow-pipeline verdict — KILLED 2026-07-11**, full ticket:
+`HM-SHADOW-PIPELINE-COST-AUDIT` below. Cost was already $0/day since
+2026-07-06, but zero consumers + one pipeline 17+ days overdue its own
+"2-week A/B" window → Admiral decision: kill. Retired in
+`engine/war_room.py` (code kept, commented out), live
+`SHADOW_WITNESS_ENABLED` settings flag flipped false, `ab-witness-*`
+cron removed, trader restarted. Fully executed, reversible.
 
 **7. Desk provenance fix — SCOPED 2026-07-11**, full ticket:
 `HM-DESK-CHAIN-PROVENANCE` below (72% `signal_id` mislink rate +
