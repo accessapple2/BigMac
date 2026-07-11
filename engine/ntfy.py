@@ -5,8 +5,11 @@ Topics:
   - https://ntfy.sh/ollietrades-crew              (default — trade events)
   - https://ntfy.sh/ollietrades-proving-ground    (Sniper Mode trial — _fire_pg)
 
-No external dependencies — uses stdlib urllib.request only.
 Fire-and-forget: all sends are in a daemon thread, never block the caller.
+Actual delivery is delegated to engine.alert_channels._send_ntfy() (HM-NTFY-
+IPV6-NOROUTE-ENGINE-NTFY-FIX 2026-07-10) rather than this module's own
+urllib call, so it gets the IPv4-force fix for this box's confirmed lack
+of an IPv6 route to ntfy.sh -- see _send() below.
 
 Topic selection: _fire() → NTFY_TOPIC (crew). _fire_pg() → NTFY_PROVING_GROUND_TOPIC
 (proving ground). The latter exists so the Sniper Mode trial's volume +
@@ -16,9 +19,6 @@ engagement can be measured independently from the broader crew channel
 import logging
 import os
 import threading
-import urllib.request
-import urllib.error
-import json
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +58,10 @@ _TAGS = {
 }
 
 
+_PRIORITY_LABEL = {P_MIN: "min", P_LOW: "low", P_DEFAULT: "default",
+                   P_HIGH: "high", P_MAX: "urgent"}
+
+
 def _send(title: str, body: str, priority: int = P_DEFAULT, tags: str = "",
           topic: str = None) -> None:
     """POST a single ntfy message. Called in a daemon thread.
@@ -65,20 +69,25 @@ def _send(title: str, body: str, priority: int = P_DEFAULT, tags: str = "",
     HM-PROVING-GROUND-FORMALIZE-V2 SUB-1: optional ``topic`` param allows
     routing to a non-default topic (default remains NTFY_TOPIC). When None,
     uses NTFY_TOPIC to preserve all pre-existing _fire callers.
+
+    HM-NTFY-IPV6-NOROUTE-ENGINE-NTFY-FIX 2026-07-10: this used to POST
+    directly via urllib.request with no IPv4 fallback -- this box has no
+    working IPv6 route to ntfy.sh (HM-NTFY-IPV6-NOROUTE, 2026-07-07), the
+    same disease already found and fixed in engine/long_range_sensors.py.
+    Delegates to the already-hardened engine.alert_channels._send_ntfy()
+    (forces IPv4) instead of re-implementing the same monkeypatch here --
+    two independent locks patching the same process-global
+    socket.getaddrinfo from different threads would race.
     """
     try:
-        data = json.dumps({"topic": topic or NTFY_TOPIC,
-                           "title": title,
-                           "message": body,
-                           "priority": priority,
-                           "tags": [tags] if tags else []}).encode()
-        req = urllib.request.Request(
-            "https://ntfy.sh",
-            data=data,
-            headers={"Content-Type": "application/json"},
-            method="POST",
+        from engine.alert_channels import _send_ntfy
+        _send_ntfy(
+            title=title,
+            message=body,
+            priority=_PRIORITY_LABEL.get(priority, "default"),
+            tags=tags or "ollietrades",
+            topic=topic or NTFY_TOPIC,
         )
-        urllib.request.urlopen(req, timeout=6)
     except Exception as e:
         # ntfy failures must never crash trading logic -- still log so a
         # persistent outage is observable (HM-SILENT-CATCH-SWEEP 2026-07-07).
