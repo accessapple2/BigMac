@@ -999,7 +999,7 @@ proposal (e.g., a wider catch-up window, or firing once immediately on
 `main.py` startup if today's earliest slot was missed).
 
 ---
-## 🔵 HM-ERROR-FILTER-CONSOLIDATION — filed 2026-07-05 (Phase 3, not urgent)
+## 🟡 HM-ERROR-FILTER-CONSOLIDATION — filed 2026-07-05, RE-SCOPED 2026-07-11 (Phase 3, bigger than originally filed)
 
 `scripts/daily_report.py::get_error_summary()` filters real errors with a
 blanket `"[LRS]" not in line` exclusion — this hides ANY error tagged `[LRS]`
@@ -1010,12 +1010,58 @@ which uses an explicit, named false-positive allowlist instead of a blanket
 tag exclusion — narrower and auditable (each exclusion is a specific,
 verified string, not an entire log-source tag).
 
-**Fix (Phase 3, not urgent):** migrate `daily_report.py` to the same explicit-
-allowlist approach — ideally both scripts call one shared filter function
-instead of maintaining two divergent definitions of "real error." Until then,
-`daily_report.py`'s 10 PM error count is not exactly the same as
-`eod_report.py`'s 2 PM error count for the same day, and that's expected
-(different filters), not a bug.
+**Scoping pass 2026-07-11 — the `[LRS]` bug is real but currently masked by
+a bigger, separate bug.** Read both functions in full and verified live
+against today's logs (not guessed):
+
+- `daily_report.py:204-218` reads only `logs/trader_error.log`, filters by
+  `today.isoformat() in line` (substring match anywhere in the line), then
+  `ERROR|Exception|Traceback` (case-sensitive) AND `"[LRS]" not in line`.
+  Feeds the "Error log" row of `drafts/DAILY_REPORT_<date>.md` only — not
+  `daily_ledger.csv` (no error column in `LEDGER_HEADER`).
+- `eod_report.py:143-163` reads BOTH `trader.log` and `trader_error.log`,
+  filters by `line.startswith(f"[{report_date} ")`, case-insensitive
+  `error|exception|traceback|critical|fatal`, minus the named
+  `KNOWN_FALSE_POSITIVE_PATTERNS` allowlist. Persisted to
+  `eod_report_log.error_count`.
+- **The masking bug:** `trader_error.log` lines have NO per-line date
+  prefix at all (`HH:MM:SS [TAG] ...`, not `[YYYY-MM-DD ...` like
+  `trader.log`) — confirmed via `grep -c '^\[2026-07-10' logs/
+  trader_error.log` → **0**, out of 301,018 total lines. Consequence:
+  `eod_report.py`'s own "genuine errors" count for today (465) comes
+  **entirely from `trader.log`, zero contribution from
+  `trader_error.log`**, even though that file is in its `LOG_PATHS` list —
+  silently. `daily_report.py`'s substring-anywhere date match mostly only
+  catches incidental date strings inside message bodies, not real
+  timestamps, so its count is close to 0 regardless of the `[LRS]` bug.
+- **Real risk confirmed, not hypothetical:** sampling the last 20,000
+  lines of `trader_error.log` with eod_report.py's own case-insensitive
+  pattern + the `[LRS]` tag: 1,513 matches, 721 after excluding known
+  benign zero-count patterns — real ongoing items include `ntfy failed:
+  <urlopen error timed out>` (218), `Ollama error (404): model not found`
+  (69), `[OLLAMA-MODEL-FAIL] ... err=503` (64), `last-trade spot failed
+  for` (85), Yahoo `HTTP Error 404` (29). (Also 202 `🔴🔴 CRITICAL: <ticker>
+  volume spike` lines — a legitimate market alert, not a software error;
+  would need its own allowlist entry to avoid false-positive inflation if
+  ever counted.)
+
+**Fix, re-scoped:** `engine/error_filter.py` (mirrors the existing
+`engine/trades_filter.py::CLEAN_TRADES_WHERE` precedent — one canonical
+definition both scripts import, same pattern already used in this repo),
+carrying `genuine_error_count()` + `KNOWN_FALSE_POSITIVE_PATTERNS`
+(migrated from `eod_report.py`, plus the new `🔴🔴 CRITICAL` entry). BUT the
+date-filtering defect against `trader_error.log` needs a real fix first
+(the file needs a per-line date, or the filter needs a different
+date-inference strategy) — the shared function is not meaningful against
+that file until then. Migrating `eod_report.py` to the shared module
+should be a zero-behavior-change refactor (its `trader.log`-derived count
+stays the same). Migrating `daily_report.py` will NOT be zero-behavior-
+change: once both the allowlist fix and the date-filter fix land, its
+reported count will jump from ~0 today to potentially several hundred/day
+— **flag this to the Admiral and get sign-off before shipping**, don't
+silently change what a report's numbers mean. Not actioned this pass —
+scoped only, per Phase 3's own "not urgent" framing, but now understood
+correctly rather than as a one-line allowlist swap.
 
 ---
 ## 🟢 HM-TUNING-CREW-REPAIR — SHIPPED 2026-07-06 (from the degraded 2026-07-05 21:30 run)
@@ -1117,7 +1163,7 @@ Not to be confused with the pre-existing 2026-07-24 G1-G4 Door-1 kill-gate
 This is a single-agent trigger scoped only to `ollie-machine`.
 
 ---
-## 🔵 HM-SHADOW-PIPELINE-COST-AUDIT — filed 2026-07-05 (HM-ROSTER-RATIONALIZE follow-up)
+## 🟡 HM-SHADOW-PIPELINE-COST-AUDIT — filed 2026-07-05, SCOPED 2026-07-11 — cost is $0/day live, compute waste is the real open question
 
 Surfaced while checking `api_costs` for q-witness's paid-xAI spend: five ids
 NOT in `ai_players` show real metered API cost, last 30 days —
@@ -1134,15 +1180,65 @@ NOT in `ai_players` show real metered API cost, last 30 days —
 4-10x q-witness's own $2.76/30d, and none of it is a roster seat, so it fell
 entirely outside the ai_players-scoped leaderboard.
 
-**Open, not chased tonight (own session when scoped):**
-1. What are these — a shadow/witness scoring pipeline distinct from
-   q-witness's War Room voice? Where invoked from?
-2. What consumes their output — does anything read wr_shadow/wr_witness/
-   ab_witness_* results downstream, or do they write and nobody reads?
-3. Pure observation (like existing W0 forward-scoring shadow patterns) or
-   does anything act on them?
-4. If nothing reads it: that's the real dead spend on this box — bigger in
-   dollars than anything found in the roster proper.
+**Scoped 2026-07-11, all four original questions answered with evidence:**
+
+1. **What are these — confirmed a report-only shadow/witness scoring
+   layer inside the War Room debate engine**, distinct from q-witness (a
+   separately-tracked real paid-API player, `engine/ask_q.py:323-324`).
+   `wr-witness` — A/B witness commentary (`gemma4:12b-it-qat` vs
+   `plutus-v1:latest`), fired every debate cycle
+   (`engine/war_room.py:294-330`, `_record_witness`). `wr-shadow-v1`/
+   `wr-shadow-v7d` — plutus-v1 vs plutus-v7d critique pair written to
+   `plutus_shadow_critiques` "for later grading" (`engine/war_room.py:
+   356-402`, `_record_shadow_witness`), gated by `config.py:101
+   SHADOW_WITNESS_ENABLED` (code default `False`). `ab-witness-
+   deepseek-r1`/`ab-witness-gpt-oss` — a separate post-market batch judge
+   scorer (`scripts/witness_ab_scorer.py:152`). All five run against local
+   Ollama (192.168.1.168:11434) — `api_costs.call_type='war_room'` for
+   all five, confirmed via direct SQL.
+
+2. **Trigger mechanism:** `wr-witness`/`wr-shadow-*` fire in-process from
+   `main.py`'s live scheduler (`main.py:505 run_war_room()` →
+   `main.py:1576-1648`, throttled ~5min during market hours).
+   `ab-witness-*` is a genuine crontab entry (`30 13 * * 1-5`,
+   `HM-SHADOW-AB-WITNESS` 2026-06-29) — not launchd, no matching plist.
+
+3. **Downstream consumer: none.** No `wr_shadow`/`wr_witness`/
+   `ab_witness_*` tables exist by those names — the real tables are
+   `plutus_shadow_critiques` (4,383 rows), `witness_ab` (1,648 rows),
+   `witness_queue` (1,774 rows), all write-only. `plutus_shadow_critiques
+   .realized_outcome` is 0/4,383 populated with zero `SELECT`s against it
+   anywhere. `witness_ab.agreed_with_mccoy` is written
+   (`scripts/witness_ab_scorer.py:195-198`) but never read — no dashboard
+   route, report, or healthcheck references it.
+
+4. **Is this dead spend? No — the $50.24 is 100% historical, already
+   fixed, not a live leak.** `cost_usd = 0.00` confirmed for every
+   `wr-shadow-*`/`wr-witness` call since **2026-07-06** (volume continues
+   at ~200-230/day/id, cost stays exactly zero every day after). Root
+   cause: `engine/cost_tracker.py:108-117`'s `wr-`/`ab-witness-` name-
+   prefix allowlist, added under "COST-DISCIPLINE-IMPLEMENT 2026-07-05" —
+   already known, already-remediated tech debt (`scripts/daily_report.py:
+   389,399` has its own note: *"phantom billing from shadow CSP seats
+   fixed 2026-06-29; historical rows left intact"*). **No cron/scheduler
+   kill needed for cost.**
+
+**Real remaining open item: compute waste, not dollars.** Both pipelines
+run continuously (~200-230 Ollama calls/day/id) and write to tables
+nobody reads. Either (a) build the promised grading consumer
+(`realized_outcome`, `agreed_with_mccoy`), or (b) if not prioritized,
+disable at the source. **Two anomalies surfaced worth flagging directly
+to the Admiral, not silently fixed:**
+- `settings` table has `SHADOW_WITNESS_ENABLED` live-overridden to
+  `'true'`, contradicting `config.py`'s code default of `False` — who/
+  when set that live override is unknown, worth asking before touching.
+- `scripts/witness_ab_scorer.log` shows repeated `errno 24 "Too many open
+  files"` connection failures against the Ollama host — a live
+  reliability bug, unrelated to cost, not previously known.
+
+Not actioned this pass (scoping only, per this ticket's own "own session
+when scoped" framing) — but the "is this dead spend" question the ticket
+was filed to answer is now conclusively answered: no.
 
 ---
 ## 🔵 HM-DESK-CHAIN-PROVENANCE — filed 2026-07-05 (HM-DECISION-DESK-MVP Phase 1 follow-up)
@@ -1367,12 +1463,42 @@ exactly this kind of chain data.
 ---
 ## 🔴 XO-DEPARTURE-HARDENING — Phase 3, filed 2026-07-06
 
-**8. Weekly digest push** — Sunday: sweep summary + tuning results +
-audition clocks (now suspension-aware) + spend, one ntfy push.
+**8. Weekly digest push — SHIPPED 2026-07-11, cron NOT installed
+(propose-first).** `scripts/weekly_digest.py` — sweep summary (latest
+`reports/fleet_realism_sweep_clean_*.json`, excluding `.INCOMPLETE_*`
+files) + tuning results (reads `model_scores`/`model_adjustments` written
+by the Sunday tuning crew, never re-invokes it — that makes LLM calls,
+which unattended automation here must not do) + audition clocks (delegates
+to `engine.crew.audition_tracking.track_incumbent_auditions`, already
+suspension-aware) + 30-day spend (deliberately NOT scoped to `ai_players`
+— see item 6 below, this is the direct fix for that blind spot). One
+`send_alert()` push, `audience="admin"`, mirrors `eod_report.py`'s
+structure exactly. 12 tests (`tests/test_weekly_digest.py`), dry-run
+verified against real `trader.db`. **Proposed cron (not installed):**
+`0 23 * * 0` (23:00 MST Sunday — after the tuning crew's ~21:00-21:30
+window and the sweep's 22:10 kickoff both finish). Needs Admiral go-ahead
+before adding to `crontab -e`, same durability caveat as `HM-SWEEP-
+CADENCE` above (a manual dry-run doesn't survive session death).
 
-**9. Error-filter consolidation** — already filed, see
-`HM-ERROR-FILTER-CONSOLIDATION` above. Not re-ticketed here, just cross-
-referenced so Phase 3's item list is complete in one place.
+**9. Error-filter consolidation — RE-SCOPED 2026-07-11, bigger than
+originally filed.** See `HM-ERROR-FILTER-CONSOLIDATION` above for the
+full finding: the `[LRS]`-blanket-exclusion bug is real, but it's
+currently masked by a SEPARATE, more severe bug — `trader_error.log`
+lines have no per-line date prefix at all (`HH:MM:SS [TAG] ...`, not
+`[YYYY-MM-DD ...`), so BOTH `eod_report.py`'s bracket-prefix filter and
+`daily_report.py`'s date-substring filter effectively fail to read that
+file's errors by date at all. `eod_report.py`'s "genuine errors" count
+today only reflects `trader.log`, zero contribution from
+`trader_error.log`, silently. Recommended: `engine/error_filter.py`
+(shared `genuine_error_count()` + `KNOWN_FALSE_POSITIVE_PATTERNS`,
+mirroring the existing `engine/trades_filter.py::CLEAN_TRADES_WHERE`
+precedent) — but the date-filtering defect needs a real fix (not
+guessed) before the shared function is meaningful against
+`trader_error.log`, and `daily_report.py`'s reported count will jump
+visibly (~0 → several hundred/day) once both land — flag this to the
+Admiral before shipping, don't silently change a report's numbers. Not
+actioned this pass — filed as its own scoped fix, `engine/trades_filter.py`
+precedent confirms the design direction is right.
 
 **10. Pre-flight alarm test, day before departure.** Kill each service
 (trader/dashboards/tunnel) one at a time and confirm the Phase-1-item-1
