@@ -24,6 +24,16 @@
 # (~58KB/day observed) and there's no reason to let a slow-growing cron log
 # sit around for months before its first rotation.
 #
+# HM-NTFY-IPV6-NOROUTE-SWEEP followup (2026-07-11): added logs/watchdog_cron.log
+# -- watchdog.py is a long-running process (60s heartbeat loop) launched via
+# `nohup ... >> logs/watchdog_cron.log 2>&1 &` by watchdog_supervisor.sh, so it
+# holds this path open the same way main.py holds trader.log open -- same
+# truncate-in-place requirement, already the default behavior of rotate_one
+# below. Found unrotated at 5.6MB/42 days (~133KB/day, since 2026-05-30) while
+# checking log health after the ntfy sweep. Same 10MB threshold tier as
+# hm_ops_sentinel_cron.log (comparable growth rate, both frequent low-volume
+# heartbeat-style logs).
+#
 # Schedule: cron weekly Sun 05:00 MST.
 
 set -euo pipefail
@@ -79,5 +89,6 @@ rotate_one() {
 
 rotate_one "logs/trader.log" $((100 * 1024 * 1024)) "trader"
 rotate_one "logs/hm_ops_sentinel_cron.log" $((10 * 1024 * 1024)) "hm_ops_sentinel_cron"
+rotate_one "logs/watchdog_cron.log" $((10 * 1024 * 1024)) "watchdog_cron"
 
 echo "=== $(date -Iseconds) rotate_logs DONE ==="
