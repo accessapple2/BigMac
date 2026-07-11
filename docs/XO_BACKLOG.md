@@ -1964,7 +1964,15 @@ here: simulated auditioning candidate correctly blocked at all 3 layers
 and ready post-backfill; zero regression for real executing agents.
 
 ---
-## 🟡 HM-QWEN36-SUBSTITUTE-2026-07-06 — replacement pick, NOT YET PULLED
+## 🟢 HM-QWEN36-SUBSTITUTE-2026-07-06 — replacement pick, ONBOARDED 2026-07-07 (stale header corrected 2026-07-11)
+
+**Stale-doc correction (2026-07-11):** this ticket's header said "NOT YET
+PULLED," but the 2026-07-07 after-close bundled-restart checklist below
+(item 3) already onboarded it. Verified live, not just trusted: `qwen3:4b`
+confirmed pulled on Ollie Max (`/api/tags`), and `ai_players` has the
+`qwen3-4b-audition` seat (`model_id='qwen3:4b'`, `crew_role='auditioning'`,
+`halt_mode='active'`, `can_trade_live=0`) exactly as the checklist
+specified. No further action needed on this ticket.
 
 Qwen3.6-35B-A3B is dead (see item 5 in XO-DEPARTURE-HARDENING Phase 2 above)
 — no tag in the entire family fits Ollie Max's 16GB VRAM. Admiral asked for
