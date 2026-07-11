@@ -25,7 +25,6 @@ log = logging.getLogger(__name__)
 
 DB_PATH           = Path(__file__).parent.parent / "data" / "trader.db"
 SIGNAL_CENTER_URL = "http://localhost:9000/api/signal"
-NTFY_TOPIC        = "ollietrades-crew"
 YF_HEADERS        = {"User-Agent": "Mozilla/5.0 OllieTrades/6.0"}
 
 WATCHLIST = [
@@ -176,12 +175,30 @@ def _get_volume_data_yahoo(symbols: list[str]) -> dict[str, dict]:
 
 
 def send_ntfy(message: str, priority: str = "default"):
+    """HM-NTFY-IPV6-NOROUTE-LRS-FIX 2026-07-10: this used to POST directly
+    via `requests` with no IPv4 fallback -- this box has no working IPv6
+    route to ntfy.sh (confirmed live, same condition documented in
+    engine/alert_channels.py's HM-NTFY-IPV6-NOROUTE, 2026-07-07), and this
+    was the one remaining sender never given that fix. Accounted for the
+    large majority of trader_error.log's ~13,300 "ntfy failed" lines this
+    week -- traced directly, not assumed. Routes through the already-
+    hardened engine.alert_channels.send_alert() (forces IPv4) instead of
+    a second, unprotected implementation of the same POST.
+    bypass_rate_limit=True preserves this function's original behavior
+    (always sends immediately, one push per detection) -- send_alert()'s
+    default 5-min per-alert_type cooldown would otherwise silently
+    swallow a second whale hit on a different symbol within the window.
+    """
     try:
-        requests.post(
-            f"https://ntfy.sh/{NTFY_TOPIC}",
-            data=message.encode("utf-8"),
-            headers={"Priority": priority, "Title": "Long Range Sensors"},
-            timeout=5,
+        from engine.alert_channels import send_alert, AlertLevel
+        level = AlertLevel.RED_ALERT if priority == "urgent" else AlertLevel.WARNING
+        send_alert(
+            message=message,
+            level=level,
+            alert_type="long_range_sensors_whale",
+            title="Long Range Sensors",
+            audience="crew",
+            bypass_rate_limit=True,
         )
     except Exception as e:
         log.warning(f"ntfy failed: {e}")
