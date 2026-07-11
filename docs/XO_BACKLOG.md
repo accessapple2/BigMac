@@ -1241,7 +1241,7 @@ when scoped" framing) — but the "is this dead spend" question the ticket
 was filed to answer is now conclusively answered: no.
 
 ---
-## 🔵 HM-DESK-CHAIN-PROVENANCE — filed 2026-07-05 (HM-DECISION-DESK-MVP Phase 1 follow-up)
+## 🟡 HM-DESK-CHAIN-PROVENANCE — filed 2026-07-05, SCOPED 2026-07-11 — both root causes found, fix is forward-only
 
 Two data-integrity anomalies surfaced building the Desk's chain view
 (`GET /api/desk/chain/<signal_id>`, commit `9bb56e6`), not fixed — the Desk
@@ -1264,7 +1264,81 @@ provenance, and provenance is exactly what the 2026-07-24 kill-gate reads
 `HM-OLLIE-MACHINE-KILLGATE` above) to decide what counts as a real, gate-
 grade trade. A gate that reads a mislinked or never-marked-executed chain
 risks the same "0% EXECUTED, 72% wrong-symbol-linked" blind spot the Desk had
-to explicitly guard around. Filed for its own session — not actioned here.
+to explicitly guard around.
+
+**Scoped 2026-07-11 — re-verified both figures live, not trusted blind:**
+
+1. **72% mislink — confirmed exactly, root cause only partially found.**
+   Only 81 of 2,692 total trades (~3%) carry any `signal_id` at all (a
+   nullable FK added 2026-05-20, narrow/recent, not systemic historical
+   corruption). Of those, 75 resolve to a real `signals` row; **54/75 =
+   72.0%** symbol-mismatched — matches the ticket exactly. A fresh
+   independent sample of the first 65 by trade id reproduces 47/65.
+   `ollama-plutus` (1 matched/26 mismatched) and `ollie-auto` (0/14)
+   account for 40 of the 54 mismatches. **The intended write path looks
+   correct in code** — `engine/paper_trader.py:690` (`buy()`) inserts
+   `signal_id` from a caller-supplied argument threaded through the same
+   call scope (`engine/ai_brain.py:1300→1650`,
+   `engine/crew_scanner.py:3316-3330`, `engine/execution_router.py:
+   145-256`) — none of these, read in isolation, would produce a
+   cross-player, cross-symbol mismatch. **But the actual corrupted rows
+   don't fit that model at all**: e.g. trade 2729 (`ollama-plutus`, V,
+   2026-06-01) links to signal 4695, which belongs to a DIFFERENT player
+   (`gemini-2.5-flash`), DIFFERENT symbol (MSFT), created ~3 months
+   earlier (2026-03-11) — and near-consecutive trade IDs map to
+   near-consecutive signal IDs from unrelated players/symbols/dates. No
+   backfill script or migration was found writing `trades.signal_id`
+   (checked `migrations/apply_migration_003.py`,
+   `scripts/hm_trades_writeback_backfill.py` — neither touches it).
+   **Genuinely unresolved**: looks like a stale/shared-state or off-by-N
+   bug in a scan cycle, but the exact write site producing these specific
+   rows was not pinned this pass — needs its own dedicated trace.
+
+2. **`execution_status` never `'EXECUTED'` — root cause fully found.**
+   Lives on `signals`, not `trades` (`trades` has no such column).
+   `engine/paper_trader.py:1759` sets it via `_resolve_execution_portfolio()`
+   (`:410-464`), which only returns `route_mode="trading"` (→ `EXECUTED`)
+   for a hardcoded 5-player whitelist in `_EXECUTION_PORTFOLIO_BY_PLAYER`
+   (`:151-162` — `super-agent`, `dalio-metals`, `neo-matrix`, `ollie-auto`,
+   `guardian-of-forever`) mapped to a `portfolios.execution_mode='auto'`
+   row. Every other player hard-defaults to `route_mode="paper"` (`:426`)
+   — `EXECUTED` is **architecturally unreachable** for the fleet's actual
+   live trading loop, not a case-sensitivity or timing bug. Verified via
+   direct query on genuinely-matched links: **16 PENDING, 5 SIMULATED, 0
+   EXECUTED** — none of the 4 players producing real matched `signal_id`
+   links (`ollama-plutus`, `deepseek-7b-grok4`, `ollama-qwen3`,
+   `capitol-trades`) are in the legacy whitelist.
+
+**Proposed fix (forward-only, both pieces):**
+- Mislink: add an assertion in `buy()` (`engine/paper_trader.py:690`)
+  that rejects/logs any `signal_id` whose `signals.symbol != symbol`
+  before insert — turns future silent corruption into a loud, catchable
+  failure. The unresolved write-site trace (above) is a prerequisite to
+  actually stopping new bad rows, not just detecting them.
+- `execution_status`: replace the static `_EXECUTION_PORTFOLIO_BY_PLAYER`
+  whitelist gate (3 call sites: `engine/paper_trader.py:1759`, `:2100`,
+  `:4902`) with a check against the real fill confirmation already
+  written elsewhere (`alpaca_status='filled'` / `execution_type=
+  'alpaca_paper'` via `_persist_alpaca_fill`) instead of a stale
+  portfolio-routing table.
+
+**Blast radius — do NOT backfill.** Nothing sacred depends on this data
+yet (only ~3% of trades even carry `signal_id`). A backfill is **not
+safely computable** — same "retrospective join is a DEAD END" trap
+CLAUDE.md's ALPHA READ section already documents for `acted_by_fleet`
+("Fix = emit-time 'acted' tagging... FORWARD-ONLY build"). Recommend:
+leave existing mislinked/never-EXECUTED rows exactly as-is (don't
+"correct" 47/65 historical rows into new guesswork), fix emission
+forward only, and have both 2026-07-24 kill-gates filter on
+`trades.executed_at >= <fix-deploy-date>` when reading `signal_id`/
+`execution_status` as gate-grade evidence — otherwise they'd silently
+inherit this exact blind spot on historical rows even after the code fix
+ships.
+
+Not actioned this pass (scoping only) — the write-site trace for the
+72% mislink is the one piece that needs a dedicated follow-up session
+before any code change lands; the execution_status fix is fully scoped
+and ready to implement whenever prioritized.
 
 ---
 ## 🔵 HM-CLAUDE-TRADER-GHOST-DEFAULT — filed 2026-07-05 (historical finding, HM-DECISION-DESK-MVP Phase 1)
@@ -1450,15 +1524,22 @@ broker-execution-required onboarding criteria below both carry over
 unchanged to whatever model replaces Qwen3.6 — only the specific model_id
 is dead, not the onboarding design.
 
-**6. Shadow-pipeline verdict** — full ticket: `HM-SHADOW-PIPELINE-COST-AUDIT`
-below (~$50/mo, 4-10x q-witness, non-roster). If nothing consumes the
-output, propose the kill — dead spend shouldn't run unattended for weeks
-while nobody's watching.
+**6. Shadow-pipeline verdict — SCOPED 2026-07-11**, full ticket:
+`HM-SHADOW-PIPELINE-COST-AUDIT` below. Verdict: **not dead spend** — cost
+has been $0/day since 2026-07-06 (already fixed, historical rows just
+left intact). Real remaining question is compute waste (write-only
+pipelines, nobody reads the output) plus two new anomalies flagged for
+the Admiral (a live config drift + a live reliability bug). Not actioned
+beyond scoping.
 
-**7. Desk provenance fix** — full ticket: `HM-DESK-CHAIN-PROVENANCE` below
-(72% `signal_id` mislink rate + `execution_status` never set). Matters more
-now than when first filed: the gate-day scripts in Phase 1 item 4 above read
-exactly this kind of chain data.
+**7. Desk provenance fix — SCOPED 2026-07-11**, full ticket:
+`HM-DESK-CHAIN-PROVENANCE` below (72% `signal_id` mislink rate +
+`execution_status` never set). Both root causes traced; fix is
+forward-only, no safe backfill exists. Matters more now than when first
+filed: the gate-day scripts in Phase 1 item 4 above read exactly this
+kind of chain data — recommend those gates filter on
+`executed_at >= <fix-deploy-date>` once the forward fix ships. Not
+actioned beyond scoping.
 
 ---
 ## 🔴 XO-DEPARTURE-HARDENING — Phase 3, filed 2026-07-06
