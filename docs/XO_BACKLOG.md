@@ -66,7 +66,7 @@ any specific number in this card; the card describes what was true as of
 2026-07-06 ~22:20 MST, not a live view.
 
 ---
-## 🟡 HM-NTFY-IPV6-NOROUTE-SWEEP — filed 2026-07-10, 4 of ~18 unprotected senders fixed, rest catalogued not fixed
+## 🟢 HM-NTFY-IPV6-NOROUTE-SWEEP — filed 2026-07-10, SHIPPED same night — all 31 unprotected senders fixed (4 + 27)
 
 This box has no working IPv6 route to ntfy.sh (`HM-NTFY-IPV6-NOROUTE`,
 `engine/alert_channels.py`, 2026-07-07) — confirmed still live tonight
@@ -103,27 +103,66 @@ sensors.py`/`engine/ntfy.py` fixes from the same night.
   log**. Delegates to `_send_ntfy()` (this file already depends on
   `engine/` elsewhere).
 
-**NOT fixed — catalogued, no log evidence checked individually for
-most:** ~14 more files each have their own separate, unprotected
-implementation (confirmed via code inspection, `requests.post`/
-`urllib.request` with no IPv4 force): `agents/scotty/scotty.py`,
-`swingdesk/shadow_autopilot.py::_ntfy_admin()`, `signal-center/server.py`,
-`scripts/ghost_advisor.py`, `scripts/uhura_watch.py`,
-`scripts/q_market_open_ping.py`, `scripts/q_dissent_watch.py`,
-`scripts/import_schwab_csv.py::_ntfy()`,
-`scripts/model_watcher.py::ntfy_send()`,
-`scripts/model_sweep_v2.py::push_ntfy()`,
-`scripts/schwab_drawdown_alert.py`, `scripts/fleet_heartbeat.py`,
-`scripts/kimi_cut_watch.py`, `scripts/iren_flip_watch.py::_ntfy()`,
-`scripts/learning/check_pipeline.py`, `engine/squeeze_scanner.py`,
-`engine/alpha_signals.py`, `engine/archer_morning_synthesis.py`,
-`engine/universe_refresh.py`, `engine/orcl_gex_alerts.py::send_ntfy()`,
-`engine/fred_data.py`, `engine/fleet_auditor.py::_push_ntfy()`
-(**checked, 0 log occurrences — currently clean, may still be exposed
-under a different invocation context**), `engine/morning_briefing.py`,
-`engine/dayblade_scanner.py`, `engine/archer/alerts.py`,
-`engine/universe_scanner.py`. `healthcheck.py::push_ntfy()` also has its
-own implementation.
+**FIXED same night, second pass (27 more files, all catalogued in the
+first pass) — same session, commits ready to push.** Two fix patterns,
+picked per file's existing dependency posture:
+
+- **Delegate to `engine.alert_channels._send_ntfy()`** (13 files — either
+  already had an `engine/` dependency, or live inside `engine/` itself so
+  a sibling-module import adds no new coupling): `agents/scotty/scotty.py`,
+  `signal-center/server.py` (`_morpheus_log_action`'s FAILED-action
+  alert), `engine/squeeze_scanner.py::_ntfy_priority_candidates()`,
+  `engine/alpha_signals.py::_ntfy_send()`,
+  `engine/morning_briefing.py::_push_admin_ntfy()`,
+  `engine/dayblade_scanner.py::_push_ntfy()`,
+  `engine/archer/alerts.py::run_alert_cycle()`,
+  `engine/archer_morning_synthesis.py::send_briefing()`,
+  `engine/universe_refresh.py::_ntfy()`,
+  `engine/orcl_gex_alerts.py::send_ntfy()`,
+  `engine/fred_data.py::_ntfy_carts_release()`,
+  `engine/fleet_auditor.py::_push_ntfy()`,
+  `engine/universe_scanner.py::_sp500_alert()`.
+- **Self-contained local IPv4-force lock+monkeypatch** (14 files — zero
+  existing `engine/` dependency, same reasoning as `watchdog.py`'s
+  original fix): `swingdesk/shadow_autopilot.py::_ntfy_admin()`,
+  `scripts/ghost_advisor.py::send_ntfy()`,
+  `scripts/uhura_watch.py::send_ntfy()`,
+  `scripts/q_market_open_ping.py::_ntfy()` (dead code — one-shot fired
+  2026-06-09, fixed anyway for catalogue consistency),
+  `scripts/q_dissent_watch.py::_ntfy()`,
+  `scripts/import_schwab_csv.py::_ntfy()`,
+  `scripts/model_watcher.py::ntfy_send()`,
+  `scripts/model_sweep_v2.py::push_ntfy()`,
+  `scripts/schwab_drawdown_alert.py::_ntfy()`,
+  `scripts/fleet_heartbeat.py::_ntfy()`,
+  `scripts/kimi_cut_watch.py::_ntfy()`,
+  `scripts/iren_flip_watch.py::_ntfy()` (was never git-committed before
+  this pass — added to git for the first time alongside its fix),
+  `scripts/learning/check_pipeline.py::ping()`,
+  `healthcheck.py::push_ntfy()`.
+
+Test coverage: `tests/test_ntfy_ipv6_sweep_delegate_batch.py` (14 tests)
+and `tests/test_ntfy_ipv6_sweep_standalone_batch.py` (16 tests, one
+skipped — `model_sweep_v2` needs `vectorbt`, which only lives in
+`.venv-backtest`, guarded via `pytest.importorskip`, consistent with the
+vectorbt isolation rule; the fix itself is real, just untestable outside
+that venv). Full suite: 1026 passed, 21 failed (the same pre-existing
+bbkc/m5_allocator/quality_gate/etc. flakiness confirmed unrelated across
+every fix session this week), 2 skipped. `py_compile` clean on all 27.
+
+Live restart: `main.py`/trader (holds `squeeze_scanner`, `alpha_signals`,
+`morning_briefing`, `dayblade_scanner`, `archer/alerts`, `fred_data`,
+`fleet_auditor`, `universe_scanner` in memory via direct + `dashboard/
+app.py` imports) restarted cleanly via `trader_restart.sh`, single PID
+bound :8080, no import errors. `swingdesk/backend.py` (holds
+`shadow_autopilot.py` in memory) restarted via `swingdesk_restart.sh`,
+single PID bound :8889, HTTP 200 confirmed. `signal-center/server.py`
+was not running at fix time — picks up the fix on next start
+automatically. Everything else (scotty, the `scripts/*` one-shots,
+`archer_morning_synthesis.py`, `universe_refresh.py`,
+`orcl_gex_alerts.py`, `fred_data.py` CARTS job, `healthcheck.py`) is
+cron/launchd-invoked fresh each run — no restart needed, self-heals on
+next scheduled invocation.
 
 **Lower priority, likely already safe:** ~17 `.sh` scripts (`dr_crusher.sh`,
 `recall_refresh_run.sh`, `ollama_prewarm.sh`, `daily_watch_summary.sh`,
@@ -133,17 +172,13 @@ been confirmed twice tonight (via direct live test) to handle this box's
 IPv6 condition gracefully without the hang/failure Python's raw HTTP
 clients exhibit.
 
-**Recommendation for a future pass:** same fix pattern each time —
-engine/-resident files delegate to `engine.alert_channels._send_ntfy()`;
-top-level standalone scripts get a local, self-contained IPv4-force
-lock+monkeypatch (same reasoning as `watchdog.py`, to avoid adding an
-`engine/` dependency to scripts designed to run independently of it).
-Prioritize by checking each file's own log for real failure evidence
-first (as done for the 4 fixed tonight) rather than fixing all ~14
-blind — 3 of 4 fixed tonight had zero ambiguity once the log was
-checked; `fleet_auditor.py` came back clean on the same check, which is
-useful signal, not proof of safety given the ordering-dependent nature
-of the bug.
+**Closed.** Every Python ntfy sender catalogued in this ticket now routes
+through the IPv4-forced path (either `engine.alert_channels._send_ntfy()`
+directly, or a local copy of the same lock+monkeypatch technique). The
+`.sh` scripts above remain out of scope (curl handles this box's IPv6
+condition gracefully, confirmed via live test). Any *new* ntfy sender
+added to this codebase going forward should use one of these two patterns
+from the start rather than a third hand-rolled implementation.
 
 ---
 ## 🟢 HM-ARMED-DORMANT-SPREAD-STRATEGIES — filed 2026-07-10 (S6 P&L-reconciliation sweep), tb_active gate SHIPPED-DROPPED 2026-07-10, bull_spread_v1 self-healing in progress

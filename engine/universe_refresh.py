@@ -123,12 +123,13 @@ def _ntfy(message: str, priority: str = "default") -> None:
     UTF-8 so β survives there if used.
     """
     try:
-        import requests
-        requests.post(
-            "https://ntfy.sh/ollietrades-admin",
-            data=message.encode("utf-8"),
-            headers={"Title": "HM-AQ-beta refresh", "Priority": priority},
-            timeout=10,
+        # HM-NTFY-IPV6-NOROUTE-SWEEP 2026-07-10: delegates to the hardened
+        # engine.alert_channels._send_ntfy() (forces IPv4) instead of a
+        # separate requests.post() implementation of the same POST.
+        from engine.alert_channels import _send_ntfy
+        _send_ntfy(
+            title="HM-AQ-beta refresh", message=message,
+            priority=priority, topic="ollietrades-admin",
         )
     except Exception as e:
         log.warning("NTFY send failed: %s", e)

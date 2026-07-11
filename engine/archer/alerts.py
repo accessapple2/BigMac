@@ -143,14 +143,15 @@ def run_alert_cycle() -> dict:
         emoji = "🔴" if item["tier"] == "RED" else "🟡"
         title = f"{emoji} Captain Archer — {item['tier']} — {item['symbol']}"
         try:
-            requests.post(
-                NTFY,
-                data=narrative.encode("utf-8"),
-                headers={
-                    "Title": title.encode("ascii", "replace").decode("ascii"),
-                    "Priority": "high" if item["tier"] == "RED" else "default",
-                },
-                timeout=6,
+            # HM-NTFY-IPV6-NOROUTE-SWEEP 2026-07-10: delegates to the
+            # hardened engine.alert_channels._send_ntfy() (forces IPv4)
+            # instead of a separate requests.post() implementation.
+            from engine.alert_channels import _send_ntfy
+            _send_ntfy(
+                title=title.encode("ascii", "replace").decode("ascii"),
+                message=narrative,
+                priority="high" if item["tier"] == "RED" else "default",
+                topic=NTFY.rstrip("/").rsplit("/", 1)[-1],
             )
         except Exception as e:
             logger.warning("[Archer/alerts] ntfy failed: %s: %r", type(e).__name__, e)

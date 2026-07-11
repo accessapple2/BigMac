@@ -29,8 +29,10 @@ Author: ghost_advisor v1
 """
 import argparse
 import json
+import socket
 import sqlite3
 import sys
+import threading
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
@@ -67,8 +69,20 @@ def vlog(msg, verbose):
     if verbose:
         print(msg)
 
+_ntfy_ipv4_lock = threading.Lock()
+_orig_getaddrinfo = socket.getaddrinfo
+
+
+def _ipv4_only_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+    return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+
+
 def send_ntfy(title, message, priority="default", tags=None):
-    """Push notification to ntfy. Best-effort - never raises."""
+    """Push notification to ntfy. Best-effort - never raises.
+
+    HM-NTFY-IPV6-NOROUTE-SWEEP 2026-07-10: this box has no working IPv6
+    route to ntfy.sh (HM-NTFY-IPV6-NOROUTE, 2026-07-07) — forces IPv4 via a
+    local getaddrinfo monkeypatch."""
     if not NTFY_ENABLED:
         return
     try:
@@ -86,7 +100,12 @@ def send_ntfy(title, message, priority="default", tags=None):
             headers=headers,
             method="POST"
         )
-        urllib.request.urlopen(req, timeout=3).read()
+        with _ntfy_ipv4_lock:
+            socket.getaddrinfo = _ipv4_only_getaddrinfo
+            try:
+                urllib.request.urlopen(req, timeout=3).read()
+            finally:
+                socket.getaddrinfo = _orig_getaddrinfo
     except Exception as e:
         print(f"  [ntfy fail] {e}")
 

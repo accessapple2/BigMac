@@ -501,9 +501,14 @@ def save_session_grade(grade: str, trades: list):
 
 def _push_ntfy(direction: str, spy: float, triggers: list, confidence: int,
                strike: float, premium: float):
+    """HM-NTFY-IPV6-NOROUTE-SWEEP 2026-07-10: delegates to the hardened
+    engine.alert_channels._send_ntfy() (forces IPv4) instead of a separate
+    requests.post() implementation of the same POST. NTFY_URL's topic
+    (last path segment) is preserved as the destination."""
     ntfy_url = os.getenv("NTFY_URL", "")
     if not ntfy_url:
         return
+    topic = ntfy_url.rstrip("/").rsplit("/", 1)[-1]
     body = (
         f"⚡ 0DTE {direction} ALERT — SPY ${spy:.2f}\n"
         f"Strike: ${strike:.0f} | Premium: ${premium:.2f} ask\n"
@@ -511,15 +516,10 @@ def _push_ntfy(direction: str, spy: float, triggers: list, confidence: int,
         + "\n".join(f"✓ {t}" for t in triggers[:4])
     )
     try:
-        requests.post(
-            ntfy_url,
-            data=body.encode(),
-            headers={
-                "Title": f"DayBlade {direction} Signal",
-                "Priority": "high",
-                "Tags": "rotating_light",
-            },
-            timeout=5,
+        from engine.alert_channels import _send_ntfy
+        _send_ntfy(
+            title=f"DayBlade {direction} Signal", message=body,
+            priority="high", tags="rotating_light", topic=topic,
         )
     except Exception as e:
         logger.debug("ntfy push failed: %s", e)

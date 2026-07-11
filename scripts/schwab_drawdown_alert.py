@@ -5,7 +5,7 @@ Read-only, never trades, never touches Schwab auth. Safe during the 30-day passi
 window because it only sends an NTFY heads-up. Fires once per (symbol,trigger) per
 day, re-fires only if the loss deepens another REALERT_STEP percent.
 """
-import json, os, sys, datetime as dt
+import json, os, socket, sys, threading, datetime as dt
 from pathlib import Path
 import requests
 
@@ -18,6 +18,13 @@ NTFY_URL   = f"https://ntfy.sh/{NTFY_TOPIC}"
 STATE_PATH = Path(os.environ.get("DRAWDOWN_STATE", "data/drawdown_alert_state.json"))
 HOLDINGS   = Path(os.environ.get("REAL_HOLDINGS", "data/real_holdings.json"))
 
+_ntfy_ipv4_lock = threading.Lock()
+_orig_getaddrinfo = socket.getaddrinfo
+
+
+def _ipv4_only_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+    return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+
 
 def _ntfy(title, body, priority="default", tags="warning"):
     # HM-DRAWDOWN-CRON-2026-07-01: ntfy's Title/Priority/Tags are raw HTTP
@@ -29,11 +36,20 @@ def _ntfy(title, body, priority="default", tags="warning"):
     # let ntfy's own Tags emoji-shortcode mechanism (warning -> ⚠️,
     # rotating_light -> 🚨) render the icon client-side instead of a raw
     # unicode header value.
+    # HM-NTFY-IPV6-NOROUTE-SWEEP 2026-07-10: this box has no working IPv6
+    # route to ntfy.sh (HM-NTFY-IPV6-NOROUTE, 2026-07-07) -- forces IPv4 via
+    # a local getaddrinfo monkeypatch (affects requests too, since it also
+    # resolves through socket.getaddrinfo).
     try:
         ascii_title = title.encode("ascii", "ignore").decode("ascii").strip() or "DRAWDOWN ALERT"
-        requests.post(NTFY_URL, data=body.encode("utf-8"),
-                      headers={"Title": ascii_title, "Priority": priority, "Tags": tags},
-                      timeout=6)
+        with _ntfy_ipv4_lock:
+            socket.getaddrinfo = _ipv4_only_getaddrinfo
+            try:
+                requests.post(NTFY_URL, data=body.encode("utf-8"),
+                              headers={"Title": ascii_title, "Priority": priority, "Tags": tags},
+                              timeout=6)
+            finally:
+                socket.getaddrinfo = _orig_getaddrinfo
     except requests.RequestException as e:
         print(f"[drawdown] NTFY failed: {e}", file=sys.stderr)
 

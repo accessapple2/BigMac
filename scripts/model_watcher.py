@@ -16,7 +16,9 @@ Usage:
 import argparse
 import json
 import os
+import socket
 import sys
+import threading
 import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -158,7 +160,18 @@ def last_seen_github_tag(history, repo):
     return None
 
 
+_ntfy_ipv4_lock = threading.Lock()
+_orig_getaddrinfo = socket.getaddrinfo
+
+
+def _ipv4_only_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+    return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+
+
 def ntfy_send(topic, title, message, priority="default"):
+    """HM-NTFY-IPV6-NOROUTE-SWEEP 2026-07-10: this box has no working IPv6
+    route to ntfy.sh (HM-NTFY-IPV6-NOROUTE, 2026-07-07) — forces IPv4 via a
+    local getaddrinfo monkeypatch."""
     if not topic:
         return
     url = f"https://ntfy.sh/{topic}"
@@ -170,7 +183,12 @@ def ntfy_send(topic, title, message, priority="default"):
     req.add_header("Priority", priority)
     req.add_header("User-Agent", USER_AGENT)
     try:
-        urllib.request.urlopen(req, timeout=HTTP_TIMEOUT)
+        with _ntfy_ipv4_lock:
+            socket.getaddrinfo = _ipv4_only_getaddrinfo
+            try:
+                urllib.request.urlopen(req, timeout=HTTP_TIMEOUT)
+            finally:
+                socket.getaddrinfo = _orig_getaddrinfo
     except Exception as e:
         print(f"ntfy failed: {e}", file=sys.stderr)
 

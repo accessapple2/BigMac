@@ -209,14 +209,18 @@ def send_briefing() -> str:
 
     log.info("\n" + briefing)
 
-    # Send to ntfy (both channels)
+    # Send to ntfy (both channels).
+    # HM-NTFY-IPV6-NOROUTE-SWEEP 2026-07-10: delegates to the hardened
+    # engine.alert_channels._send_ntfy() (forces IPv4) instead of a separate
+    # requests.post() implementation of the same POST.
     for ntfy_url in [NTFY_ADMIN, NTFY_CREW]:
         try:
-            requests.post(
-                ntfy_url,
-                data=briefing.encode("utf-8"),
-                headers={"Priority": "default", "Title": "Morning Briefing -- Archer"},
-                timeout=10,
+            from engine.alert_channels import _send_ntfy
+            _send_ntfy(
+                title="Morning Briefing -- Archer",
+                message=briefing,
+                priority="default",
+                topic=ntfy_url.rstrip("/").rsplit("/", 1)[-1],
             )
         except Exception as e:
             log.warning(f"ntfy failed: {e}")

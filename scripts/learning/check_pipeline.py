@@ -4,13 +4,20 @@ Fine-tune pipeline reminder.
 Reads data/training_state.json, decides if a reminder is due, sends ntfy alert.
 Runs daily at 9 AM via launchd.
 """
-import json, os, sys, requests
+import json, os, socket, sys, threading, requests
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 STATE = ROOT / "data" / "training_state.json"
 NTFY = "https://ntfy.sh/ollietrades-admin"
+
+_ntfy_ipv4_lock = threading.Lock()
+_orig_getaddrinfo = socket.getaddrinfo
+
+
+def _ipv4_only_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+    return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
 
 def load():
     return json.loads(STATE.read_text())
@@ -24,10 +31,18 @@ def days_since(iso):
     return (datetime.now(timezone.utc) - dt).days
 
 def ping(title, msg, priority="default", tags=""):
+    """HM-NTFY-IPV6-NOROUTE-SWEEP 2026-07-10: this box has no working IPv6
+    route to ntfy.sh (HM-NTFY-IPV6-NOROUTE, 2026-07-07) — forces IPv4 via a
+    local getaddrinfo monkeypatch."""
     try:
-        requests.post(NTFY, data=msg.encode(),
-                      headers={"Title": title, "Priority": priority, "Tags": tags},
-                      timeout=10)
+        with _ntfy_ipv4_lock:
+            socket.getaddrinfo = _ipv4_only_getaddrinfo
+            try:
+                requests.post(NTFY, data=msg.encode(),
+                              headers={"Title": title, "Priority": priority, "Tags": tags},
+                              timeout=10)
+            finally:
+                socket.getaddrinfo = _orig_getaddrinfo
         return True
     except Exception as e:
         print(f"ntfy failed: {e}")

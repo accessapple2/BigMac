@@ -1009,26 +1009,24 @@ def _get_captain_portfolio_review() -> dict:
 
 # ── ntfy admin push ────────────────────────────────────────────────────────
 
-def _push_admin_ntfy(title: str, body: str, priority: int = 4) -> None:
-    """Fire-and-forget ntfy push to ollietrades-admin topic."""
-    import urllib.request
+_NTFY_PRIORITY_LABEL = {1: "min", 2: "low", 3: "default", 4: "high", 5: "urgent"}
 
+
+def _push_admin_ntfy(title: str, body: str, priority: int = 4) -> None:
+    """Fire-and-forget ntfy push to ollietrades-admin topic.
+
+    HM-NTFY-IPV6-NOROUTE-SWEEP 2026-07-10: delegates to the hardened
+    engine.alert_channels._send_ntfy() (forces IPv4) instead of a separate
+    urllib.request implementation of the same POST.
+    """
     def _send():
         try:
-            payload = json.dumps({
-                "topic":    _ADMIN_NTFY_TOPIC,
-                "title":    title,
-                "message":  body,
-                "priority": priority,
-                "tags":     ["newspaper"],
-            }).encode()
-            req = urllib.request.Request(
-                "https://ntfy.sh",
-                data=payload,
-                headers={"Content-Type": "application/json"},
-                method="POST",
+            from engine.alert_channels import _send_ntfy
+            _send_ntfy(
+                title=title, message=body,
+                priority=_NTFY_PRIORITY_LABEL.get(priority, "default"),
+                tags="newspaper", topic=_ADMIN_NTFY_TOPIC,
             )
-            urllib.request.urlopen(req, timeout=8)
         except Exception as e:
             # ntfy failures must never crash trading logic -- still logged.
             logger.warning("_push_admin_ntfy send failed (title=%r): %s", title, e)

@@ -12,8 +12,10 @@ import logging
 import os
 import re
 import shutil
+import socket
 import sqlite3
 import sys
+import threading
 import urllib.error
 import urllib.request
 from datetime import datetime
@@ -290,16 +292,33 @@ def parse_csv(csv_path: Path) -> tuple[str, str, str, str, list[dict]]:
 
 # ─── HM-AY-α #3: ntfy + delta-check + quarantine helpers ──────────────────────
 
+_ntfy_ipv4_lock = threading.Lock()
+_orig_getaddrinfo = socket.getaddrinfo
+
+
+def _ipv4_only_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+    return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+
+
 def _ntfy(message: str, priority: str = "default") -> None:
-    """Best-effort POST to ntfy.sh/ollietrades-admin. Never raises."""
+    """Best-effort POST to ntfy.sh/ollietrades-admin. Never raises.
+
+    HM-NTFY-IPV6-NOROUTE-SWEEP 2026-07-10: this box has no working IPv6
+    route to ntfy.sh (HM-NTFY-IPV6-NOROUTE, 2026-07-07) — forces IPv4 via a
+    local getaddrinfo monkeypatch."""
     try:
         req = urllib.request.Request(
             NTFY_URL,
             data=message.encode("utf-8"),
             headers={"Priority": priority},
         )
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            resp.read()
+        with _ntfy_ipv4_lock:
+            socket.getaddrinfo = _ipv4_only_getaddrinfo
+            try:
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    resp.read()
+            finally:
+                socket.getaddrinfo = _orig_getaddrinfo
     except (urllib.error.URLError, OSError) as e:
         logger.debug("ntfy post failed (non-fatal): %s", e)
 

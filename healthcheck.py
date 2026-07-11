@@ -5,8 +5,10 @@ Uses stdlib only so it works with any Python (no venv dependency).
 """
 from __future__ import annotations
 import os
+import socket
 import subprocess
 import sys
+import threading
 import time
 import sqlite3
 from datetime import datetime
@@ -185,10 +187,20 @@ def get_db_stats() -> str:
 
 
 # --- Actions ---
+_ntfy_ipv4_lock = threading.Lock()
+_orig_getaddrinfo = socket.getaddrinfo
+
+
+def _ipv4_only_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+    return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+
+
 def push_ntfy(title: str, body: str, priority: str = "default",
               tags: str = "warning,bigmac,drcrusher") -> None:
     """Fire-and-forget ntfy.sh push to the admin topic. Stdlib only; silent on failure.
-    Mirrors watchdog.py push_alert() pattern for consistency."""
+    Mirrors watchdog.py push_alert() pattern for consistency, including the
+    HM-NTFY-IPV6-NOROUTE-SWEEP 2026-07-10 IPv4-force fix (this box has no
+    working IPv6 route to ntfy.sh, HM-NTFY-IPV6-NOROUTE 2026-07-07)."""
     try:
         ascii_title = title.encode("ascii", errors="ignore").decode("ascii").strip() or "Dr. Crusher"
         req = Request(
@@ -202,7 +214,12 @@ def push_ntfy(title: str, body: str, priority: str = "default",
             },
             method="POST",
         )
-        urlopen(req, timeout=6)
+        with _ntfy_ipv4_lock:
+            socket.getaddrinfo = _ipv4_only_getaddrinfo
+            try:
+                urlopen(req, timeout=6)
+            finally:
+                socket.getaddrinfo = _orig_getaddrinfo
     except Exception:
         pass  # ntfy failures must never crash the healthcheck
 

@@ -133,11 +133,16 @@ def _sp500_alert(msg: str) -> None:
         return
     _sp500_alerted = True
     try:
-        import urllib.request
+        # HM-NTFY-IPV6-NOROUTE-SWEEP 2026-07-10: delegates to the hardened
+        # engine.alert_channels._send_ntfy() (forces IPv4) instead of a
+        # separate urllib.request implementation of the same POST.
+        from engine.alert_channels import _send_ntfy
         topic = os.getenv("NTFY_ADMIN_TOPIC", "ollietrades-admin")
-        urllib.request.urlopen(urllib.request.Request(
-            f"https://ntfy.sh/{topic}", data=("S&P500 source degraded: " + msg).encode(),
-            headers={"Title": "S&P500 source degraded", "Priority": "high"}), timeout=10)
+        _send_ntfy(
+            title="S&P500 source degraded",
+            message="S&P500 source degraded: " + msg,
+            priority="high", topic=topic,
+        )
     except Exception as e:
         console.log(f"[yellow]universe_scanner: S&P500-degrade ntfy send failed: {e}")
 

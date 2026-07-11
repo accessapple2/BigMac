@@ -8,8 +8,10 @@ trader.db). Same posture as scripts/schwab_csv_watcher.sh — read-only on the D
 stdlib-only (sqlite3 + urllib), no venv dependency. Runs during market hours via
 crontab; a no-op (silent exit) when there are no new Q dissents.
 """
+import socket
 import sqlite3
 import sys
+import threading
 import urllib.request
 from pathlib import Path
 
@@ -17,6 +19,13 @@ ROOT = Path("/Users/bigmac/autonomous-trader")
 DB = ROOT / "data" / "trader.db"
 STATE = ROOT / "data" / "q_dissent_watch.state"
 NTFY = "https://ntfy.sh/ollietrades-admin"
+
+_ntfy_ipv4_lock = threading.Lock()
+_orig_getaddrinfo = socket.getaddrinfo
+
+
+def _ipv4_only_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+    return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
 
 
 def _last_id() -> int:
@@ -34,6 +43,9 @@ def _save(last_id: int) -> None:
 
 
 def _ntfy(title: str, body: str) -> None:
+    """HM-NTFY-IPV6-NOROUTE-SWEEP 2026-07-10: this box has no working IPv6
+    route to ntfy.sh (HM-NTFY-IPV6-NOROUTE, 2026-07-07) — forces IPv4 via a
+    local getaddrinfo monkeypatch."""
     try:
         req = urllib.request.Request(
             NTFY, data=body.encode("utf-8"),
@@ -44,7 +56,12 @@ def _ntfy(title: str, body: str) -> None:
             },
             method="POST",
         )
-        urllib.request.urlopen(req, timeout=8)
+        with _ntfy_ipv4_lock:
+            socket.getaddrinfo = _ipv4_only_getaddrinfo
+            try:
+                urllib.request.urlopen(req, timeout=8)
+            finally:
+                socket.getaddrinfo = _orig_getaddrinfo
     except Exception as e:
         print(f"[q-dissent-watch] ntfy failed: {e}", file=sys.stderr)
 

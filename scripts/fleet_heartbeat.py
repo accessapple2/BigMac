@@ -23,8 +23,10 @@ WIRING (for Scotty)  <<< FILL IN THE REAL CHECKS >>>
 """
 
 import os
+import socket
 import sys
 import json
+import threading
 import time
 import datetime as dt
 from pathlib import Path
@@ -37,11 +39,26 @@ NTFY_URL   = f"https://ntfy.sh/{NTFY_TOPIC}"
 ROOT       = Path(os.environ.get("TRADER_ROOT", "/Users/bigmac/autonomous-trader"))
 STALE_HOURS = 26  # a daily job older than this is considered stale (1 day + buffer)
 
+_ntfy_ipv4_lock = threading.Lock()
+_orig_getaddrinfo = socket.getaddrinfo
+
+
+def _ipv4_only_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+    return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+
 
 def _ntfy(title, body, priority="default"):
+    """HM-NTFY-IPV6-NOROUTE-SWEEP 2026-07-10: this box has no working IPv6
+    route to ntfy.sh (HM-NTFY-IPV6-NOROUTE, 2026-07-07) — forces IPv4 via a
+    local getaddrinfo monkeypatch."""
     try:
-        requests.post(NTFY_URL, data=body.encode("utf-8"),
-                      headers={"Title": title, "Priority": priority}, timeout=8)
+        with _ntfy_ipv4_lock:
+            socket.getaddrinfo = _ipv4_only_getaddrinfo
+            try:
+                requests.post(NTFY_URL, data=body.encode("utf-8"),
+                              headers={"Title": title, "Priority": priority}, timeout=8)
+            finally:
+                socket.getaddrinfo = _orig_getaddrinfo
     except requests.RequestException as e:
         print(f"[heartbeat] NTFY failed: {e}", file=sys.stderr)
 

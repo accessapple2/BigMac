@@ -396,15 +396,16 @@ def _ntfy_carts_release(series_title: str, nowcast: float | None, prev: float | 
             f"{series_title}: {nc}% m/m (prev {pv}%). "
             f"Census retail sales release likely tomorrow."
         )
-        requests.post(
-            f"https://ntfy.sh/{_CARTS_NTFY_TOPIC}",
-            data=body.encode("utf-8"),
-            headers={
-                "Title":    "CARTS nowcast updated",   # ASCII-only: emoji via Tags
-                "Priority": "default",
-                "Tags":     "bar_chart,carts,fred,nowcast",  # bar_chart renders 📊
-            },
-            timeout=5,
+        # HM-NTFY-IPV6-NOROUTE-SWEEP 2026-07-10: delegates to the hardened
+        # engine.alert_channels._send_ntfy() (forces IPv4) instead of a
+        # separate requests.post() implementation of the same POST.
+        from engine.alert_channels import _send_ntfy
+        _send_ntfy(
+            title="CARTS nowcast updated",   # ASCII-only: emoji via Tags
+            message=body,
+            priority="default",
+            tags="bar_chart,carts,fred,nowcast",  # bar_chart renders 📊
+            topic=_CARTS_NTFY_TOPIC,
         )
     except Exception as e:
         logger.warning(f"CARTS ntfy failed: {e}")

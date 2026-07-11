@@ -16,6 +16,7 @@ import socket
 import sqlite3
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -46,6 +47,13 @@ MARKET_CLOSE_MIN_ET  = 0
 # Suppress repeat ntfy pushes for the same anomaly within this window
 NTFY_DEDUP_MINUTES = 60
 DEDUP_STATE_FILE = LOG_DIR / "ntfy_dedup.json"
+
+_ntfy_ipv4_lock = threading.Lock()
+_orig_getaddrinfo = socket.getaddrinfo
+
+
+def _ipv4_only_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+    return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
 
 
 class CheckResult:
@@ -270,14 +278,21 @@ def send_ntfy(anomalies, dry_run=False):
         return
 
     try:
-        import urllib.request
-        req = urllib.request.Request(
+        # HM-NTFY-IPV6-NOROUTE-SWEEP 2026-07-10: this box has no working
+        # IPv6 route to ntfy.sh (HM-NTFY-IPV6-NOROUTE, 2026-07-07) — forces
+        # IPv4 via a local getaddrinfo monkeypatch.
+        req = Request(
             f"https://ntfy.sh/{NTFY_TOPIC}",
             data=body.encode("utf-8"),
             headers={"Title": "Uhura-Watch: fleet anomaly",
                      "Priority": "high", "Tags": "warning"},
             method="POST")
-        urllib.request.urlopen(req, timeout=5).read()
+        with _ntfy_ipv4_lock:
+            socket.getaddrinfo = _ipv4_only_getaddrinfo
+            try:
+                urlopen(req, timeout=5).read()
+            finally:
+                socket.getaddrinfo = _orig_getaddrinfo
         # Record what we alerted on
         for a in fresh:
             state[a] = now.isoformat()

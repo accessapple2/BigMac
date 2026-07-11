@@ -1793,12 +1793,19 @@ def _morpheus_log_action(action, by, result, notes=None):
     # Log. Push it instead of waiting to be found.
     if result == "FAILED":
         try:
+            # HM-NTFY-IPV6-NOROUTE-SWEEP 2026-07-10: delegates to the hardened
+            # engine.alert_channels._send_ntfy() (forces IPv4) instead of a
+            # separate requests.post() implementation of the same POST.
             topic = os.environ.get("NTFY_ADMIN_TOPIC", "ollietrades-admin")
-            requests.post(
-                f"https://ntfy.sh/{topic}",
-                data=f"{action} failed (triggered by {by}). {_json.dumps(notes or {})[:150]}".encode("utf-8"),
-                headers={"Title": f"Morpheus action failed: {action}", "Priority": "high"},
-                timeout=10,
+            _parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            if _parent not in sys.path:
+                sys.path.insert(0, _parent)
+            from engine.alert_channels import _send_ntfy as _hardened_send_ntfy
+            _hardened_send_ntfy(
+                title=f"Morpheus action failed: {action}",
+                message=f"{action} failed (triggered by {by}). {_json.dumps(notes or {})[:150]}",
+                priority="high",
+                topic=topic,
             )
         except Exception as e:
             _morpheus_log.warning("[Morpheus] ntfy on FAILED action error: %s: %r", type(e).__name__, e)

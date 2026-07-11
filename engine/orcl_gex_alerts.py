@@ -105,12 +105,14 @@ def get_rsi(symbol: str = "ORCL", period: int = 14) -> float:
 
 
 def send_ntfy(message: str, priority: str = "default"):
+    """HM-NTFY-IPV6-NOROUTE-SWEEP 2026-07-10: delegates to the hardened
+    engine.alert_channels._send_ntfy() (forces IPv4) instead of a separate
+    requests.post() implementation of the same POST."""
     try:
-        requests.post(
-            f"https://ntfy.sh/{NTFY_TOPIC}",
-            data=message.encode("utf-8"),
-            headers={"Priority": priority, "Title": "ORCL GEX Alert"},
-            timeout=5,
+        from engine.alert_channels import _send_ntfy
+        _send_ntfy(
+            title="ORCL GEX Alert", message=message,
+            priority=priority, topic=NTFY_TOPIC,
         )
         log.info(f"ntfy sent: {message[:60]}")
     except Exception as e:

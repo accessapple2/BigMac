@@ -9,9 +9,11 @@ NEVER auto-halts (the Captain confirms). Fires once (state-file guard), then qui
 Local cron, read-only DB, stdlib only. Same Sharpe methodology as
 engine/agent_scorecard.py (return-on-cost, clipped ±5R, clean-trade boundary).
 """
+import socket
 import sqlite3
 import statistics
 import sys
+import threading
 import urllib.request
 from pathlib import Path
 
@@ -22,15 +24,30 @@ NTFY = "https://ntfy.sh/ollietrades-admin"
 AGENT = "ollama-kimi"
 MIN_SNAPS = 25
 
+_ntfy_ipv4_lock = threading.Lock()
+_orig_getaddrinfo = socket.getaddrinfo
+
+
+def _ipv4_only_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+    return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+
 
 def _ntfy(title: str, body: str) -> None:
+    """HM-NTFY-IPV6-NOROUTE-SWEEP 2026-07-10: this box has no working IPv6
+    route to ntfy.sh (HM-NTFY-IPV6-NOROUTE, 2026-07-07) — forces IPv4 via a
+    local getaddrinfo monkeypatch."""
     try:
         req = urllib.request.Request(
             NTFY, data=body.encode("utf-8"),
             headers={"Title": title.encode("ascii", "replace").decode("ascii"),
                      "Priority": "default", "Tags": "balance_scale,chart"},
             method="POST")
-        urllib.request.urlopen(req, timeout=8)
+        with _ntfy_ipv4_lock:
+            socket.getaddrinfo = _ipv4_only_getaddrinfo
+            try:
+                urllib.request.urlopen(req, timeout=8)
+            finally:
+                socket.getaddrinfo = _orig_getaddrinfo
     except Exception as e:
         print(f"[kimi-cut-watch] ntfy failed: {e}", file=sys.stderr)
 

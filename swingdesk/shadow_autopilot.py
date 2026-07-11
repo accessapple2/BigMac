@@ -34,6 +34,7 @@ DB: the swingdesk-local swingdesk.db (repo root) — never the fleet trader.db.
 from __future__ import annotations
 
 import os
+import socket
 import sqlite3
 import threading
 import time
@@ -815,9 +816,22 @@ def _ensure_audit_schema(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+_ntfy_ipv4_lock = threading.Lock()
+_orig_getaddrinfo = socket.getaddrinfo
+
+
+def _ipv4_only_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+    return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+
+
 def _ntfy_admin(title: str, message: str, priority: str = "high") -> bool:
     """Fire an NTFY alert to the O-Tasty admin topic. Self-contained (ntfy.sh
-    public topic via urllib) — NO broker, no engine dependency. Returns True on 2xx."""
+    public topic via urllib) — NO broker, no engine dependency. Returns True on 2xx.
+
+    HM-NTFY-IPV6-NOROUTE-SWEEP 2026-07-10: this box has no working IPv6
+    route to ntfy.sh (HM-NTFY-IPV6-NOROUTE, 2026-07-07) — forces IPv4 via a
+    local getaddrinfo monkeypatch, kept self-contained (no engine/ import)
+    per this function's own design intent above."""
     topic = os.getenv("OTASTY_NTFY_TOPIC", "ollietrades-admin")
     try:
         req = urllib.request.Request(
@@ -826,8 +840,13 @@ def _ntfy_admin(title: str, message: str, priority: str = "high") -> bool:
             headers={"Title": title, "Priority": priority, "Tags": "rotating_light"},
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=8) as r:
-            return 200 <= r.status < 300
+        with _ntfy_ipv4_lock:
+            socket.getaddrinfo = _ipv4_only_getaddrinfo
+            try:
+                with urllib.request.urlopen(req, timeout=8) as r:
+                    return 200 <= r.status < 300
+            finally:
+                socket.getaddrinfo = _orig_getaddrinfo
     except Exception as e:
         print(f"[NTFY] admin alert failed: {type(e).__name__}: {e}")
         return False

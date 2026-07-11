@@ -29,8 +29,10 @@ import json
 import os
 import re
 import shutil
+import socket
 import sqlite3
 import sys
+import threading
 import time
 import warnings
 from collections import defaultdict
@@ -204,8 +206,19 @@ def verify_model(model_id: str) -> bool:
 
 # ── ntfy ──────────────────────────────────────────────────────────────────────
 
+_ntfy_ipv4_lock = threading.Lock()
+_orig_getaddrinfo = socket.getaddrinfo
+
+
+def _ipv4_only_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+    return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+
+
 def push_ntfy(title: str, body: str, priority: str = "default",
               tags: str = "white_check_mark,sweep") -> None:
+    """HM-NTFY-IPV6-NOROUTE-SWEEP 2026-07-10: this box has no working IPv6
+    route to ntfy.sh (HM-NTFY-IPV6-NOROUTE, 2026-07-07) — forces IPv4 via a
+    local getaddrinfo monkeypatch."""
     try:
         ascii_title = title.encode("ascii", errors="ignore").decode("ascii").strip()
         req = Request(
@@ -219,7 +232,12 @@ def push_ntfy(title: str, body: str, priority: str = "default",
             },
             method="POST",
         )
-        urlopen(req, timeout=6)
+        with _ntfy_ipv4_lock:
+            socket.getaddrinfo = _ipv4_only_getaddrinfo
+            try:
+                urlopen(req, timeout=6)
+            finally:
+                socket.getaddrinfo = _orig_getaddrinfo
     except Exception:
         pass
 

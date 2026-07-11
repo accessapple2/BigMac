@@ -614,8 +614,6 @@ def _ntfy_priority_candidates(db_path: str = _DB_PATH, max_individual: int = 5) 
     Throttle: at most `max_individual` per scan run. If more than that,
     a single rollup ntfy fires instead. Never raises.
     """
-    import urllib.request
-
     fired = 0
     try:
         conn = _conn(db_path)
@@ -644,16 +642,13 @@ def _ntfy_priority_candidates(db_path: str = _DB_PATH, max_individual: int = 5) 
     topic = os.environ.get("NTFY_ADMIN_TOPIC", "ollietrades-admin")
 
     def _post(title: str, body: str) -> bool:
+        # HM-NTFY-IPV6-NOROUTE-SWEEP 2026-07-10: delegates to the hardened
+        # engine.alert_channels._send_ntfy() (forces IPv4) instead of a
+        # separate urllib.request implementation of the same POST.
         safe_title = title.encode("ascii", "replace").decode("ascii")
         try:
-            req = urllib.request.Request(
-                f"https://ntfy.sh/{topic}",
-                data=body.encode("utf-8"),
-                method="POST",
-            )
-            req.add_header("Title", safe_title)
-            req.add_header("Priority", "default")
-            urllib.request.urlopen(req, timeout=8).read()
+            from engine.alert_channels import _send_ntfy
+            _send_ntfy(title=safe_title, message=body, priority="default", topic=topic)
             return True
         except Exception as ex:
             console.log(f"[yellow]squeeze_watch ntfy POST error: {type(ex).__name__}: {ex!r}")

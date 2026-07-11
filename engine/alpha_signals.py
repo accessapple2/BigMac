@@ -1378,26 +1378,26 @@ def _save_composite(rows: list[dict]) -> None:
 # Alerts — ntfy + Signal Center
 # ═══════════════════════════════════════════════════════════════════════════════
 
-_NTFY_URL = "https://ntfy.sh"
+_NTFY_TOPIC = "ollietrades"
+_NTFY_PRIORITY_LABEL = {1: "min", 2: "low", 3: "default", 4: "high", 5: "urgent"}
 
 
 def _ntfy_send(title: str, body: str, priority: int = 3, tags: list[str] | None = None) -> None:
-    """Fire-and-forget ntfy push in a daemon thread."""
+    """Fire-and-forget ntfy push in a daemon thread.
+
+    HM-NTFY-IPV6-NOROUTE-SWEEP 2026-07-10: delegates to the hardened
+    engine.alert_channels._send_ntfy() (forces IPv4) instead of a separate
+    urllib.request implementation of the same POST.
+    """
     def _send():
         try:
-            data = json.dumps({
-                "topic": "ollietrades",
-                "title": title,
-                "message": body,
-                "priority": priority,
-                "tags": tags or [],
-            }).encode()
-            req = urllib.request.Request(
-                _NTFY_URL, data=data,
-                headers={"Content-Type": "application/json"},
-                method="POST",
+            from engine.alert_channels import _send_ntfy
+            _send_ntfy(
+                title=title, message=body,
+                priority=_NTFY_PRIORITY_LABEL.get(priority, "default"),
+                tags=",".join(tags) if tags else "ollietrades",
+                topic=_NTFY_TOPIC,
             )
-            urllib.request.urlopen(req, timeout=6)
         except Exception as e:
             logger.warning("alpha_signals ntfy send failed (title=%r): %s", title, e)
 

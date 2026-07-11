@@ -159,22 +159,21 @@ def notify(results: List[SqueezeScore]) -> None:
 
 
 def _send_ntfy(alerts: List[SqueezeScore]) -> None:
-    try:
-        import requests
-    except ImportError:
-        log.warning("requests not installed; skipping ntfy push")
-        return
+    """HM-NTFY-IPV6-NOROUTE-SWEEP 2026-07-10: delegates to the hardened
+    engine.alert_channels._send_ntfy() (forces IPv4) instead of a separate
+    requests.post() implementation of the same POST."""
     tickers = ", ".join(
         f"{r.ticker}(SI:{r.snapshot.short_pct:.0f}%)" for r in alerts if r.snapshot.short_pct
     )
     if not tickers:
         return
     try:
-        requests.post(
-            f"https://ntfy.sh/{NTFY_TOPIC}",
-            data=f"Scotty 4/4 alert: {tickers}".encode("utf-8"),
-            headers={"Title": "Squeeze pressure critical", "Priority": "high"},
-            timeout=5,
+        from engine.alert_channels import _send_ntfy as _hardened_send_ntfy
+        _hardened_send_ntfy(
+            title="Squeeze pressure critical",
+            message=f"Scotty 4/4 alert: {tickers}",
+            priority="high",
+            topic=NTFY_TOPIC,
         )
         log.info(f"Scotty: ntfy pushed for {len(alerts)} tickers")
     except Exception as e:

@@ -244,21 +244,21 @@ def _check_ollama(base_url: str, name: str) -> dict:
 # ── ntfy Alerts ───────────────────────────────────────────────────────────────
 
 def _push_ntfy(title: str, body: str, priority: str = "default") -> None:
-    """Fire-and-forget ntfy push. Never raises."""
+    """Fire-and-forget ntfy push. Never raises.
+
+    HM-NTFY-IPV6-NOROUTE-SWEEP 2026-07-10: delegates to the hardened
+    engine.alert_channels._send_ntfy() (forces IPv4) instead of a separate
+    urlopen() implementation of the same POST."""
     try:
         ascii_title = title.encode("ascii", errors="ignore").decode("ascii").strip()
-        req = Request(
-            f"https://ntfy.sh/{NTFY_TOPIC}",
-            data=body.encode("utf-8"),
-            headers={
-                "Title":        ascii_title or "Fleet Auditor",
-                "Priority":     priority,
-                "Tags":         "warning,fleet,auditor",
-                "Content-Type": "text/plain; charset=utf-8",
-            },
-            method="POST",
+        from engine.alert_channels import _send_ntfy
+        _send_ntfy(
+            title=ascii_title or "Fleet Auditor",
+            message=body,
+            priority=priority,
+            tags="warning,fleet,auditor",
+            topic=NTFY_TOPIC,
         )
-        urlopen(req, timeout=6)
     except Exception:
         pass
 
