@@ -1268,6 +1268,43 @@ only mode is only real if the phone can actually see in; this is the one
 item on the whole list that can't be verified by Scotty alone and needs the
 Admiral's own device.
 
+**COMPLETED 2026-07-10 — full kill-test run, Admiral-confirmed on-device
+each time.** Root-caused and fixed a real ntfy delivery bug along the
+way (see `HM-NTFY-IPV6-NOROUTE-LRS-FIX` — `engine/long_range_sensors.py`
+was the source of ~13,300 "ntfy failed" lines this week, now fixed) and
+confirmed/closed a real subscription gap (`Ollie-Alert-35`, the topic
+`watchdog.py`/`eod_report.py` actually send to, was not subscribed on
+the phone until tonight — now added). Results:
+
+| Service | Recovery mechanism | Downtime | Alert path exercised? |
+|---|---|---|---|
+| Tunnel (cloudflared) | Undocumented system LaunchDaemon, `KeepAlive` | <1s | No — recovery too fast to catch (see below) |
+| Dashboard (swingdesk) | Same undocumented LaunchDaemon pattern | <2s | No — same reason |
+| Trader (main.py) | Cron keepalive (5-min) + watchdog 3-strike system | ~2m19s | **Yes — confirmed landed on phone** |
+| `eod_report.py` manual run | `send_alert()`, now on the fixed path | n/a | **Yes — confirmed landed on phone** |
+
+**Major side-finding, not previously documented anywhere:** tunnel and
+swingdesk are NOT actually on the cron+nohup fallback `CLAUDE.md`'s
+"LaunchAgent Reboot Lifecycle" section describes — they're protected by
+real, working, system-domain LaunchDaemons (`/Library/LaunchDaemons/
+com.trademinds.cloudflared.plist`, dated 2026-06-11;
+`com.trademinds.swingdesk.plist`, 2026-06-17) that `CLAUDE.md`
+incorrectly still describes as "deferred." Confirmed live by directly
+killing each service and watching a replacement process appear in the
+same second, independent of any of this repo's own watchdog/cron
+mechanisms. `CLAUDE.md` updated to correct this. `status_page` has the
+same LaunchDaemon pattern too (already correctly noted in
+`scripts/status_page_restart.sh`'s own comment, just never propagated
+to `CLAUDE.md`'s doctrine section).
+
+**Phone/Cloudflare Access confirmed working** across four separate real
+pushes tonight (a manual test ping, TRADER REVIVED, EOD Report) — no
+remaining doubt on this piece.
+
+**Residual, not urgent:** the old `@reboot cloudflared_reboot_start.sh`
+cron line is now redundant (harmless — dup-guarded) given the
+LaunchDaemon; worth removing in a future cleanup pass, not blocking.
+
 ---
 ## 🔵 HM-STATUS-PAGE-STALE-CACHE — filed 2026-07-05 (bigmac cold-start test)
 

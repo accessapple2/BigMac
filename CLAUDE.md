@@ -200,10 +200,39 @@ services. cloudflared has its own multi-edge connection retry logic so
 transient connection drops self-heal; only a full process crash would require
 manual intervention.
 
-A LaunchDaemon under `/Library/LaunchDaemons/` would be the apple-canonical
-fix (system domain, runs at boot independent of GUI), but requires sudo +
-Full Disk Access on the Terminal app. Deferred. HM-CLOUDFLARED-LAUNCHDAEMON
-in `drafts/HM-CLOSET-POWER-PASTE.md` ITEM 4 plans the migration.
+**UPDATE 2026-07-10 — NOT deferred, already shipped for three services.**
+Found live during a departure-hardening pre-flight test (kill-and-verify):
+`/Library/LaunchDaemons/` has real, working, system-domain LaunchDaemons —
+`com.trademinds.cloudflared.plist` (dated 2026-06-11, `KeepAlive=true`,
+`RunAtLoad=true`), `com.trademinds.swingdesk.plist` (2026-06-17, same
+pattern, its own comment says "Replaces the @reboot cron — REMOVE that
+cron so both don't fight for port 8889" — confirmed done, no swingdesk
+`@reboot` line exists), and `com.trademinds.statuspage.plist` (2026-07-05,
+matches the note already in `scripts/status_page_restart.sh`). System
+LaunchDaemons run at boot independent of GUI login (no Aqua-session
+requirement, unlike the `gui/$UID` LaunchAgents above) — this genuinely
+is the apple-canonical fix, and it's live for these three. Verified
+live: killed cloudflared directly, a replacement process appeared in the
+**same second** (`KeepAlive` respawn, not any of this repo's own
+watchdog/cron mechanisms — `watchdog.py`'s 60s sweep never even
+registered the outage, it was already gone). Confirmed `bridge.
+ollietrades.com` serving traffic again immediately after.
+
+**Still on the cron+nohup fallback (no LaunchDaemon yet):** trader
+(`main.py`), signal-center, `watchdog.py` itself. These still rely on
+`HM-TRADER-KEEPALIVE`/`origin_healthcheck.sh` (5-min cron) and
+`watchdog.py`'s own 60s-interval strike system for detection+recovery —
+materially slower than the three LaunchDaemon-protected services above.
+
+**Known residual cleanup, not yet done:** the old `@reboot
+cloudflared_reboot_start.sh` cron line is still present and now
+redundant (the LaunchDaemon handles this) — harmless (the script has a
+`pgrep -x cloudflared` dup-guard) but worth removing for clarity in a
+future pass.
+
+`HM-CLOUDFLARED-LAUNCHDAEMON` in `drafts/HM-CLOSET-POWER-PASTE.md` ITEM 4
+described this as a planned migration — it's done for these three
+services; not yet attempted for trader/signal-center/watchdog.
 
 ### Scheduler-owned jobs
 launchd plist archival + scheduler-ownership detail moved to [`docs/runbooks/reboot-lifecycle.md`](docs/runbooks/reboot-lifecycle.md).
