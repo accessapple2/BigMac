@@ -9677,3 +9677,41 @@ sources) so the sentinel stops alerting on rows that structurally can't
 execute under the ordering that's already live." Not applied tonight —
 flagging as a small, separate, low-risk follow-up rather than assuming scope
 that wasn't explicitly asked for.
+
+## 🔵 HM-CRONTAB-EINTR — filed 2026-07-12, not urgent, diagnosis deferred
+
+`crontab -e`/`crontab -l`-style installs are failing machine-wide on bigmac
+with `crontab: tmp/tmp.49301: Interrupted system call` — reproduced twice by
+XO from two different sessions (once local, once a fresh SSH session from
+another machine), same error both times, so it isn't a one-off signal/session
+fluke. Root cause not yet investigated (candidates: `EDITOR`/`VISUAL`
+misconfigured to something that mishandles signals, a stale/locked
+`/usr/lib/cron/tabs` tmp file, or a `vipw`-style file-locking race — none
+confirmed).
+
+**Impact today:** blocked the planned cron installation of the
+`HM-SIGNALS-V2-STARVATION-RECURRENCE` Monday-morning check
+(`scripts/hm_signals_v2_monday_check.py`). Worked around by installing it as
+a one-shot `launchd` LaunchAgent instead
+(`~/Library/LaunchAgents/com.ollietrades.hm-signals-v2-monday-check.plist`,
+`StartCalendarInterval` pinned to Year/Month/Day/Hour/Minute = 2026/7/13/7/0
+MST so it fires exactly once and never recurs) — bootstrapped into `gui/501`
+and confirmed via `launchctl print` (event trigger registered, `runs = 0`,
+armed for the target timestamp). The script's own `_remove_own_cron()`
+self-cleanup no-ops harmlessly if crontab is still broken when it fires
+(catches the non-zero `crontab -l` exit and just skips, per its existing
+error handling — verified by reading the function, not assumed).
+
+**Not urgent** because the one job that needed scheduling today is covered
+by the launchd fallback. Still worth root-causing before the next time
+something needs a recurring (not one-shot) cron entry, since launchd
+one-shots don't generalize to that case, and per
+`docs/CLAUDE.md`'s "LaunchAgent Reboot Lifecycle" note, `launchd` has its
+own known gaps (SSH-run `launchctl bootstrap` domain errors, RunAtLoad not
+firing without a logged-in Aqua session) that make it an imperfect
+universal substitute for cron, not just a drop-in replacement.
+
+**Next step (not done):** reproduce with `crontab -l` alone (isolate whether
+it's specific to `-e`/write-with-tmpfile or hits read-only listing too),
+check `echo $EDITOR $VISUAL`, and check for a stale lockfile under
+`/usr/lib/cron/tabs/` or `/var/at/tabs/`.
