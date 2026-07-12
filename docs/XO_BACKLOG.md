@@ -497,7 +497,7 @@ shipping anything against `rallies_intel.py` — it's reading the same
 architecturally-CSP-blind table, not a bug.
 
 ---
-## 🔴 HM-SIGNALS-V2-FIFO-STARVATION — filed 2026-07-06 (HM-MONDAY-OPEN-WATCH), propose-first
+## 🟢 HM-SIGNALS-V2-FIFO-STARVATION — filed 2026-07-06 (HM-MONDAY-OPEN-WATCH), RESOLVED 2026-07-12
 
 `engine/events_bus_consumer.py::consume_pending_signals()` dequeues with
 `SELECT ... FROM signals_v2 WHERE status='pending' ORDER BY created_at ASC
@@ -638,6 +638,60 @@ cause is somewhere else — cookie natural 24h expiry lining up with the
 restart by coincidence, a CF-tunnel/proxy session concern, or a browser-side
 cookie-clear — and deserves its own targeted look rather than assuming
 `_active_sessions` again.
+
+**RESOLVED 2026-07-12 (XO directive, HM-SIGNALS-V2-FIFO-STARVATION
+verification pass).** Re-checked this ticket cold against live
+`data/trader.db` before touching anything, per doctrine (backlog/memory go
+stale — confirm current state first, not just what the doc says). Finding:
+**both original recommendations, plus the residual follow-up flagged
+2026-07-09, were already applied** in two prior sessions — this entry was
+just never marked closed.
+
+Timeline, reconstructed from git + `data/backups/`:
+- **2026-07-06, commit `aa55f1d`:** recommendation #1 (expire pending rows
+  from halted/non-active sources, `scripts/hm_signals_v2_expire_halted_backlog.py`)
+  + recommendation #2 (`engine/events_bus_consumer.py::consume_pending_signals()`
+  switched to `ORDER BY created_at DESC`, newest-first) shipped together.
+  Snapshot: `data/backups/hm_signals_v2_expire_20260706_083934.ids`.
+- **2026-07-09, commit `b3e9ade`:** the residual gap this ticket's own 07-09
+  note flagged (pre-reorder active-source rows permanently outranked under
+  newest-first, keeping `hm_ops_sentinel.py`'s oldest-pending-age check
+  perpetually WARNING) was closed via a new one-time script,
+  `scripts/hm_signals_v2_expire_pre_reorder_active_backlog.py` — archived
+  630 active-source rows dated before the 07-06 reorder (`status='expired'`,
+  archive-not-delete). Snapshot:
+  `data/backups/hm_signals_v2_expire_pre_reorder_20260709_204342.ids`.
+  Verified in that commit: 841 pending → 211 pending.
+
+**Live-verified 2026-07-12, no changes made — nothing left to fix:**
+```
+pending total:                              140
+oldest pending age:                         45.7h   (< 48h WARNING threshold)
+active-source rows predating the 07-06 reorder: 0
+pending by source/halt_mode: ollama-plutus (active) 83, ollama-qwen3 (active) 57
+```
+`hm_ops_sentinel.py`'s `check_signals_v2_queue()` would not fire on either
+sub-condition (pending≫3000, oldest-age≫48h) against these numbers. Closing
+this ticket. If the queue climbs again (e.g. a currently-active source gets
+halted later, or newest-first genuinely starves a batch of same-day signals
+during a high-volume session), the same archive-not-delete pattern in the
+two scripts above is the template; `hm_ops_sentinel.py`'s signals_v2 check
+will surface it. See also `HM-SENTINEL-ACK` (same date) — an ack/ceiling
+mechanism was added to `hm_ops_sentinel.py` so a known, understood recurrence
+of this condition can be acknowledged without going permanently silent.
+
+---
+## 🔵 HM-SIGNALS-V2-STARVATION-RECURRENCE — filed 2026-07-12 (XO directive, post-fix watch item), propose-first, NOT IMPLEMENTED
+
+Structural follow-on risk identified while verifying `HM-SIGNALS-V2-FIFO-STARVATION` closed (above): the newest-first ordering (`ORDER BY created_at DESC`, live since 07-06 commit `aa55f1d`) combined with the consumer's fixed drain cap (`max_batch=10` per 1-min tick, `engine/events_bus_consumer.py::consume_pending_signals()`) can permanently outrank *any* batch of pending rows that isn't the newest — not just the specific pre-07-06 and pre-07-09 backlogs already cleaned up. This same mechanism produced both prior one-time cleanups; nothing structural stops it from recurring with a third batch.
+
+**Concretely observed today (2026-07-12, Sunday):** the 140 currently-pending rows (83 `ollama-plutus` + 57 `ollama-qwen3`, all dated 2026-07-10 evening/2026-07-11 early AM, all from currently-`active` sources) sat completely untouched all weekend — market closed, the consumer is NYSE-hours-only (`main.py::run_events_bus_consumer()` no-ops when `is_us_market_open()` is false). Whether Monday's fresh signal volume from these same two sources leaves enough drain-cap headroom to reach back to these 140 rows, or whether they get permanently outranked by same-day signals the same way the pre-07-06 batch was, is **unverified** — genuinely depends on Monday's volume, not derivable from today's data alone.
+
+**Two candidate fixes for later evaluation — NOT implemented, no code changes made here:**
+- **(a) TTL / age-cap auto-expiry:** expire pending rows older than N *market*-hours (using `engine.market_calendar.market_hours_elapsed`, added under `HM-SENTINEL-ACK` below) via the same archive-not-delete pattern as the two prior one-time scripts, but as a standing rule instead of a manual cleanup. Tradeoff: needs an Admiral-approved N (how old is "genuinely dead" vs. "still worth a shot") and turns a human archive decision into an automatic one.
+- **(b) Hybrid ordering:** reserve a small slice of the consumer's per-tick drain cap (e.g. 1-2 of the 10) for the single oldest pending row regardless of source recency, so nothing can be *permanently* outranked even under sustained high newest-source volume — just slower. Tradeoff: touches the live consumer's dequeue logic directly (higher blast radius than (a), since it changes order-submission-adjacent behavior, not just an archive script).
+
+**Monday verification task (queued, not yet run):** after 2026-07-13 market open, re-check whether these 140 rows are draining or being newest-first-outranked. That result decides whether this ticket becomes active work or closes as "didn't recur this time." Needs Admiral sign-off before either candidate fix is built.
 
 ---
 ## 🔴 HM-RIKER-SYNTHESIS-LOCK-CONTENTION — filed 2026-07-06 (HM-MONDAY-OPEN-WATCH), propose-first

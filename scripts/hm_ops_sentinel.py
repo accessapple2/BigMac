@@ -26,9 +26,26 @@ Four checks, each alerts independently (own alert_type, own rate limit):
        (HM-SIGNALS-V2-FIFO-STARVATION). WARNING if pending>3000 or
        oldest-pending age >48h.
 
+HM-SENTINEL-ACK (2026-07-12): each alert can be acknowledged (suppressed)
+via scripts/hm_sentinel_ack.py, which writes data/.hm_ops_sentinel_acks.json.
+An ack suppresses notification for its alert_type UNLESS the check's own
+metric value exceeds the ack's optional ceiling -- so acking a known,
+understood condition doesn't create a permanent blind spot if it later
+gets meaningfully worse. This script only ever READS the acks file; only
+the ack CLI writes it, so this stays read-only against everything except
+its own state/checkpoint file.
+
+The signals_v2 queue check's ceiling metric is elapsed *market* hours
+(engine.market_calendar.market_hours_elapsed), not wall-clock hours -- a
+Friday-evening backlog sitting untouched all weekend shouldn't burn an
+ack's escalation budget just because 48+ wall-clock hours passed while the
+market was closed the entire time. All other checks use their existing
+wall-clock/count metrics as-is (market-hours-awareness isn't meaningful
+for FD count or heartbeat staleness).
+
 Exit codes:
-  0 - all checks healthy
-  2 - at least one alert fired
+  0 - all checks healthy (or all firing alerts were acked and under ceiling)
+  2 - at least one non-acked (or ceiling-breached) alert fired
   1 - error running the checks themselves
 """
 from __future__ import annotations
@@ -59,6 +76,7 @@ sys.path.insert(0, str(ROOT))
 DB_PATH = ROOT / "data" / "trader.db"
 ERROR_LOG = ROOT / "logs" / "trader_error.log"
 STATE_PATH = ROOT / "data" / ".hm_ops_sentinel_state.json"
+ACKS_PATH = ROOT / "data" / ".hm_ops_sentinel_acks.json"
 
 FD_WARN_THRESHOLD = 150   # Admiral-revised 2026-07-06: observed healthy plateau
 FD_RED_THRESHOLD = 250    # 140-170 during a normal session; 60/120 false-fired daily.
@@ -67,6 +85,12 @@ HEARTBEAT_STALE_MIN = 25
 LOCK_WINDOW_MIN = 10
 QUEUE_PENDING_WARN = 3000
 QUEUE_OLDEST_WARN_HOURS = 48
+
+# An alert tuple is (level_kw, alert_type, message, metric_value). metric_value
+# is the single number an ack's ceiling compares against -- None means "no
+# comparable scalar for this alert type," so an ack on it is a permanent
+# suppression (no ceiling is possible) regardless of what --ceiling was given.
+AlertTuple = tuple[str, str, str, "float | None"]
 
 
 def _load_state() -> dict:
@@ -83,6 +107,32 @@ def _save_state(state: dict) -> None:
         print(f"[sentinel] failed to persist state: {e}", file=sys.stderr)
 
 
+def _load_acks() -> dict:
+    """Read-only. scripts/hm_sentinel_ack.py owns writes to this file."""
+    try:
+        return json.loads(ACKS_PATH.read_text())
+    except Exception:
+        return {}
+
+
+def _is_suppressed(alert_type: str, metric_value: "float | None", acks: dict) -> bool:
+    """True if an ack on `alert_type` should suppress this firing.
+
+    No ack -> never suppressed. Ack with no ceiling (or metric_value is None,
+    i.e. this alert type has no single comparable number) -> suppressed
+    unconditionally until unacked. Ack with a ceiling -> suppressed only
+    while metric_value stays at or below that ceiling; a breach re-fires
+    so an acked condition can't silently get worse forever.
+    """
+    ack = acks.get(alert_type)
+    if not ack:
+        return False
+    ceiling = ack.get("ceiling")
+    if ceiling is None or metric_value is None:
+        return True
+    return metric_value <= ceiling
+
+
 def _main_pid() -> int | None:
     r = subprocess.run(
         ["pgrep", "-f", "[m]ain.py"], capture_output=True, text=True
@@ -91,13 +141,14 @@ def _main_pid() -> int | None:
     return int(pids[0]) if pids else None
 
 
-def check_fd_count(alerts: list[tuple[str, str, str]]) -> dict:
+def check_fd_count(alerts: list[AlertTuple]) -> dict:
     pid = _main_pid()
     if pid is None:
         alerts.append((
             "red_alert", "sentinel_main_py_down",
             "HM-OPS-SENTINEL: main.py is not running (pgrep found no match). "
             "trader_keepalive_cron should catch this within 5 min; flagging directly too.",
+            None,
         ))
         return {"pid": None, "fd_count": None}
 
@@ -137,17 +188,19 @@ def check_fd_count(alerts: list[tuple[str, str, str]]) -> dict:
             f"NOTE: if the trend is flat/negative, this is likely a healthy "
             f"market-hours plateau, not an active leak -- see HM-OPS-SENTINEL "
             f"filing in XO_BACKLOG for today's observed baseline.",
+            float(fd_count),
         ))
     elif fd_count > FD_WARN_THRESHOLD:
         alerts.append((
             "warning", "sentinel_fd_warn",
             f"HM-OPS-SENTINEL: main.py (PID {pid}) holds {fd_count} FDs on "
             f"trader.db/-wal/-shm (> {FD_WARN_THRESHOLD} warn threshold){trend}.",
+            float(fd_count),
         ))
     return {"pid": pid, "fd_count": fd_count}
 
 
-def check_riker_heartbeat(alerts: list[tuple[str, str, str]]) -> dict:
+def check_riker_heartbeat(alerts: list[AlertTuple]) -> dict:
     import sqlite3
 
     from engine.risk_manager import RiskManager
@@ -170,11 +223,12 @@ def check_riker_heartbeat(alerts: list[tuple[str, str, str]]) -> dict:
             f"(last write {last} UTC) during market hours -- riker_synthesis "
             f"cron (*/10) may be failing its final persist (database is "
             f"locked was the root cause this morning).",
+            age_min,
         ))
     return {"last": last, "age_min": round(age_min, 1)}
 
 
-def check_lock_errors(alerts: list[tuple[str, str, str]]) -> dict:
+def check_lock_errors(alerts: list[AlertTuple]) -> dict:
     """Count "database is locked" occurrences appended since the last run.
 
     trader_error.log lines are "HH:MM:SS [LRS] message" with NO date, and the
@@ -213,12 +267,15 @@ def check_lock_errors(alerts: list[tuple[str, str, str]]) -> dict:
             "warning", "sentinel_lock_errors",
             f"HM-OPS-SENTINEL: {count} \"database is locked\" occurrence(s) "
             f"in trader_error.log in the last {LOCK_WINDOW_MIN} min.",
+            float(count),
         ))
     return {"lock_errors": count}
 
 
-def check_signals_v2_queue(alerts: list[tuple[str, str, str]]) -> dict:
+def check_signals_v2_queue(alerts: list[AlertTuple]) -> dict:
     import sqlite3
+
+    from engine.market_calendar import market_hours_elapsed
 
     conn = sqlite3.connect(DB_PATH, timeout=10)
     pending = conn.execute(
@@ -230,39 +287,48 @@ def check_signals_v2_queue(alerts: list[tuple[str, str, str]]) -> dict:
     conn.close()
 
     oldest_age_hours = None
+    oldest_age_market_hours = None
     if oldest:
         oldest_dt = datetime.strptime(oldest, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
         oldest_age_hours = (datetime.now(timezone.utc) - oldest_dt).total_seconds() / 3600.0
+        oldest_age_market_hours = market_hours_elapsed(oldest_dt)
 
     reasons = []
     if pending > QUEUE_PENDING_WARN:
         reasons.append(f"pending={pending} (> {QUEUE_PENDING_WARN})")
     if oldest_age_hours is not None and oldest_age_hours > QUEUE_OLDEST_WARN_HOURS:
-        reasons.append(f"oldest-pending age={oldest_age_hours:.0f}h (> {QUEUE_OLDEST_WARN_HOURS}h)")
+        reasons.append(f"oldest-pending age={oldest_age_hours:.0f}h (> {QUEUE_OLDEST_WARN_HOURS}h, "
+                        f"{oldest_age_market_hours:.1f} market-hours)")
 
     if reasons:
         alerts.append((
             "warning", "sentinel_signals_v2_queue",
             f"HM-OPS-SENTINEL: signals_v2 pending queue -- {', '.join(reasons)}. "
-            f"See HM-SIGNALS-V2-FIFO-STARVATION in docs/XO_BACKLOG.md "
-            f"(known residual backlog, propose-first fix not yet applied).",
+            f"See HM-SIGNALS-V2-FIFO-STARVATION in docs/XO_BACKLOG.md.",
+            # Ceiling metric is elapsed MARKET hours, not wall-clock -- a
+            # weekend/overnight gap shouldn't consume an ack's escalation
+            # budget when nothing could have drained anyway. Falls back to
+            # pending count if the queue is non-empty with no parseable
+            # oldest timestamp (shouldn't happen in practice).
+            oldest_age_market_hours if oldest_age_market_hours is not None else float(pending),
         ))
     return {
         "pending": pending,
         "oldest": oldest,
         "oldest_age_hours": round(oldest_age_hours, 1) if oldest_age_hours is not None else None,
+        "oldest_age_market_hours": round(oldest_age_market_hours, 1) if oldest_age_market_hours is not None else None,
     }
 
 
-def _dispatch(alerts: list[tuple[str, str, str]], dry_run: bool = False) -> None:
+def _dispatch(alerts: list[AlertTuple], dry_run: bool = False) -> None:
     if dry_run:
-        for level_kw, alert_type, message in alerts:
+        for level_kw, alert_type, message, _metric in alerts:
             print(f"[sentinel] [DRY RUN] would dispatch [{level_kw}/{alert_type}]: {message}")
         return
     try:
         from engine.alert_channels import AlertLevel, send_alert
         level_map = {"info": AlertLevel.INFO, "warning": AlertLevel.WARNING, "red_alert": AlertLevel.RED_ALERT}
-        for level_kw, alert_type, message in alerts:
+        for level_kw, alert_type, message, _metric in alerts:
             send_alert(
                 message=message,
                 level=level_map[level_kw],
@@ -276,7 +342,7 @@ def _dispatch(alerts: list[tuple[str, str, str]], dry_run: bool = False) -> None
 
 def main() -> int:
     dry_run = "--dry-run" in sys.argv
-    alerts: list[tuple[str, str, str]] = []
+    alerts: list[AlertTuple] = []
     try:
         fd_status = check_fd_count(alerts)
         heartbeat_status = check_riker_heartbeat(alerts)
@@ -289,11 +355,25 @@ def main() -> int:
     print(f"[sentinel] fd={fd_status} heartbeat={heartbeat_status} "
           f"lock={lock_status} queue={queue_status}")
 
-    if alerts:
-        _dispatch(alerts, dry_run=dry_run)
+    acks = _load_acks()
+    fired = [a for a in alerts if not _is_suppressed(a[1], a[3], acks)]
+    suppressed = [a for a in alerts if _is_suppressed(a[1], a[3], acks)]
+
+    for level_kw, alert_type, message, metric_value in suppressed:
+        ack = acks.get(alert_type, {})
+        ceiling = ack.get("ceiling")
+        print(f"[sentinel] SUPPRESSED (acked {ack.get('acked_at', '?')} by "
+              f"{ack.get('acked_by', '?')}, ceiling={ceiling}, metric={metric_value}) "
+              f"[{level_kw}/{alert_type}]: {message[:100]}")
+
+    if fired:
+        _dispatch(fired, dry_run=dry_run)
         return 2
 
-    print("[sentinel] OK -- all checks within threshold")
+    if suppressed:
+        print(f"[sentinel] OK -- {len(suppressed)} alert(s) acked and within ceiling, nothing dispatched")
+    else:
+        print("[sentinel] OK -- all checks within threshold")
     return 0
 
 

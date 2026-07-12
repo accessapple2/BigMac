@@ -19,6 +19,7 @@ from engine.market_calendar import (
     is_early_close_day,
     is_us_market_holiday,
     is_us_market_open,
+    market_hours_elapsed,
     next_market_open,
 )
 
@@ -190,6 +191,67 @@ class MarketCalendarTests(unittest.TestCase):
         # Memorial Day 2026-05-25 at 14:30 UTC == 10:30 ET — should be CLOSED_HOLIDAY
         naive = datetime(2026, 5, 25, 14, 30)  # naive, treated as UTC
         self.assertEqual(get_market_status(naive), MarketStatus.CLOSED_HOLIDAY)
+
+
+# ── market_hours_elapsed — HM-SENTINEL-ACK (2026-07-12) ─────────────────
+class MarketHoursElapsedTests(unittest.TestCase):
+    def test_same_day_partial_session(self) -> None:
+        # Monday 2026-07-13: 09:30 -> 11:30 ET, no other trading days involved.
+        start = _et(2026, 7, 13, 9, 30)
+        end = _et(2026, 7, 13, 11, 30)
+        self.assertAlmostEqual(market_hours_elapsed(start, end), 2.0, places=6)
+
+    def test_full_weekend_contributes_zero(self) -> None:
+        # Friday close (16:00 ET) -> Monday open (09:30 ET): no session time
+        # in between at all -- weekend contributes zero, not ~65.5 wall-clock hours.
+        start = _et(2026, 7, 10, 16, 0)   # Friday close
+        end = _et(2026, 7, 13, 9, 30)     # Monday open
+        self.assertEqual(market_hours_elapsed(start, end), 0.0)
+
+    def test_real_backlog_scenario_created_just_after_friday_close(self) -> None:
+        # The actual HM-SIGNALS-V2-FIFO-STARVATION weekend case: oldest
+        # pending row created 2026-07-10 20:01:52 UTC == 16:01:52 ET, ~2
+        # minutes after Friday's 16:00 close. Checked Sunday mid-day -- must
+        # still read ~0 market-hours elapsed (Friday's 2 remaining minutes
+        # are already past close; Sat/Sun contribute nothing) even though
+        # wall-clock elapsed is ~45-46 hours.
+        start = datetime(2026, 7, 10, 20, 1, 52, tzinfo=UTC)
+        end = datetime(2026, 7, 12, 18, 0, 0, tzinfo=UTC)  # Sunday ~11am MST
+        self.assertEqual(market_hours_elapsed(start, end), 0.0)
+
+    def test_spans_one_weekday_boundary(self) -> None:
+        # Monday 15:00 ET -> Tuesday 10:30 ET: 1h (Mon 15:00-16:00) + 1h
+        # (Tue 09:30-10:30) = 2.0h, overnight gap contributes nothing.
+        start = _et(2026, 7, 13, 15, 0)
+        end = _et(2026, 7, 14, 10, 30)
+        self.assertAlmostEqual(market_hours_elapsed(start, end), 2.0, places=6)
+
+    def test_early_close_day_caps_at_1pm_et(self) -> None:
+        # Black Friday 2026-11-27 is an early-close (1pm ET) day. 09:30 ->
+        # 15:00 same day must cap at 13:00, i.e. 3.5h, not 5.5h.
+        self.assertTrue(is_early_close_day(date(2026, 11, 27)))
+        start = _et(2026, 11, 27, 9, 30)
+        end = _et(2026, 11, 27, 15, 0)
+        self.assertAlmostEqual(market_hours_elapsed(start, end), 3.5, places=6)
+
+    def test_holiday_contributes_zero(self) -> None:
+        # Memorial Day 2026-05-25 sits between Friday 5/22 and Tuesday 5/26.
+        # Only the two real trading days' overlaps should count.
+        start = _et(2026, 5, 22, 15, 0)   # Friday, 1h of session left
+        end = _et(2026, 5, 26, 10, 30)    # Tuesday, 1h of session elapsed
+        self.assertAlmostEqual(market_hours_elapsed(start, end), 2.0, places=6)
+
+    def test_end_before_start_is_zero(self) -> None:
+        start = _et(2026, 7, 13, 11, 0)
+        end = _et(2026, 7, 13, 9, 30)
+        self.assertEqual(market_hours_elapsed(start, end), 0.0)
+
+    def test_defaults_end_to_now(self) -> None:
+        # Just confirm it runs and returns a non-negative float when `end`
+        # is omitted -- not asserting an exact value since "now" moves.
+        result = market_hours_elapsed(_et(2020, 1, 2, 9, 30))
+        self.assertIsInstance(result, float)
+        self.assertGreaterEqual(result, 0.0)
 
 
 if __name__ == "__main__":

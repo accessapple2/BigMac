@@ -352,3 +352,37 @@ def is_within_alert_hours(now: Optional[datetime] = None) -> bool:
     start_h, end_h = TRADING_ALERT_HOURS_ET
     t = now_et.hour + now_et.minute / 60.0
     return start_h <= t < end_h
+
+
+def market_hours_elapsed(start: datetime, end: Optional[datetime] = None) -> float:
+    """Hours of actual NYSE session time between ``start`` and ``end``
+    (naive datetimes assumed UTC, per this module's convention; ``end``
+    defaults to now). Nights, weekends, and holidays contribute zero;
+    early-close days stop counting at 1pm ET instead of 4pm.
+
+    HM-SENTINEL-ACK (2026-07-12): built so a sentinel alert's escalation
+    ceiling can age in market time instead of wall-clock time -- a
+    Friday-evening backlog sitting untouched all weekend shouldn't burn
+    through an escalation budget just because 48 wall-clock hours passed
+    while the market was closed the whole time. Computes genuine elapsed
+    session-hours (with correct fractional first/last-day overlap), not a
+    trading-day count multiplied by 6.5.
+    """
+    start_et = _to_et(start)
+    end_et = _to_et(end)
+    if end_et <= start_et:
+        return 0.0
+
+    total = timedelta(0)
+    day = start_et.date()
+    while day <= end_et.date():
+        if is_trading_day(day):
+            open_dt = ET.localize(datetime.combine(day, MARKET_OPEN_TIME))
+            close_time = EARLY_CLOSE_TIME if is_early_close_day(day) else MARKET_CLOSE_TIME
+            close_dt = ET.localize(datetime.combine(day, close_time))
+            overlap_start = max(open_dt, start_et)
+            overlap_end = min(close_dt, end_et)
+            if overlap_end > overlap_start:
+                total += overlap_end - overlap_start
+        day += timedelta(days=1)
+    return total.total_seconds() / 3600.0
