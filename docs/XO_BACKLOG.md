@@ -9715,3 +9715,73 @@ universal substitute for cron, not just a drop-in replacement.
 it's specific to `-e`/write-with-tmpfile or hits read-only listing too),
 check `echo $EDITOR $VISUAL`, and check for a stale lockfile under
 `/usr/lib/cron/tabs/` or `/var/at/tabs/`.
+
+
+---
+## Counterfactual Report — 2026-07-12 (P1 measurement layer, scripts/counterfactual_report.py)
+
+# Counterfactual Report — 2026-07-12
+Window: last 30 days (2026-06-12 to 2026-07-12)
+Outlier guard: entry price >= $1.00, |forward return| <= 100% (see script docstring for why)
+
+Executed baseline (BUY signals that went live): n=35/29/25 (1d/3d/5d with bars available)
+  fwd_1d: mean=-0.965%, median=0.045%
+  fwd_3d: mean=-0.943%, median=-0.234%
+  fwd_5d: mean=-1.244%, median=-0.720%
+
+| Gate | Blocked (deduped) | Bars avail | mean/median fwd_1d | mean/median fwd_3d | mean/median fwd_5d | Structural? |
+|---|---|---|---|---|---|---|
+| HALT | 4376 | 4103 | -0.05/0.14% | 0.23/0.42% | 0.73/0.74% | yes |
+| MARKET_CLOSED | 1948 | 1652 | 0.90/0.17% | 1.19/0.46% | 1.56/0.77% | yes |
+| GRADE_B | 1024 | 1008 | -0.78/-0.93% | -0.11/-0.66% | -0.53/-1.17% |  |
+| BENCH | 256 | 201 | -0.25/0.04% | n/a | n/a |  |
+| MAX_TRADES_REACHED | 245 | 232 | 0.02/0.02% | -0.50/0.53% | -0.35/0.44% |  |
+| MAX_POSITIONS_REACHED | 156 | 143 | -0.59/-0.35% | 0.42/0.55% | 0.64/0.07% |  |
+| LEARNING_BLOCK | 71 | 43 | 1.26/0.69% | n/a | n/a |  |
+| LOW_CONVICTION | 33 | 29 | -0.12/-0.16% | 0.66/0.32% | 2.56/2.12% |  |
+| SCANNER_FILTER | 18 | 18 | -1.22/-0.30% | 0.10/0.11% | 0.17/-0.04% |  |
+| QUALITY_GATE_FAILED | 6 | 3 | -1.14/-1.39% | -0.10/-0.73% | -0.10/-0.73% |  |
+| DRAWDOWN_PAUSE | 5 | 4 | -4.72/-4.70% | -6.71/-6.71% | n/a |  |
+
+---
+## 🔵 HM-UNEXPLAINED-ARTIFACTS — filed 2026-07-12 (XO EOD status check), low priority, investigate-later, document-only
+
+Three loose ends surfaced during the 2026-07-12 EOD systems check, none
+blocking, none touched — captured here so they don't get re-discovered cold.
+
+**1. `bot-code.tar.gz` (repo root, 15MB, dated 2026-07-03) — EXPLAINED, no
+further action needed.** `tar -tzf` (read-only) shows a full source snapshot
+(`engine/`, `scripts/`, `docs/`, `lib/`, `reports/`, `strategies/`,
+`swingdesk/`, `tests/`, `training_data/`, including some stale `.bak_*`
+files). `drafts/OLLIETRADES-MEMORY.md` documents it: pulled 2026-07-03 by
+Bonnie onto her Windows machine (`C:\Users\Bonnie\Documents\bigmac-bot\`) to
+work on the code in Cowork. So it's a known, intentional export artifact,
+not a mystery — just left untracked in the repo root since. No cleanup
+action taken (not asked for); mentioning in case it should eventually be
+`.gitignore`'d or moved out of the repo root.
+
+**2. `db_snapshot.sh`'s 2026-07-12 run fired at 10:47am MST instead of its
+normal 20:15 MST cron slot** (the 20:15 run that evening correctly `[SKIP]`'d
+as a same-day duplicate once it saw the 10:47 snapshot already existed, so no
+data was lost or double-counted). Checked `crontab -l` (no 10:4x AZ entry
+exists), `backup_freshness_check.sh`/`disk_space_alert.sh`/`offhost_backup.sh`
+(none of them invoke `db_snapshot.sh`), and `.zsh_history` (nothing recorded
+for that window) — no trigger source identified quickly, so per XO
+instruction this is documented rather than chased further. Likely an ad hoc
+manual/interactive invocation (e.g. a Claude Code session verifying
+something) rather than a scheduling bug, but genuinely unconfirmed.
+
+**3. Intermittent `ntfy failed: <urlopen error timed out>` window,
+~21:43–22:36 MST on 2026-07-12** — recur-watch only, not treated as an
+incident. Failures were interleaved with successful `ntfy sent [200]` lines
+in the same window (including one right at the end, 22:36:33), and a live
+`curl` to `ntfy.sh` from this box during the EOD check also timed out once
+(8s) before succeeding on retry — consistent with transient network
+flakiness rather than the box-wide IPv6-routing class of bug already fixed
+under `HM-NTFY-IPV6-NOROUTE-SWEEP`. No code change proposed. If this
+recurs on a subsequent night, escalate to an actual investigation; a single
+one-hour blip is not enough signal to act on.
+
+**Disposition:** item 1 is closed (explained). Items 2 and 3 stay open as
+recur-watch only — re-check if either happens again before spending more
+time on them.
