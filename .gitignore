@@ -267,3 +267,7 @@ scripts/plutus_v7_corpus/
 healthcheck.py.bak.*
 trader.db.empty.bak
 backups/port8000_archive/*.gz
+
+# Large local-only archives — 14.4M+ tarballs trip the push size limit
+# (root cause of a prior 87-commit silent push failure)
+bot-code.tar.gz
