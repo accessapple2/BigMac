@@ -8,7 +8,7 @@ from __future__ import annotations
 import sqlite3
 import time
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from rich.console import Console
 
 from engine.market_data import get_stock_price, get_technical_indicators
@@ -227,10 +227,9 @@ def get_portfolio_with_pnl(prices: dict) -> dict:
         stock_price = prices.get(sym, {}).get("price", avg)
         # Use option pricing for options positions (not raw stock price)
         if pos.get("asset_type") == "option":
-            from engine.paper_trader import estimate_option_price
-            cur = estimate_option_price(
+            cur = _dayblade_mark_price(
                 pos.get("option_type"), pos.get("strike_price"),
-                stock_price, avg, pos.get("expiry_date"))
+                stock_price, avg, pos.get("expiry_date"), pos.get("opened_at"))
         else:
             cur = stock_price
         mv = qty * cur
@@ -295,17 +294,70 @@ def _get_top3_gex(symbol: str) -> list:
 
 def _estimate_atm_premium(stock_price: float, dte_days: int, option_type: str = "call") -> float:
     """Estimate ATM option premium from stock price and DTE.
-    Uses a rough approximation: premium ~ stock_price * volatility * sqrt(DTE/365).
-    Typical ATM options are 1-5% of stock price for short DTE.
+
+    Uses the Brenner-Subrahmanyam ATM approximation: premium ~ 0.4 * S * vol
+    * sqrt(DTE/365). The 0.4 coefficient was missing until 2026-07-13
+    (HM repair) — its absence made this fallback price options ~2.5x rich
+    (e.g. a SPY 5DTE ATM put estimated at $26.34 vs a realistic $7-9),
+    which is only used when the real options-chain quote lookup fails.
     """
     import math
     # Assume ~30% annualized vol for typical stocks
     vol = 0.30
     dte = max(dte_days, 0.5)  # min half day for 0DTE
-    time_value = stock_price * vol * math.sqrt(dte / 365)
+    time_value = 0.4 * stock_price * vol * math.sqrt(dte / 365)
     # ATM option = mostly time value, add small intrinsic buffer
     premium = max(0.50, round(time_value, 2))
     return premium
+
+
+def _dayblade_mark_price(option_type: str, strike_price: float | None,
+                          stock_price: float, entry_premium: float,
+                          expiry_date: str | None, opened_at: str | None) -> float:
+    """Estimate current option value, decaying time value from THIS position's
+    own entry point rather than from an absolute DTE-at-check-time.
+
+    HM repair 2026-07-13: the shared engine.paper_trader.estimate_option_price()
+    anchors its time-value floor to entry_premium * sqrt(days_left/30) using
+    days_left AT CHECK TIME. For any <61 DTE near-ATM option (dayblade's
+    entire universe), that makes the very first post-entry check report a
+    fixed, large "loss" (-71.4% at 5 DTE, -77.9% at 3 DTE — verified against
+    trades rows 3034-3043) with zero real price movement, because days_left
+    barely differs from its value at entry. This version decays from the
+    position's OWN opened_at/expiry span, so a fresh position marks back to
+    ~entry_premium and only decays as real time actually elapses. Scoped to
+    dayblade only per 2026-07-13 Captain decision — the shared function
+    (also used by risk_manager's fleet drawdown calc and dashboard P&L for
+    every other agent) is untouched pending its own reviewed fix.
+    """
+    if not strike_price or strike_price <= 0:
+        return entry_premium
+    if option_type == "call":
+        intrinsic = max(0.0, stock_price - strike_price)
+    else:
+        intrinsic = max(0.0, strike_price - stock_price)
+
+    ratio = 1.0
+    try:
+        import pytz
+        et = pytz.timezone("US/Eastern")
+        expiry_close = et.localize(
+            datetime.strptime(expiry_date, "%Y-%m-%d").replace(hour=16)
+        ).astimezone(pytz.utc).replace(tzinfo=None)
+        entry_dt = datetime.strptime(opened_at[:19], "%Y-%m-%d %H:%M:%S")
+        # review fix: datetime.utcnow() is deprecated (confirmed raises a
+        # DeprecationWarning under Python 3.14, the trader's venv) — use
+        # the timezone-aware form and strip tzinfo to match entry_dt/
+        # expiry_close, which are both naive.
+        now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+        total_life_min = max((expiry_close - entry_dt).total_seconds() / 60, 1.0)
+        remaining_min = max((expiry_close - now_utc).total_seconds() / 60, 0.0)
+        ratio = min(remaining_min / total_life_min, 1.0)
+    except Exception:
+        pass  # can't compute decay — hold at entry value rather than fabricate a loss
+
+    time_value = entry_premium * (ratio ** 0.5)
+    return max(intrinsic, time_value)
 
 
 def buy_option(symbol: str, price: float, option_type: str,
@@ -342,8 +394,20 @@ def buy_option(symbol: str, price: float, option_type: str,
                 ask = best.get("ask", 0) or 0
                 premium = round((bid + ask) / 2, 2) if bid > 0 else round(ask, 2)
                 atm_strike = best["strike"]
-    except Exception:
-        pass  # Fall back to estimated premium
+    except Exception as e:
+        console.log(f"[yellow]DayBlade: options chain lookup failed for {symbol}: {e} — using formula estimate")
+
+    # Sanity guard (HM repair 2026-07-13): cross-check the premium we're about
+    # to pay against an independent model estimate. Catches corrupted/stale
+    # chain quotes (wrong strike matched, fat-finger bid/ask, illiquid far-OTM
+    # leftover) that a naive "closest strike with ask>0" scan can pick up.
+    _model_check = _estimate_atm_premium(price, dte_days, option_type)
+    if _model_check > 0 and abs(premium - _model_check) / _model_check > 0.50:
+        console.log(
+            f"[red]DayBlade: REJECT {symbol} — premium ${premium:.2f} deviates "
+            f">50% from model estimate ${_model_check:.2f}, refusing entry"
+        )
+        return None
 
     # Override strike if explicitly provided
     if strike_price:
@@ -383,11 +447,17 @@ def buy_option(symbol: str, price: float, option_type: str,
         tranche_pct = LADDER_TRANCHES[2]  # 30%
 
     # Size based on PREMIUM, not stock price
+    # HM repair 2026-07-13 (P0-3): max(1, round(x, 4)) never actually forced
+    # a whole contract — it just picked the larger of 1 and a still-fractional
+    # value (e.g. max(1, 2.9655) == 2.9655), which is how trades rows
+    # 3036/3037/3041/3040 ended up with 23.4104/3.2645/2.9655/1.2497
+    # contracts. Options settle in whole contracts — floor, then apply the
+    # minimum-1 floor to the already-whole number.
     max_cost = total_value * MAX_TRADE_PCT * sizing_factor * tranche_pct
-    qty = max(1, round(max_cost / premium, 4))
+    qty = max(1, int(max_cost / premium))
     cost = round(qty * premium, 2)
     if cost > cash:
-        qty = max(1, round((cash * 0.90) / premium, 4))
+        qty = max(1, int((cash * 0.90) / premium))
         cost = round(qty * premium, 2)
     if cost > cash or qty <= 0:
         console.log(f"[red]DayBlade: Not enough cash for {symbol}")
@@ -960,7 +1030,6 @@ class DayBladeScanner:
             return
 
         # ── Check SL/TP per DTE bucket ──
-        from engine.paper_trader import estimate_option_price
         portfolio = get_portfolio()
         for pos in portfolio["positions"]:
             sym = pos["symbol"]
@@ -971,11 +1040,12 @@ class DayBladeScanner:
             if avg <= 0:
                 continue
             # Estimate current option value from stock price
-            cur = estimate_option_price(
+            cur = _dayblade_mark_price(
                 pos.get("option_type", "call"),
                 pos.get("strike_price"),
                 stock_price, avg,
-                pos.get("expiry_date")
+                pos.get("expiry_date"),
+                pos.get("opened_at"),
             )
             pnl_pct = (cur - avg) / avg
             bucket = _get_dte_bucket(pos.get("expiry_date") or "")

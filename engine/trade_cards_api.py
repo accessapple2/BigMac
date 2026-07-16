@@ -18,7 +18,7 @@ Register in dashboard/app.py:
 import json
 import math
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
 from typing import Optional
@@ -437,7 +437,28 @@ def get_fast_scan(
                 if len(alerts_map[sym]) < 3:          # max 3 alerts per ticker
                     alerts_map[sym].append(dict(a))
 
+        # HM repair 2026-07-13 (P1-8): the per-ticker MAX(scan_date) join
+        # above returns each ticker's OWN latest row however old — a ticker
+        # whose scan silently stopped weeks/months ago (confirmed live:
+        # dozens of tickers stuck anywhere from 2026-03-23 to 2026-04-28,
+        # e.g. CVNA, LW, EME) gets mixed into "current" results with zero
+        # signal that it's stale. Mark it in the payload instead of
+        # silently refreshing (the underlying scanner job needs its own
+        # separate investigation — out of scope here; this stops the UI
+        # from rendering weeks-old data as current in the meantime).
+        _dates = [r["scan_date"] for r in scan_rows if r["scan_date"]]
+        _freshest = max(_dates) if _dates else None
+        _stale_cutoff = None
+        if _freshest:
+            try:
+                _stale_cutoff = (
+                    datetime.strptime(_freshest, "%Y-%m-%d") - timedelta(days=3)
+                ).strftime("%Y-%m-%d")
+            except ValueError:
+                _stale_cutoff = None
+
         results = []
+        stale_count = 0
         for r in scan_rows:
             d = dict(r)
             try:
@@ -455,9 +476,19 @@ def get_fast_scan(
             else:
                 d["rsi_zone"] = "neutral"
 
+            is_stale = bool(
+                _stale_cutoff and d.get("scan_date") and d["scan_date"] < _stale_cutoff
+            )
+            d["stale"] = is_stale
+            if is_stale:
+                stale_count += 1
+
             results.append(d)
 
-        return {"results": results, "count": len(results)}
+        return {
+            "results": results, "count": len(results),
+            "as_of": _freshest, "stale_count": stale_count,
+        }
     finally:
         conn.close()
 

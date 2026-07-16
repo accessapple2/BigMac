@@ -353,6 +353,54 @@ def start_equity_snapshot_daemon():
 # === /HM-EQ ===
 
 
+# === HM repair 2026-07-13: P0-2 direction validation guard ===
+# Audit finding: trades row 3037 (dayblade-0dte) had reasoning describing a
+# "downward trend" / "bearish sentiment" thesis but action=BUY_CALL,
+# confidence=0.95 — a bullish action on a bearish thesis, executed anyway.
+# This is a thesis/action inversion, not a pricing bug — it needs a
+# reasoning-vs-action gate, applied at the one place every LLM agent's
+# decision is executed (Arena._run_player, below).
+_BULLISH_TERMS = (
+    "bullish", "uptrend", "upward trend", "breakout", "breaking out",
+    "rally", "rallying", "oversold bounce", "upside", "higher", "rising",
+    "strength", "strong buy", "accumulation",
+)
+_BEARISH_TERMS = (
+    "bearish", "downtrend", "downward trend", "breakdown", "breaking down",
+    "sell-off", "selloff", "overbought", "downside", "lower", "declining",
+    "weakness", "distribution", "capitulation",
+)
+
+
+def _thesis_direction_conflicts(action: str, reasoning: str) -> str | None:
+    """Return a rejection reason if the reasoning's directional thesis
+    clearly contradicts the action, else None.
+
+    Deliberately conservative: only rejects on a clear majority of
+    direction-specific keywords (never generic words like "positive"/
+    "negative" — "positive gamma regime" is a technical term, not a price
+    view). Ties or no signal at all pass through untouched rather than
+    risk a false reject on ambiguous reasoning text.
+    """
+    if action not in ("BUY_CALL", "BUY_PUT") or not reasoning:
+        return None
+    text = reasoning.lower()
+    bulls = sum(1 for term in _BULLISH_TERMS if term in text)
+    bears = sum(1 for term in _BEARISH_TERMS if term in text)
+    if bulls == bears:
+        return None
+    stated = "bullish" if bulls > bears else "bearish"
+    expected = "bullish" if action == "BUY_CALL" else "bearish"
+    if stated != expected:
+        return (
+            f"Direction guard: reasoning reads {stated} "
+            f"(bull={bulls}/bear={bears} keyword hits) but action is {action} "
+            f"(expects a {expected} thesis)"
+        )
+    return None
+# === /HM repair 2026-07-13 P0-2 ===
+
+
 class Arena:
     def __init__(self, providers: list, risk_manager: RiskManager = None):
         self.providers: dict[str, AIProvider] = {p.player_id: p for p in providers}
@@ -1303,6 +1351,15 @@ class Arena:
                 sources=decision.sources, timeframe=decision.timeframe,
                 prompt_version=f"{player_id}_v1",
             )
+
+            # HM repair 2026-07-13 (P0-2): reject thesis/action inversions
+            # (e.g. bearish reasoning executing BUY_CALL) before any sizing
+            # or execution happens.
+            _dir_reject = _thesis_direction_conflicts(decision.action, decision.reasoning)
+            if _dir_reject:
+                console.log(f"[red]{player_id} {symbol}: {_dir_reject}[/red]")
+                update_signal_status(signal_id, "REJECTED", _dir_reject)
+                continue
 
             # Track high-confidence BUY signals for multi-day monitoring
             if decision.action in ("BUY", "BUY_CALL", "BUY_PUT") and decision.confidence >= 0.65:

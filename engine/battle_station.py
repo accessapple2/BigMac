@@ -712,23 +712,80 @@ def _auto_close(pos: dict, reason: str):
     agent_id = resolved or "dayblade-0dte"
     attribution = "resolved" if resolved else "fallback"
 
+    # HM repair 2026-07-13 (P0-4 Finding 2, RESTART-PENDING): this function
+    # submits real Alpaca orders straight from a live-account position scan,
+    # bypassing ai_players.halt_mode entirely and never writing a `trades`
+    # row (submit_single_option/close_options_position do no DB writes at
+    # all) — audit's leading theory for the untracked
+    # SPY260717P00605000 x5 @ $0.01 position. Two additions, minimal diff:
+    # (1) fleet-wide kill switch check before submitting, (2) a trades row
+    # on success so the ledger reflects what Alpaca actually did.
+    try:
+        from engine.fleet_halt import is_active as _fleet_halted
+        if _fleet_halted():
+            logger.warning(
+                f"Battle Station auto-close SKIPPED (fleet KILL_SWITCH active): "
+                f"{option_sym} ({reason})"
+            )
+            return
+    except Exception as e:
+        logger.warning(f"Auto-close fleet-halt check failed (failing closed — skip): {type(e).__name__}: {e!r}")
+        return
+
     try:
         # HM-AF-γ 2026-05-06: sign-aware close (sell long, buy-to-close short)
         from engine.alpaca_options import close_options_position, submit_single_option
         qty_signed = float(pos.get("qty_signed", pos.get("qty", 1)))
         qty = int(max(1, abs(qty_signed)))
         if qty_signed < 0:
-            submit_single_option(agent_id, option_sym, qty, side="buy")
+            _result = submit_single_option(agent_id, option_sym, qty, side="buy")
+            _action = "BUY"
             logger.warning(
                 f"Battle Station auto-close (BTC short {qty}x) "
                 f"[agent={agent_id} attribution={attribution}]: {option_sym} ({reason})"
             )
         else:
-            close_options_position(agent_id, option_sym, qty)
+            _result = close_options_position(agent_id, option_sym, qty)
+            _action = "SELL"
             logger.warning(
                 f"Battle Station auto-close (STC long {qty}x) "
                 f"[agent={agent_id} attribution={attribution}]: {option_sym} ({reason})"
             )
+        if _result and _result.get("success"):
+            try:
+                # HM repair 2026-07-13 (review fix): the initial version of
+                # this INSERT omitted `season` — it would have silently
+                # defaulted to the schema's season=1 while the fleet is on
+                # season 7, making these rows invisible to every
+                # season-scoped rollup (leaderboard, P&L) — the exact
+                # "sweep-invisible" bug class investigated elsewhere today
+                # (P2-11/P2-12), reintroduced by this fix itself. Also adds
+                # realized_pnl so closes actually contribute to P&L, not
+                # just exist in the table.
+                realized_pnl = (
+                    (entry_price - current_price) * qty if qty_signed < 0
+                    else (current_price - entry_price) * qty
+                )
+                with contextlib.closing(_conn()) as c:
+                    _season_row = c.execute(
+                        "SELECT value FROM settings WHERE key='current_season'"
+                    ).fetchone()
+                    _season = int(_season_row["value"]) if _season_row and _season_row["value"] else 1
+                    c.execute(
+                        "INSERT INTO trades (player_id, symbol, action, qty, price, "
+                        "asset_type, reasoning, alpaca_order_id, alpaca_status, "
+                        "execution_type, season, entry_price, exit_price, realized_pnl) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (agent_id, option_sym, _action, qty, current_price, "option",
+                         f"[BATTLE-STATION-AUTO-CLOSE attribution={attribution}] {reason}",
+                         _result.get("order_id"), "filled", "alpaca_paper",
+                         _season, entry_price, current_price, round(realized_pnl, 2)),
+                    )
+                    c.commit()
+            except Exception as e:
+                logger.warning(f"Auto-close trades-row write FAILED for {option_sym}: {type(e).__name__}: {e!r}")
+        elif _result:
+            logger.warning(f"Auto-close order not successful for {option_sym}: {_result}")
     except Exception as e:
         logger.warning(f"Auto-close failed for {option_sym}: {type(e).__name__}: {e!r}")
 

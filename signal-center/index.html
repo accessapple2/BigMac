@@ -1557,9 +1557,18 @@ function scoreVix(d){
 }
 function scoreGex(d){
   if(!d) return{score:50,val:'--',desc:'No GEX data'};
-  var gv=parseFloat(d.total_gex||d.net_gex||0);
+  // HM repair 2026-07-13 (P1-9): d.total_gex||d.net_gex||0 collapsed
+  // missing/undefined data to the SAME 0 a genuine flat-gamma reading
+  // would produce, and gv>0?...:'Negative gamma...' then classified that
+  // as bearish — silently injecting a fake -leaning 42/100 into the
+  // master composite (GEX/Gamma is an 8%-weighted input) whenever the
+  // feed was simply down. Distinguish no-data from a real 0.
+  var graw=(d.total_gex!==undefined&&d.total_gex!==null)?d.total_gex:d.net_gex;
+  var gv=parseFloat(graw);
+  if(graw===undefined||graw===null||isNaN(gv)) return{score:50,val:'--',desc:'No GEX data (feed down?)'};
   var score=gv>2e9?80:gv>0?65:gv>-2e9?42:22;
-  return{score,val:(gv/1e9).toFixed(2)+'B',desc:gv>0?'Positive gamma — dampened moves':'Negative gamma — amplified volatility'};
+  var desc=gv===0?'Flat gamma — no directional pressure':(gv>0?'Positive gamma — dampened moves':'Negative gamma — amplified volatility');
+  return{score,val:(gv/1e9).toFixed(2)+'B',desc};
 }
 function scoreFearGreed(d){
   if(!d) return{score:50,val:'--',desc:'No F&G data'};
@@ -1609,7 +1618,15 @@ function scoreVolumeRadar(d){
 function scoreConvergence(d){
   if(!d) return{score:50,val:'--',desc:'No convergence data'};
   var cv=parseFloat(d.score||d.convergence_score||0);
-  var count=parseInt(d.count||0);
+  // HM repair 2026-07-13: d.count is the number of DISTINCT TICKERS that
+  // converged today (a busy day can easily produce dozens), not how many
+  // strategies agree on any one of them — displaying it as "N strategies
+  // agree" produced the implausible "99 strategies agree — AUTO-TRIGGER"
+  // (fleet has ~17-79 agents total, and per-symbol agreement is normally
+  // 2-5). d.max_strategies_triggered is the real per-ticker high; fall
+  // back to the old (capped) reading only if an older backend hasn't
+  // been restarted yet.
+  var count=parseInt(d.max_strategies_triggered!==undefined?d.max_strategies_triggered:Math.min(d.count||0,10));
   var score=count>=3?75:count>=2?60:count>=1?52:45;
   return{score,val:count,desc:d.threshold||'Multi-strategy agreement score'};
 }
@@ -2683,8 +2700,8 @@ function histSummary(name, raw){
   if(d===null||d===undefined) return '—';
   try{
     if(name==='regime'){ var l=(d.label||d.regime||d||'').toString(); return l+(d.desc?' — '+d.desc:''); }
-    if(name==='vix'){ var v=parseFloat(d.value||d.vix||d||0); var lbl=v<15?'CALM':v<20?'NORMAL':v<25?'ELEVATED':v<30?'HIGH':'PANIC'; return 'VIX '+(isNaN(v)?d:v.toFixed(1))+' — '+lbl+', '+(v<15?'full size OK':v<20?'standard sizing':v<25?'reduce size 25%':v<30?'reduce 50%':'cash mode'); }
-    if(name==='gex'){ var gb=parseFloat((d.net_gex||d.gex)||0)/1e9; return 'GEX '+(gb>0?'+':'')+gb.toFixed(2)+'B — '+(gb>0?'Positive gamma, dampened moves':'Negative gamma, amplified moves'); }
+    if(name==='vix'){ var vsrc=(d&&typeof d==='object')?(d.current||d):{}; var v=parseFloat(vsrc.vix!==undefined?vsrc.vix:(vsrc.value!==undefined?vsrc.value:d)); if(isNaN(v)) return 'VIX — DATA ERROR (unreadable payload)'; var lbl=v<15?'CALM':v<20?'NORMAL':v<25?'ELEVATED':v<30?'HIGH':'PANIC'; var sz=v<15?'full size OK':v<20?'standard sizing':v<25?'reduce size 25%':v<30?'reduce 50%':'cash mode'; var v3=parseFloat(vsrc.vix3m); var ts=(!isNaN(v3)&&v>v3)?' · ⚠ BACKWARDATION':''; return 'VIX '+v.toFixed(1)+' — '+lbl+', '+sz+ts; }
+    if(name==='gex'){ var graw=(d&&typeof d==='object')?(d.net_gex!==undefined&&d.net_gex!==null?d.net_gex:d.gex):d; var gb=parseFloat(graw)/1e9; if(graw===undefined||graw===null||isNaN(gb)) return 'GEX — no data (feed down?)'; if(gb===0) return 'GEX 0.00B — feed empty, no gamma read'; return 'GEX '+(gb>0?'+':'')+gb.toFixed(2)+'B — '+(gb>0?'Positive gamma, dampened moves':'Negative gamma, amplified moves'); }
     if(name==='fear_greed'){ var fgRaw=d.score??d.fear_greed??d.value; if(fgRaw===null||fgRaw===undefined) return 'Fear & Greed — no data'; var fg=parseFloat(fgRaw); if(isNaN(fg)) return 'Fear & Greed — no data'; var fl=fg>=75?'Extreme Greed':fg>=55?'Greed':fg>=45?'Neutral':fg>=25?'Fear':'Extreme Fear'; return 'Fear & Greed '+fg.toFixed(0)+' — '+fl; }
     if(name==='breadth'){ var pct=parseFloat(d.breadth_pct||d.pct_above_200||0); var sa=d.sectors_above_20sma||'?'; var st=d.sectors_total||11; return sa+'/'+st+' sectors above 20SMA ('+pct.toFixed(0)+'% above 200MA)'; }
     if(name==='smart_money'){ if(Array.isArray(d)&&d.length){ var syms=d.slice(0,3).map(function(x){return typeof x==='string'?x:(x.symbol||x.ticker||'?');}).join(', '); return d.length+' consensus: '+syms+(d.length>3?' +more':''); } return 'No consensus'; }
@@ -2692,7 +2709,7 @@ function histSummary(name, raw){
     if(name==='congress'){ if(Array.isArray(d)&&d.length){ var tr=d[0]; return (tr.representative||tr.senator||'Member')+' — '+(tr.transaction||tr.type||'trade')+': '+(tr.ticker||tr.symbol||'?'); } if(d.representative) return d.representative+' — '+(d.transaction||'trade')+': '+(d.ticker||'?'); return raw?String(raw).substring(0,80):'—'; }
     if(name==='earnings'){ if(Array.isArray(d)&&d.length){ var ev=d[0]; var dy=ev.days_until||0; return (ev.ticker||ev.symbol||'?')+' in '+dy+' day'+(dy!==1?'s':'')+(ev.eps_estimate?' (Est: $'+ev.eps_estimate+')':''); } return 'No upcoming events'; }
     if(name==='leaderboard'){ var lbs=d.leaderboard||d||[]; if(!Array.isArray(lbs)) return 'Leaderboard data'; var pos=lbs.filter(function(a){return (a.return_pct||0)>0;}).length; return lbs.length+' agents — '+pos+' profitable'; }
-    if(name==='convergence'){ var cv=d.count||d.convergence_count||0; return cv+' strategies agree'+(cv>=3?' — AUTO-TRIGGER':''); }
+    if(name==='convergence'){ var cv=(d&&(d.count!==undefined?d.count:d.convergence_count))||0; if(cv>=50) return cv+' strategies agree — ⚠ IMPLAUSIBLE COUNT (check feed)'; return cv+' strategies agree'+(cv>=3?' — AUTO-TRIGGER':''); }
     if(name==='metals'){ var gsr=parseFloat(d.gsr||d.gold_silver_ratio||0); return 'GSR '+(gsr?gsr.toFixed(1):'?')+' — '+(d.signal||d.bias||'neutral'); }
     if(name==='bull_bear'){ var ba=d.analyses||[]; if(!ba.length) return 'No analyses'; var bull=ba.filter(function(a){return (a.bull_case||'').length>5;}).length; var bear=ba.filter(function(a){return (a.bear_case||'').length>5;}).length; return bull+' BUY / '+bear+' SELL — session '+(d.timestamp?new Date(d.timestamp).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):''); }
     // generic fallback: pick first meaningful field

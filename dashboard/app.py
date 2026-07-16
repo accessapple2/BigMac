@@ -6718,7 +6718,12 @@ def gex_alpaca(symbol: str):
     c = _canonical_gex_cached(symbol)
     if c.get("error"):
         return {"error": c["error"], "pending": c.get("pending", False)}
-    spot = c.get("spot"); flip = c.get("gamma_flip"); tot = c.get("total_gex") or 0
+    # HM repair 2026-07-13 (P1-5): `or 0` collapsed a genuinely-missing
+    # total_gex (None — no data) into the same 0 a real flat-gamma reading
+    # would produce, making them indistinguishable downstream. Preserve
+    # None so consumers can render "no data" instead of a false "Negative
+    # gamma" (0 was being read as falsy-negative in some JS comparisons).
+    spot = c.get("spot"); flip = c.get("gamma_flip"); tot = c.get("total_gex")
     stable = (spot is not None and flip is not None and spot >= flip)
     return {
         "symbol": c.get("underlying"), "spot": spot, "timestamp": c.get("_asof"),
@@ -13003,9 +13008,21 @@ def navigator_convergence():
     """Get stocks where 3+ strategies agree (Starfleet multi-strategy convergence)."""
     from engine.strategies import get_todays_signals
     signals = get_todays_signals()
+    # HM repair 2026-07-13: `count` is the number of DISTINCT TICKERS that
+    # hit the convergence bar today, NOT how many strategies agree on any
+    # one of them — every frontend consumer (scoreConvergence, tooltip
+    # copy) displayed it as "N strategies agree," so a busy day with e.g.
+    # 99 different tickers converging rendered as an implausible "99
+    # strategies agree — AUTO-TRIGGER" (navigator was paused over exactly
+    # this reading). max_strategies_triggered is the actual highest
+    # per-ticker strategy-agreement count today — what "N strategies
+    # agree" should mean. `count` is kept for existing consumers that
+    # genuinely want the ticker count.
+    max_strat = max((s.get("strategies_triggered", 0) for s in signals), default=0)
     return {
         "signals": signals,
         "count": len(signals),
+        "max_strategies_triggered": max_strat,
         "threshold": "3+ strategies must agree",
     }
 

@@ -126,6 +126,19 @@ def _s(v):
 
 def _stat(stats, key, decimals=2):
     v = stats.get(key, 0)
+    # HM repair 2026-07-13 (P1-7): _s() collapses +inf to 0.0, which is
+    # correct for most stats (sharpe/drawdown with no data) but wrong for
+    # Profit Factor — gross_profit/gross_loss is +inf precisely when there
+    # are ZERO losing trades, the best possible outcome, not the worst.
+    # That's how "MU: win_rate=100, profit_factor=0" happened. Return None
+    # (no losses — undefined/infinite ratio) instead of silently zeroing it.
+    if key == "Profit Factor":
+        try:
+            f = float(v.iloc[0]) if hasattr(v, "iloc") else float(v) if v is not None else 0.0
+        except (TypeError, ValueError):
+            f = 0.0
+        if np.isinf(f) and f > 0:
+            return None
     return round(_s(v), decimals)
 
 

@@ -41,7 +41,15 @@ def get_risk_radar(player_id: str, prices: dict) -> dict:
 
     if position_values:
         max_pct = max(position_values) / total_value
-        concentration = min(100, int(max_pct * 100 / 0.25 * 100))  # 25% = 100 risk
+        # HM repair 2026-07-13 (P1-6): the extra trailing `* 100` made this
+        # saturate at min(100,...) for ANY position over ~0.25% of the
+        # portfolio (max_pct=0.0025 already produced 100), not the intended
+        # 25% threshold in the comment. Every real position was reading
+        # max risk (100), not the reported 0 — but it's the same class of
+        # double-scaling bug as _calc_sector_exposure below, and flatly
+        # wrong math either way. max_pct is already a fraction (0.0-1.0);
+        # only scale to a 0-100 score once.
+        concentration = min(100, int(max_pct / 0.25 * 100))  # 25% = 100 risk
     else:
         concentration = 0
 
@@ -104,7 +112,9 @@ def _calc_sector_exposure(positions: list) -> int:
         return 0
     total = sum(sectors.values())
     max_sector_pct = max(sectors.values()) / total
-    return min(100, int(max_sector_pct * 100 / 0.60 * 100))  # 60% in one sector = 100
+    # HM repair 2026-07-13 (P1-6): same double-scaling bug as concentration
+    # above — max_sector_pct is already a 0.0-1.0 fraction.
+    return min(100, int(max_sector_pct / 0.60 * 100))  # 60% in one sector = 100
 
 
 def _calc_correlation_risk(positions: list) -> int:

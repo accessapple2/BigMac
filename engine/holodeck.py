@@ -23,6 +23,17 @@ def _stat(stats, key, decimals=2):
     v = stats.get(key, 0)
     if v is None:
         return 0.0
+    # HM repair 2026-07-13 (P1-7): same class of bug as
+    # holly_nightly_backtest.py's _stat — _s() collapses +inf to 0.0,
+    # which is wrong specifically for Profit Factor (no losing trades =
+    # +inf = best case, not 0). Return None instead of a false 0.
+    if key == "Profit Factor":
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            f = 0.0
+        if np.isinf(f) and f > 0:
+            return None
     return round(_s(v), decimals)
 
 

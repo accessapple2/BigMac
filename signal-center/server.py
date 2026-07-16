@@ -970,6 +970,20 @@ def _fetch_all_signals(prev_data=None):
             if isinstance(_entry, dict) and _entry.get('player_id') in _TRACKING_PLAYERS:
                 _entry['win_rate'] = None
 
+    # HM repair 2026-07-13 (P1-5): the trader's /api/gex/{symbol} response
+    # names the field 'total_gex'; every frontend consumer (index.html
+    # histDot/histSummary, the top-of-card gex tile, etc.) reads
+    # d.net_gex||d.gex, which was NEVER present on this payload shape — so
+    # the "gex feed" looked perpetually empty/zero even when the backend
+    # had perfectly good, fresh, non-zero data (confirmed live: SPY
+    # total_gex was -7.0B at the time this was diagnosed, not 0/null).
+    # Alias it here at the ingestion point rather than in index.html so
+    # the already-fixed null/zero-guard display lines (2686/2687/2695,
+    # 2026-07-13 earlier today) don't need to be touched.
+    _gex_payload = results.get('gex')
+    if isinstance(_gex_payload, dict) and 'net_gex' not in _gex_payload and 'total_gex' in _gex_payload:
+        _gex_payload['net_gex'] = _gex_payload['total_gex']
+
     # Persist to history — only fresh fetches (no last-good replays).
     try:
         db  = get_db()

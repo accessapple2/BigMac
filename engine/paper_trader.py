@@ -1609,6 +1609,26 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
         except Exception:
             pass
 
+    # HM repair 2026-07-13 (P0-3): options settle in whole contracts —
+    # fractional qty (e.g. 2.9655, 23.4104, seen in dayblade-0dte trades
+    # 3036/3037/3041) doesn't correspond to anything executable. Floor to
+    # a whole contract; skip the trade rather than round up into more
+    # size than the sizing math intended. Equities are unaffected (Alpaca
+    # supports fractional shares).
+    if asset_type == "option":
+        _orig_qty = qty
+        qty = float(int(qty))
+        if qty < 1:
+            _last_rejection[player_id] = (
+                f"Option sizing rounds to <1 contract for {symbol} "
+                f"({_orig_qty:.4f}), skipping"
+            )
+            console.log(
+                f"[yellow]{player_id}: {symbol} option qty {_orig_qty:.4f} "
+                f"rounds to <1 contract — skipping"
+            )
+            return None
+
     cost = round(qty * price, 2)
     if cost > cash:
         console.log(f"[red]{player_id}: Not enough cash for {symbol}")

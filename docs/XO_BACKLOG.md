@@ -693,6 +693,8 @@ Structural follow-on risk identified while verifying `HM-SIGNALS-V2-FIFO-STARVAT
 
 **Monday verification task (queued, not yet run):** after 2026-07-13 market open, re-check whether these 140 rows are draining or being newest-first-outranked. That result decides whether this ticket becomes active work or closes as "didn't recur this time." Needs Admiral sign-off before either candidate fix is built.
 
+**Monday check result (2026-07-13 07:00 MST, automated one-shot):** 140/140 baseline rows still pending, 10 newer rows already terminal. CONFIRMED OUTRANKED. 140/140 baseline rows are still pending while 10 newer row(s) (id > 67489) already reached a terminal status ahead of them -- the newest-first + drain-cap mechanism is recurring exactly as the ticket predicted. Recommend HM-SIGNALS-V2-STARVATION-RECURRENCE becomes active work (needs Admiral sign-off on candidate fix (a) TTL vs (b) hybrid ordering). Full numbers in `data/reports/relay/relay_2026-07-13_signals-v2-monday-check.md`.
+
 ---
 ## 🔴 HM-RIKER-SYNTHESIS-LOCK-CONTENTION — filed 2026-07-06 (HM-MONDAY-OPEN-WATCH), propose-first
 

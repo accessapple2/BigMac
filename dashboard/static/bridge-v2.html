@@ -1369,7 +1369,12 @@ function renderPositions(positions) {
     const avg  = Number(p.avg_entry_price || p.avg_cost || p.avg_entry || 0);
     const last = Number(p.current_price || 0);
     const pnl  = Number(p.unrealized_pl || 0);
-    const side = p.side || 'long';
+    // HM repair 2026-07-13 (P2-10): p.side||'long' ignored the sign of
+    // qty entirely — any position missing/falsy p.side (e.g. an option
+    // row with qty=-1) rendered as "long" regardless of actually being
+    // short. Derive from qty's sign instead of trusting a possibly-absent
+    // upstream field.
+    const side = qty < 0 ? 'short' : 'long';
     const pc   = colorClass(pnl);
     return '<tr>'
       + '<td style="font-weight:600">' + sym + '</td>'
@@ -1778,9 +1783,13 @@ function renderBattleDesk(positions) {
     const last = Number(p.current_price || 0);
     const pnl  = Number(p.unrealized_pl || 0);
     const pc   = colorClass(pnl);
+    // HM repair 2026-07-13 (P2-10): same qty-sign-ignoring bug as
+    // renderPositions above — derive Side from qty instead of trusting
+    // a possibly-absent p.side.
+    const side = qty < 0 ? 'short' : 'long';
     return '<tr>'
       + '<td style="font-weight:600">' + sym + '</td>'
-      + '<td style="color:var(--tx-mute)">' + (p.side || 'long') + '</td>'
+      + '<td style="color:var(--tx-mute)">' + side + '</td>'
       + '<td class="r">' + qty + '</td>'
       + '<td class="r">$' + avg.toFixed(2) + '</td>'
       + '<td class="r">$' + last.toFixed(2) + '</td>'
