@@ -99,6 +99,57 @@ def run() -> str:
     emit("```")
     emit()
 
+    # ── per-source, direction-signed ────────────────────────────────────────
+    # HM-REALIZED-RETRY 2026-07-15: the unsigned mean above averages BULL and
+    # BEAR raw returns together, which is meaningless for edge (a BEAR call
+    # that moves -2% is a WIN, not a loss). This is the read that actually
+    # answers "does the source carry edge" — flip sign on BEAR obs so a
+    # positive number always means the call direction was profitable.
+    emit("## Per-Source, Direction-Signed (the read that matters)")
+    emit("```")
+    emit(f"{'source':<16} {'direction':<10} {'n':>6} {'signed_mean%':>13} {'hit%':>7} {'days':>6}  status")
+    emit("-" * 78)
+    signed_expr = "CASE WHEN direction='BEAR' THEN -fwd_return_1d_realized ELSE fwd_return_1d_realized END"
+    dir_rows = conn.execute(f"""
+        SELECT source, direction,
+               COUNT(*)                                     AS n,
+               ROUND(AVG({signed_expr})*100, 3)              AS signed_mean_pct,
+               ROUND(100.0*SUM(CASE WHEN {signed_expr}>0
+                                    THEN 1 ELSE 0 END)/COUNT(*), 1) AS hit_rate,
+               COUNT(DISTINCT DATE(ts))                      AS days
+          FROM signal_observations
+         WHERE fwd_return_1d_realized IS NOT NULL
+           AND fwd_return_1d_realized <> 0.0
+           AND direction IN ('BULL', 'BEAR')
+         GROUP BY source, direction
+         ORDER BY source, direction
+    """).fetchall()
+    for r in dir_rows:
+        status = _gate(r["n"], r["days"])
+        emit(f"{r['source']:<16} {r['direction']:<10} {r['n']:>6} "
+             f"{r['signed_mean_pct']:>13} {r['hit_rate']:>7} {r['days']:>6}  {status}")
+    emit("-" * 78)
+    combined_rows = conn.execute(f"""
+        SELECT source,
+               COUNT(*)                                     AS n,
+               ROUND(AVG({signed_expr})*100, 3)              AS signed_mean_pct,
+               ROUND(100.0*SUM(CASE WHEN {signed_expr}>0
+                                    THEN 1 ELSE 0 END)/COUNT(*), 1) AS hit_rate,
+               COUNT(DISTINCT DATE(ts))                      AS days
+          FROM signal_observations
+         WHERE fwd_return_1d_realized IS NOT NULL
+           AND fwd_return_1d_realized <> 0.0
+           AND direction IN ('BULL', 'BEAR')
+         GROUP BY source
+         ORDER BY n DESC
+    """).fetchall()
+    for r in combined_rows:
+        status = _gate(r["n"], r["days"])
+        emit(f"{r['source']:<16} {'ALL':<10} {r['n']:>6} "
+             f"{r['signed_mean_pct']:>13} {r['hit_rate']:>7} {r['days']:>6}  {status}")
+    emit("```")
+    emit()
+
     # ── per-source × bucket ───────────────────────────────────────────────
     emit("## Per-Source × Bucket (strict definitions)")
     emit("```")

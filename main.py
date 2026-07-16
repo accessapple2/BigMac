@@ -4363,6 +4363,17 @@ if __name__ == "__main__":
         except Exception as _exc:
             logger.debug("[signal_eval] scheduler call failed: %s", _exc)
     schedule.every(30).minutes.do(_run_signal_evaluator)
+    # HM-REALIZED-RETRY 2026-07-15: separate cadence for the realized-return
+    # fetch (gated on Alpaca's daily bar actually existing — see
+    # engine/signal_evaluator.py module docstring for why this is split
+    # from _run_signal_evaluator rather than folded back in).
+    def _run_realized_evaluator():
+        try:
+            from engine.signal_evaluator import evaluate_realized_pending
+            evaluate_realized_pending()
+        except Exception as _exc:
+            logger.debug("[realized_eval] scheduler call failed: %s", _exc)
+    schedule.every(30).minutes.do(_run_realized_evaluator)
     # HM-RIKER-XO-SCHEDULE-2026-07-09: engine/riker_xo.py::generate_riker_synthesis()
     # (powers the riker-hero dashboard widget / /api/riker/recommendation) was NEVER
     # scheduled anywhere -- confirmed via git history it predates and was untouched by
@@ -4417,12 +4428,12 @@ if __name__ == "__main__":
     # HM-EXEC-PIPELINE measurement-health watchdog: ntfy RED probes every 15 min
     _mhealth_cooldown = {}  # probe_key -> epoch_secs of last alert
     _MHEALTH_CD_SECS = 3600  # 60-min cooldown per probe
-    _mhealth_state = {"last_filled": None}  # cross-call state for drain-progress tracking
+    _mhealth_state = {"last_filled": None, "last_realized_ok": None}  # cross-call state for drain-progress tracking
 
     def _run_measurement_health_watch():
         import time as _mh_time
         import sqlite3 as _mh_sqlite3
-        from datetime import datetime as _mh_dt, timezone as _mh_tz
+        from datetime import datetime as _mh_dt, timezone as _mh_tz, timedelta as _mh_td
         import threading as _mh_threading
 
         now = _mh_dt.now(_mh_tz.utc)
@@ -4518,6 +4529,68 @@ if __name__ == "__main__":
                         f"fwd_return fill_rate={fill_rate}% ({ev_filled}/{ev_total} obs) — "
                         f"no progress since last check (prev={prev_filled}).\n"
                         "Evaluator may be stuck or throwing errors — check logs.",
+                    )
+
+            # --- probe: fwd_return_1d_realized (HM-REALIZED-RETRY) ---
+            # Watches the ACTUAL realized-return column, not the fwd_return_1d
+            # proxy the probe above watches. That distinction is why the prior
+            # inline realized-fetch could fail 100% of the time for 16 days
+            # (2026-06-29 to 2026-07-15) with this watchdog reporting green the
+            # whole time — eval_low_fill only ever saw the proxy fill rate.
+            stale_cutoff = (now - _mh_td(days=5)).isoformat()
+            rz_row = _mh_conn.execute(
+                "SELECT "
+                "SUM(CASE WHEN realized_at IS NOT NULL AND fwd_return_1d_realized IS NOT NULL THEN 1 ELSE 0 END) AS ok, "
+                "SUM(CASE WHEN realized_at IS NOT NULL AND fwd_return_1d_realized IS NULL THEN 1 ELSE 0 END) AS perm_fail, "
+                "SUM(CASE WHEN realized_at IS NULL THEN 1 ELSE 0 END) AS still_pending, "
+                "COUNT(*) AS eligible "
+                "FROM signal_observations "
+                "WHERE evaluated_at IS NOT NULL AND direction IS NOT NULL AND expiry < ?",
+                (stale_cutoff,),
+            ).fetchone()
+            rz_ok       = rz_row["ok"] or 0
+            rz_fail     = rz_row["perm_fail"] or 0
+            rz_pending  = rz_row["still_pending"] or 0
+            rz_eligible = rz_row["eligible"] or 0
+            rz_resolved = rz_ok + rz_fail
+
+            prev_realized_ok = _mhealth_state["last_realized_ok"]
+            _mhealth_state["last_realized_ok"] = rz_ok
+
+            # These rows are all >5 days past expiry — comfortably past both the
+            # bar-availability gate (~1.5h post-close) and the full ~3.75-day
+            # retry window. still_pending this old means the retry job itself
+            # has stopped running, not that it's waiting on data.
+            if rz_pending > 20 and rz_eligible > 0:
+                _mh_fire(
+                    "realized_eval_stalled",
+                    "\U0001f534 MEASUREMENT: realized-return retry stalled",
+                    f"{rz_pending} observations >5 days past expiry still have no "
+                    f"realized_at (ok={rz_ok} fail={rz_fail} eligible={rz_eligible}).\n"
+                    "evaluate_realized_pending may not be running — check scheduler/logs.",
+                )
+            elif rz_resolved > 100:
+                rz_success_rate = round(rz_ok / rz_resolved * 100, 1)
+                stalled = prev_realized_ok is not None and rz_ok <= prev_realized_ok
+                if rz_success_rate < 40.0 and stalled:
+                    reason_row = _mh_conn.execute(
+                        "SELECT realized_fail_reason, COUNT(*) AS n "
+                        "FROM signal_observations "
+                        "WHERE realized_at IS NOT NULL AND fwd_return_1d_realized IS NULL "
+                        "AND expiry < ? "
+                        "GROUP BY realized_fail_reason ORDER BY n DESC LIMIT 5",
+                        (stale_cutoff,),
+                    ).fetchall()
+                    reasons_str = ", ".join(
+                        f"{r['realized_fail_reason']}={r['n']}" for r in reason_row
+                    )
+                    _mh_fire(
+                        "realized_low_success",
+                        "\U0001f534 MEASUREMENT: realized-return success rate degraded",
+                        f"success_rate={rz_success_rate}% ({rz_ok}/{rz_resolved} resolved) — "
+                        f"no progress since last check (prev_ok={prev_realized_ok}).\n"
+                        f"top fail reasons: {reasons_str}\n"
+                        "Check Alpaca creds/quota — see engine/signal_evaluator.py.",
                     )
 
             _mh_conn.close()
