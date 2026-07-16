@@ -4,6 +4,105 @@ Tier 1 = repo-verified. Tier 2 = carried from prior context, confirm before acti
 
 ---
 
+## HM-REALIZED-RETRY — evaluator fix DRAFTED + SMOKE-TESTED, NOT YET LIVE (2026-07-16)
+
+### Alpha-read truth chain (why the 6/29 ALPHA READ number is wrong)
+
+1. **+7.89% bk_avwap / +2.46% bk_box — proxy artifact, not a market read.** The
+   2026-06-29 ALPHA READ (CLAUDE.md:570-582) banked this from `fwd_return_1d`,
+   which the code documents as *"proxy from deep_scan entry/target prices
+   (best effort)"* — a projection, never a realized outcome — on n=762
+   (~5% drained). The doc itself flagged it directional-only, not deployment
+   authority; what wasn't caught at the time is that it was never measuring
+   the right thing to begin with.
+2. **The real column, `fwd_return_1d_realized`, is frozen at 5,729 bk_avwap +
+   61 bk_box rows** — all produced in a single ~2-hour window on 2026-06-29
+   (02:10–04:26 UTC). Zero growth in 16 days despite 13,041 more rows getting
+   `evaluated_at` stamped since. The "full-drain" read CLAUDE.md is waiting on
+   never happened — the pipe silently stopped filling the day it started.
+3. **The frozen sample's unsigned average (~+0.01%, flat) is itself an
+   artifact.** It averages BULL and BEAR raw returns together without sign-
+   flipping — a -2% move on a BEAR call is a WIN, counted as a loss in that
+   number. Flat-unsigned tells us nothing about edge either way.
+4. **Root cause: evaluated before the expiry-date's close exists.** The
+   evaluator fetches Alpaca's daily bar for the expiry date the instant
+   `expiry < now`, but that bar isn't published until close + a settlement
+   buffer (~21:30 UTC). The fetch legitimately returns no bars in that dead
+   window — and the old code, on any failure, permanently stamped the row
+   "done" with no retry. One bad two-hour timing accident, then silence for
+   16 days with the measurement-health watchdog reporting green the whole
+   time (it was watching the proxy column, not this one).
+5. **CLAUDE.md's ALPHA READ section still states the stale 6/29 numbers as
+   current. Retraction/rewrite is still TODO** — tomorrow's queue item (d),
+   blocked on the real direction-signed full-drain number.
+
+### Fix — drafted + smoke-tested against an isolated copy of `trader.db`, NOT deployed
+
+Six pieces, all `py_compile`-clean:
+- `scripts/migrations/hm_realized_retry_columns.sql` — additive columns
+  (`realized_at`, `realized_attempts`, `realized_next_retry_at`,
+  `realized_fail_reason`) + backfill of the existing 5,729/61 successes.
+- `engine/signal_evaluator.py` — `evaluate_pending()` no longer touches
+  realized-return (acted-join/proxy behavior unchanged); new
+  `evaluate_realized_pending()` gates the first fetch on bar availability
+  (~21:30 UTC), retries transient failures (~5 attempts / 3.75 days) with
+  reason codes, fast-paths `same_day_expiry` rows (bk_orb/uhura — see backlog
+  ticket below) straight to permanent-fail since no retry can ever help them,
+  and rate-limits fetch calls (0.22s / ~4.5 req/s — added after the sweep
+  below showed 42% `http_429` with no delay).
+- `main.py` — new `evaluate_realized_pending` scheduler entry (30 min,
+  parallel to the existing evaluator job); new measurement-health RED probes
+  (`realized_eval_stalled`, `realized_low_success`) watching
+  `fwd_return_1d_realized`/`realized_at` directly — the existing
+  `eval_low_fill` probe only ever watched the proxy column, which is why this
+  ran silent for 16 days.
+- `_nightcrew/backfill_realized_return.py` — updated for the one-time pass:
+  now populates `realized_at`/`realized_attempts`/`realized_fail_reason`
+  instead of leaving unresolved rows silently NULL forever.
+- `scripts/realized_weekly_snapshot.py` — new "Per-Source, Direction-Signed"
+  section (sign-flip BEAR raw returns) — this is the read that will actually
+  answer whether bk_avwap/bk_box carry edge.
+
+**Sweep validation, on an isolated test-DB copy (never touched live data):**
+first pass, 2,574 rows attempted with no rate limiting — 817 succeeded
+(31.7%), 1,757 retry-scheduled (542 `same_bar`, 140 `no_bars`, 1,075
+`http_429`), 426 permanent-fail (417 `same_day_expiry` + 9
+`not_directional`). Confirmed the core fix works — real successes, not
+theory — but exposed the missing rate limit. After adding it: re-swept a
+fresh 600-row batch, **zero `http_429`**.
+
+**NOT deployed tonight** — restart-then-verify doctrine requires an attended
+smoke window; live trader restart is tomorrow's item (a). No migration or
+backfill has touched the live `data/trader.db`.
+
+### TOMORROW'S QUEUE, in order
+1. Deploy the evaluator fix (apply migration to live `data/trader.db`,
+   restart, smoke-verify).
+2. Run the one-time backfill (throttled) against the live DB — clears the
+   13,041-row backlog.
+3. Pull the DIRECTION-SIGNED read (`scripts/realized_weekly_snapshot.py`,
+   new section) — this is the actual alpha verdict, sufficiency-gated.
+4. Rewrite CLAUDE.md's ALPHA READ section with the retraction + real number.
+5. Review the `wip-capture-2026-07-16` branch diff (15 pre-existing modified
+   files) for a real, reviewed commit — that capture was unreviewed by
+   design, do not merge as-is.
+6. Kill-gate DAY 30 prep — verdict due ~2026-07-24 (8 days out). G1-G4 per
+   `OLLIETRADES_KILL_GATE.md`, criteria untouched; prep the pull script so
+   verdict day is a button-press.
+
+### New backlog item — file in docs/XO_BACKLOG.md
+**Intraday realized-return path (minute bars) for bk_orb/same-day sources.**
+Sources whose `ts` and `expiry` land on the same calendar date (bk_orb,
+uhura) can never resolve via daily bars by construction — confirmed 100%
+`same_day_expiry`/`same_bar` rate for these sources in the sweep above and
+in the 96a29c7 commit message. This is a permanent measurement blind spot,
+not a bug the retry logic can fix — needs a separate minute-bar realized-
+return path if these sources are ever meant to clear the ALPHA READ gate.
+
+RULE #1 holds — paper only, nothing touched the live fleet tonight.
+
+---
+
 ## FIXED — Gamma Map mislabeling both bridge-v2 SPY panels (2026-07-02)
 
 **Root cause:** `loadGex()` and `loadMacroGex()` in `dashboard/static/bridge-v2.html` both took `raw[0]` from `/api/market/gex`'s response array unconditionally and rendered it under a hardcoded "Gamma Map · SPY" header. The market-closed fallback (this session's earlier GEX fix) can legitimately return a subset of tickers — whichever still have a usable last-known snapshot — so when SPY's snapshot was rejected (known-collapsed artifact) and only QQQ survived, `raw[0]` silently became QQQ's numbers (call wall $710, flip $734, put wall $707) displayed under the SPY label. XO caught this from a live screenshot comparison against this morning's correct SPY 745/749/617 reading.
