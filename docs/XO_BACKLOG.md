@@ -9837,3 +9837,39 @@ visibility into them. Verified byte-for-byte match against a fresh
 `get_alpaca_positions()` call post-write. See
 `relay_2026-07-18_season-rotation-blanket-reactivate-fix.md` §6 for the
 original finding and the follow-up relay for the actual reconciliation.
+
+## HM-UHURA-NONBLOCK-UNCOMMITTED-2026-07-18 — needs a decision Monday, not touched
+
+Found while inventorying pending repo changes over the weekend:
+`dashboard/app.py`'s `uhura_signal()` has an **uncommitted** working-tree-only
+change, tagged `HM-UHURA-NONBLOCK 2026-07-18` in its own docstring, author
+unknown (not attributed to any session in this conversation). Diffstat:
++21/-1, one function.
+
+**What it does:** converts `uhura_signal()` from a blocking
+`@timed_cache(120)`-wrapped call into a non-blocking wrapper — returns the
+last cached result (or a `"warming"` placeholder on true cold start)
+instantly, and kicks off a background daemon thread to refresh via a new
+`_uhura_signal_compute()` (which keeps the original `@timed_cache(120)`)
+when the cache is stale and no refresh is already in flight. Stated purpose:
+fixes a >10s cold-call hang on `/classic` and `archer`'s `intel_sources`
+callers.
+
+**Known issue, not fixed:** the staleness/`_busy` check uses plain
+`getattr`/attribute-on-function state, not a lock — two near-simultaneous
+stale requests can both read `_busy=False` before either sets it `True`,
+spawning two concurrent refresh threads. Likely harmless (both compute the
+same thing, last write wins) but not verified, and not the right pattern to
+reuse elsewhere if a refresh ever gets a side effect.
+
+**Likely already live:** `main.py` imports `dashboard.app` directly, and the
+trader was restarted 2026-07-18 16:12:18 MST (for the unrelated
+`HM-SEASON-ROTATION-BLANKET-REACTIVATE` fix) — restarts load whatever's on
+disk regardless of commit state, so this fix is probably already running in
+production despite never having been committed or reviewed.
+
+**Action needed Monday:** either (a) test it properly (specifically probe
+the double-refresh race under concurrent load), fix the race with a real
+lock, and commit; or (b) deliberately revert it if it's not wanted. Left
+untouched per instruction — do not silently commit or revert without a
+decision.
