@@ -66,6 +66,34 @@ any specific number in this card; the card describes what was true as of
 2026-07-06 ~22:20 MST, not a live view.
 
 ---
+## 🔵 HM-ARCHER-PORTRAIT-REPEAT-FETCH — filed 2026-07-18 (HM-FULL-AUDIT-2026Q3 add-on), LOW PRIORITY, propose-first, NOT INVESTIGATED
+
+Browser sweep observed `/classic` requesting `static/archer-portrait.png?v=4`
+eighteen times on a single page load. Confirmed in source: `dashboard/static/
+index.html` references `archer-portrait.png?v=4` **22 times**, of which 16
+occurrences are inside JS template-string literals used to render each
+Computer Chat message row (`'<div class="cc-row"><img src="/static/
+archer-portrait.png?v=4" class="cc-avatar" alt="Archer">...'`, e.g. lines
+~40120-41175) — one `<img>` tag gets minted per historical chat message
+rendered on load, not one shared element. `dashboard/static/bridge-v2.html`
+(the v2 tier) has zero references — this only affects the `/classic` (v1)
+engineering console.
+
+**Not yet determined:** whether these 18 are actually distinct network
+fetches (a real caching/perf bug — identical URL should normally be served
+from browser cache after the first fetch, so if it's really re-fetching over
+the wire every time, either cache-control headers are wrong or something is
+appending a cache-busting param per-render) or just 18 DOM `<img>` elements
+correctly sharing one cached resource (in which case this is a non-issue,
+cosmetic-in-appearance-only). No code was read/changed beyond the grep above.
+
+**Next step if picked up:** check response headers on `/static/
+archer-portrait.png` (cache-control/etag) and confirm via a real browser
+network-tab capture whether repeat requests are cache hits or live fetches.
+If real re-fetches: either dedupe the avatar into one shared DOM node reused
+per message, or add appropriate caching headers server-side.
+
+---
 ## 🟢 HM-NTFY-IPV6-NOROUTE-SWEEP — filed 2026-07-10, SHIPPED same night — all 31 unprotected senders fixed (4 + 27)
 
 This box has no working IPv6 route to ntfy.sh (`HM-NTFY-IPV6-NOROUTE`,
