@@ -5530,7 +5530,14 @@ if __name__ == "__main__":
         try:
             from engine.season_manager import rotate_season
             new = rotate_season()
-            console.log(f"[bold green]⭐ Season auto-rotation complete → Season {new}")
+            if new is not None:
+                console.log(f"[bold green]⭐ Season auto-rotation complete → Season {new}")
+            else:
+                console.log(
+                    "[bold red]⭐ Season auto-rotation ABORTED by reactivation-scope "
+                    "safety check — no DB writes made, NTFY sent, season NOT advanced. "
+                    "Will retry next Sunday's window once investigated."
+                )
         except Exception as e:
             console.log(f"[red]Season rotation error: {e}")
 

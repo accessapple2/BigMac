@@ -17,6 +17,20 @@ DB = "data/trader.db"
 DEFAULT_CASH = 7000.0
 DAYBLADE_CASH = 3500.0
 
+# HM-SEASON-ROTATION-BLANKET-REACTIVATE (2026-07-18): the halt_mode reset
+# below must never touch an agent with an explicit halt_reason on file
+# (retired, HM-item halts, roster-cap exclusions, bakeoff/audit-trail-only
+# clones, exit_only, etc.) — only agents with halt_reason IS NULL are
+# eligible, i.e. agents that were never deliberately halted with a reason.
+# Verified 2026-07-18 against live data: 100% clean partition (every
+# currently-active agent has halt_reason IS NULL; every currently-halted
+# agent has halt_reason set) — this predicate currently matches exactly
+# the already-active set, making the reset a no-op under normal operation.
+# Belt+suspenders: if the dry-run count of eligible rows ever exceeds the
+# current active count by more than this margin, rotation aborts before
+# any write — a season rotation should never multiply the active fleet.
+ROTATION_REACTIVATION_MARGIN = 10
+
 
 def _conn():
     c = sqlite3.connect(DB, check_same_thread=False, timeout=30)
@@ -119,11 +133,79 @@ def save_season_summary(season: int):
     console.log(f"[bold green]Season {season} summary saved ({len(players)} players)")
 
 
-def rotate_season() -> int:
-    """Rotate to a new season. Returns the new season number."""
+# Rows eligible for the season-reset unhalt — never touches a row with an
+# explicit halt_reason on file. See ROTATION_REACTIVATION_MARGIN docstring.
+_UNHALT_ELIGIBLE_WHERE = (
+    "id NOT IN ('webull','alpaca-mirror') AND id != ? AND halt_reason IS NULL"
+)
+
+
+def _dry_run_unhalt_scope(conn) -> dict:
+    """Read-only: count agents currently active vs. agents the season-reset
+    UPDATE would touch under _UNHALT_ELIGIBLE_WHERE. No writes.
+
+    Returns {"active_before": int, "would_affect": int, "safe": bool}.
+    "safe" is False if would_affect exceeds active_before by more than
+    ROTATION_REACTIVATION_MARGIN — the caller must abort before writing.
+    """
+    active_before = conn.execute(
+        "SELECT COUNT(*) FROM ai_players "
+        "WHERE id NOT IN ('webull','alpaca-mirror') AND id != ? AND halt_mode='active'",
+        (NEO_PLAYER_ID,)
+    ).fetchone()[0]
+    would_affect = conn.execute(
+        f"SELECT COUNT(*) FROM ai_players WHERE {_UNHALT_ELIGIBLE_WHERE}",
+        (NEO_PLAYER_ID,)
+    ).fetchone()[0]
+    return {
+        "active_before": active_before,
+        "would_affect": would_affect,
+        "safe": would_affect <= active_before + ROTATION_REACTIVATION_MARGIN,
+    }
+
+
+def _alert_rotation_aborted(scope: dict, season: int) -> None:
+    try:
+        from engine.alert_channels import send_alert, AlertLevel
+        send_alert(
+            message=(
+                f"Season rotation ABORTED before Season {season}: the halt_mode "
+                f"reset would have touched {scope['would_affect']} agents against "
+                f"{scope['active_before']} currently active "
+                f"(margin={ROTATION_REACTIVATION_MARGIN}). No DB writes were made. "
+                f"A season rotation should never multiply the active fleet — "
+                f"investigate engine/season_manager.py before the next attempt."
+            ),
+            level=AlertLevel.RED_ALERT,
+            alert_type="hm-season-rotation-aborted",
+            rate_limit_secs=3600,
+        )
+    except Exception as e:
+        console.log(f"[red]Season rotation abort-NTFY failed: {e}")
+
+
+def rotate_season() -> int | None:
+    """Rotate to a new season. Returns the new season number, or None if
+    the rotation was aborted by the reactivation-scope safety check (no
+    writes made in that case — safe to retry once investigated)."""
     ensure_tables()
     current = get_current_season()
     new_season = current + 1
+
+    # HM-SEASON-ROTATION-BLANKET-REACTIVATE: dry-run the unhalt scope BEFORE
+    # any write (including save_season_summary) so an abort leaves the DB
+    # completely untouched — no rollback needed, trivially safe to retry.
+    check_conn = _conn()
+    scope = _dry_run_unhalt_scope(check_conn)
+    check_conn.close()
+    if not scope["safe"]:
+        console.log(
+            f"[bold red]SEASON ROTATION ABORTED — reactivation scope check failed: "
+            f"would_affect={scope['would_affect']} active_before={scope['active_before']} "
+            f"margin={ROTATION_REACTIVATION_MARGIN}[/bold red]"
+        )
+        _alert_rotation_aborted(scope, new_season)
+        return None
 
     # Save summary of ending season
     save_season_summary(current)
@@ -157,12 +239,16 @@ def rotate_season() -> int:
         (new_season,)
     )
 
-    # Unhalt all AI players for the new season
+    # Unhalt AI players for the new season — HM-SEASON-ROTATION-BLANKET-
+    # REACTIVATE (2026-07-18): scoped to halt_reason IS NULL only. Any agent
+    # with an explicit halt_reason (retired, HM-item halts, roster-cap
+    # exclusions, bakeoff clones, exit_only, etc.) is never touched here.
     # HM-B-pre: migrated is_halted=0 → halt_mode='active' (drop halt_reason + halted_at on season reset)
-    conn.execute(
-        "UPDATE ai_players SET halt_mode='active', halt_reason=NULL, halted_at=NULL WHERE id NOT IN ('webull','alpaca-mirror') AND id != ?",
+    cur = conn.execute(
+        f"UPDATE ai_players SET halt_mode='active', halt_reason=NULL, halted_at=NULL WHERE {_UNHALT_ELIGIBLE_WHERE}",
         (NEO_PLAYER_ID,)
     )
+    console.log(f"[cyan]Season rotation unhalt: {cur.rowcount} rows touched (scope check: {scope})")
 
     # Close all AI positions (not Steve's, not broker mirror's — alpaca_sync rebuilds it)
     conn.execute(
@@ -238,6 +324,21 @@ def start_season(season_num: int):
     if season_num <= current:
         return {"error": f"Season {season_num} is not greater than current season {current}"}
 
+    # HM-SEASON-ROTATION-BLANKET-REACTIVATE: same dry-run safety check as
+    # rotate_season() — abort before any write if the unhalt scope looks
+    # like it would multiply the active fleet instead of a no-op refresh.
+    check_conn = _conn()
+    scope = _dry_run_unhalt_scope(check_conn)
+    check_conn.close()
+    if not scope["safe"]:
+        console.log(
+            f"[bold red]SEASON START ABORTED — reactivation scope check failed: "
+            f"would_affect={scope['would_affect']} active_before={scope['active_before']} "
+            f"margin={ROTATION_REACTIVATION_MARGIN}[/bold red]"
+        )
+        _alert_rotation_aborted(scope, season_num)
+        return {"error": "aborted by reactivation-scope safety check", "scope": scope}
+
     # Save current season summary
     save_season_summary(current)
 
@@ -264,11 +365,15 @@ def start_season(season_num: int):
         (DAYBLADE_CASH, season_num)
     )
     conn.execute("UPDATE ai_players SET season=? WHERE id IN ('webull','alpaca-mirror')", (season_num,))
+    # Unhalt AI players — HM-SEASON-ROTATION-BLANKET-REACTIVATE (2026-07-18):
+    # scoped to halt_reason IS NULL only, same as rotate_season(). Never
+    # touches an agent with an explicit halt_reason on file.
     # HM-B-pre: migrated is_halted=0 → halt_mode='active' (drop halt_reason + halted_at on season reset)
-    conn.execute(
-        "UPDATE ai_players SET halt_mode='active', halt_reason=NULL, halted_at=NULL WHERE id NOT IN ('webull','alpaca-mirror') AND id != ?",
+    cur = conn.execute(
+        f"UPDATE ai_players SET halt_mode='active', halt_reason=NULL, halted_at=NULL WHERE {_UNHALT_ELIGIBLE_WHERE}",
         (NEO_PLAYER_ID,),
     )
+    console.log(f"[cyan]Season start unhalt: {cur.rowcount} rows touched (scope check: {scope})")
     conn.execute("DELETE FROM positions WHERE player_id NOT IN ('webull','alpaca-mirror') AND player_id != ?", (NEO_PLAYER_ID,))
 
     conn.commit()
