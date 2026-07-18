@@ -501,4 +501,11 @@ def health():
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8088, log_level="info")
+    # HM-TOUR-API-OPEN-ORDER-ENDPOINT 2026-07-18: was 0.0.0.0, making the
+    # unauthenticated POST /api/paper/order passthrough reachable from LAN
+    # and Tailscale, bypassing Cloudflare Access entirely. The only real
+    # callers are on-box: the cloudflared tunnel (tour.ollietrades.com ->
+    # localhost:8088, per ~/.cloudflared/config.yml) and
+    # scripts/origin_healthcheck.sh's local healthcheck. Binding loopback-
+    # only keeps both working and closes the network exposure completely.
+    uvicorn.run(app, host="127.0.0.1", port=8088, log_level="info")
