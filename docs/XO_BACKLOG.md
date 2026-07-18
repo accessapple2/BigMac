@@ -9813,3 +9813,27 @@ one-hour blip is not enough signal to act on.
 **Disposition:** item 1 is closed (explained). Items 2 and 3 stay open as
 recur-watch only — re-check if either happens again before spending more
 time on them.
+
+## HM-SEASON-ROTATION-CASH-RESET-2026-07-18 — accepted as-is, backlog note only
+
+The 2026-07-12 season-rotation bug (`HM-SEASON-ROTATION-BLANKET-REACTIVATE`,
+see relay reports `relay_2026-07-18_season-rotation-halt-reset-correction.md`
+and `relay_2026-07-18_season-rotation-blanket-reactivate-fix.md`) reset all
+65 wrongly-reactivated agents' `cash` column to the $7000 season default.
+When `halt_mode`/`halt_reason` were restored to their pre-rotation truth,
+cash was deliberately **not** restored — the Admiral accepted the $7000
+values as-is (2026-07-18), since the correct pre-rotation figures aren't
+simply "whatever it was on 07-12" if any legitimate trading occurred for
+these agents between their original halt date and 07-12. No further action
+planned; noting here only so it isn't re-discovered as a fresh discrepancy.
+
+**Related, closed same day:** `ollie-auto`'s two Alpaca-side orphaned
+positions from the same rotation bug (`BLK` qty 0.15, `PM` qty 0.14 — its
+internal `positions` rows were deleted by the rotation's blanket
+`DELETE FROM positions`, while the real broker-side Alpaca positions
+survived) were re-seeded into `ai_players`/`positions` from live Alpaca
+truth on 2026-07-18, restoring ollie-auto's own exit/stop-loss logic's
+visibility into them. Verified byte-for-byte match against a fresh
+`get_alpaca_positions()` call post-write. See
+`relay_2026-07-18_season-rotation-blanket-reactivate-fix.md` §6 for the
+original finding and the follow-up relay for the actual reconciliation.
