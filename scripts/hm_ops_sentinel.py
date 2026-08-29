@@ -63,6 +63,7 @@ import json
 import logging
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -552,6 +553,114 @@ def check_cron_missing_scripts(alerts: list[AlertTuple]) -> dict:
     return results
 
 
+# HM-LAUNCHD-REVIVAL-2026-08-29: the 18 com.ollietrades.* gui/501 LaunchAgents
+# reactivated today after the 2026-07-22 stand-down (see
+# docs/XO_BACKLOG.md HM-STANDDOWN-SUCCESSOR-2026-08-29 for the full
+# disposition). Registry maps label -> (log path relative to ROOT,
+# max staleness in hours before it's worth a look) -- staleness ceilings are
+# generous multiples of each job's own calendar cadence (weekly jobs get
+# ~9 days, weekday-daily jobs get ~48h, daily jobs get ~30h) so a normal
+# weekend gap never false-fires.
+LAUNCHD_JOB_REGISTRY: dict[str, tuple[str, float]] = {
+    "universe-refresh":                  ("logs/universe-refresh.log", 216.0),
+    "model-watcher":                     ("logs/model_watcher.log", 216.0),
+    "iv-backfill":                       ("logs/iv-backfill.out.log", 48.0),
+    "danelfin-update":                   ("logs/danelfin_update.log", 216.0),  # lives under ~/ollietrades/logs, checked via absolute fallback below
+    "enrichment-poller":                 ("logs/enrichment_poller.log", 216.0),
+    "ti-email-poller":                   ("logs/ti_email_poller_stdout.log", 48.0),
+    "uhura-watch":                       ("logs/uhura_watch/launchd.out.log", 192.0),
+    "scotty":                            ("logs/scotty.out.log", 48.0),
+    "nightly-backtest":                  ("logs/nightly_backtest.log", 30.0),  # lives under ~/ollietrades/logs, checked via absolute fallback below
+    "nightly-regression":                ("logs/nightly_regression_launchd.log", 30.0),
+    "daily-watch":                       ("logs/daily_watch_stdout.log", 30.0),
+    "hm-wr-dur-monday-check":            ("logs/hm_wr_dur_monday_check_stdout.log", 192.0),
+    "morning-an2-observation":           ("logs/morning_an2_observation_stdout.log", 48.0),
+    "stale-trim-obs":                    ("logs/stale_trim.out.log", 48.0),
+    "finetune-reminder":                 ("logs/finetune_reminder.log", 30.0),
+    "hm-signals-v2-monday-check":        ("logs/hm_signals_v2_monday_check_stdout.log", 192.0),
+    "hm-signals-v2-monday-check-verify": ("logs/hm_signals_v2_monday_check_verify_stdout.log", 192.0),
+    "archer-briefing":                   ("logs/archer_briefing.log", 30.0),  # lives under ~/ollietrades/logs, checked via absolute fallback below
+}
+# Three of the registry's logs live under the ~/ollietrades/ tree (a
+# sibling project dir), not this repo's own logs/ -- rather than a second
+# hardcoded absolute-path map, resolve each entry against both roots and
+# use whichever exists.
+_ALT_LOG_ROOT = Path.home() / "ollietrades"
+
+
+def check_launchd_jobs_health(alerts: list[AlertTuple]) -> dict:
+    """OPS TRIAGE follow-up (2026-08-29): every job reactivated today after
+    the 2026-07-22 stand-down gets freshness coverage, same "no unwatched
+    watchers" philosophy as check_cron_missing_scripts -- but launchd's
+    disabled-flag and calendar scheduling need a different check shape than
+    crontab's tail-the-log-for-an-error-signature approach:
+
+      1. Drift-back-to-disabled: re-reads `launchctl print-disabled gui/501`
+         live every run. If any of these 18 jobs shows disabled again
+         (accidental re-disable, a future stand-down that forgets to update
+         this registry, etc.) that's worth flagging immediately regardless
+         of log content.
+      2. Staleness: each job's log file's mtime vs. a generous ceiling
+         scaled to its own calendar cadence (see registry above). Catches
+         a job that's enabled+loaded but has stopped actually firing --
+         the exact failure mode a naive "is it in launchctl print-disabled"
+         check alone would miss.
+
+    Never raises -- a missing log or a launchctl-command failure just
+    lands with a note, not a fatal.
+    """
+    import subprocess
+
+    results: dict = {"checked": 0, "disabled_again": [], "stale": []}
+    try:
+        disabled_out = subprocess.run(
+            ["launchctl", "print-disabled", "gui/501"],
+            capture_output=True, text=True, timeout=10,
+        ).stdout
+    except Exception as e:
+        print(f"[sentinel] launchd disabled-check error: {type(e).__name__}: {e}", file=sys.stderr)
+        disabled_out = ""
+
+    now = time.time()
+    for label, (rel_log, max_age_hours) in LAUNCHD_JOB_REGISTRY.items():
+        results["checked"] += 1
+        full_label = f"com.ollietrades.{label}"
+        if f'"{full_label}" => disabled' in disabled_out:
+            results["disabled_again"].append(label)
+            continue  # disabled is the more serious finding -- skip staleness on top
+
+        log_path = ROOT / rel_log
+        if not log_path.exists():
+            log_path = _ALT_LOG_ROOT / rel_log
+        if not log_path.exists():
+            continue  # never written yet post-reactivation -- not stale, just new
+        age_hours = (now - log_path.stat().st_mtime) / 3600.0
+        if age_hours > max_age_hours:
+            results["stale"].append({"label": label, "age_hours": round(age_hours, 1), "ceiling_hours": max_age_hours})
+
+    if results["disabled_again"]:
+        alerts.append((
+            "warning", "sentinel_launchd_job_disabled_again",
+            f"HM-OPS-SENTINEL: {len(results['disabled_again'])} of the 18 "
+            f"jobs reactivated 2026-08-29 (post-07-22-standdown revival) "
+            f"{'is' if len(results['disabled_again']) == 1 else 'are'} back in "
+            f"launchd's disabled state: {', '.join(sorted(results['disabled_again']))}.",
+            float(len(results["disabled_again"])),
+        ))
+    if results["stale"]:
+        worst = max(results["stale"], key=lambda s: s["age_hours"] - s["ceiling_hours"])
+        alerts.append((
+            "warning", "sentinel_launchd_job_stale",
+            f"HM-OPS-SENTINEL: {len(results['stale'])} reactivated launchd "
+            f"job log{'s are' if len(results['stale']) != 1 else ' is'} stale "
+            f"past its ceiling -- worst: {worst['label']} "
+            f"({worst['age_hours']}h since last write, ceiling {worst['ceiling_hours']}h). "
+            f"Full list: {', '.join(s['label'] for s in results['stale'])}.",
+            float(len(results["stale"])),
+        ))
+    return results
+
+
 def check_lock_errors(alerts: list[AlertTuple]) -> dict:
     """Count "database is locked" occurrences appended since the last run.
 
@@ -675,13 +784,15 @@ def main() -> int:
         status_page_status = check_status_page_heartbeat(alerts)
         source_health_status = check_source_health_watcher_heartbeat(alerts)
         cron_status = check_cron_missing_scripts(alerts)
+        launchd_status = check_launchd_jobs_health(alerts)
     except Exception as e:
         print(f"[sentinel] error running checks: {type(e).__name__}: {e}", file=sys.stderr)
         return 1
 
     print(f"[sentinel] fd={fd_status} lock={lock_status} queue={queue_status} "
           f"collectors={collector_status} status_page={status_page_status} "
-          f"source_health={source_health_status} cron={cron_status}")
+          f"source_health={source_health_status} cron={cron_status} "
+          f"launchd={launchd_status}")
 
     acks = _load_acks()
     fired = [a for a in alerts if not _is_suppressed(a[1], a[3], acks)]
