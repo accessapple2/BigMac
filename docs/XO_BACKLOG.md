@@ -66,6 +66,42 @@ any specific number in this card; the card describes what was true as of
 2026-07-06 ~22:20 MST, not a live view.
 
 ---
+## 🔵 HM-WORKTREE-DRIFT-TRIAGE — filed 2026-07-21 (Red Alert Yankee Echo Sierra / OllieTrades Lite session), LOW PRIORITY, POST-TRIP, NOT INVESTIGATED
+
+During the Lite-build session, `git status` on `autonomous-trader` showed a
+sizeable pre-existing dirty working tree, untouched by that session (which
+only wrote this backlog entry + the Lite relay report):
+
+**Modified, uncommitted:** `dashboard/app.py`, `data/agent_scoreboard.json`,
+`docs/XO_BACKLOG.md` (this file — see the HM-WITNESS-AB-RETIRE-2026-07-18
+and Counterfactual Report additions already sitting uncommitted at the tail
+as of this entry), `drafts/daily_ledger.csv`, `engine/alert_channels.py`,
+`scripts/backup_freshness_check.sh`, `scripts/db_snapshot.sh`,
+`scripts/disk_space_alert.sh`, `scripts/offhost_backup.sh`,
+`scripts/ollama_prewarm.sh`, `scripts/origin_healthcheck.sh`,
+`scripts/recall_refresh_run.sh`.
+
+**Untracked:** several `data/reports/relay/relay_2026-07-1[39]-*.md` files,
+`backups/ai_players_pre_HM-GATE-RESTART-HOLD_20260706_165700.sql`,
+`data/backups/hm_signals_v2_expire_*.ids`, `docs/handoffs/`,
+`docs/model_watch/MODEL_WATCH_2026-07-1[29].md`,
+`drafts/DAILY_REPORT_2026-07-{06..20}.md` (several dates),
+`drafts/REALIZED_WEEKLY_2026-07-{10,17}.md`,
+`scripts/com.ollietrades.hm-bridge-consensus-monday-check.system.plist`,
+`scripts/hm_signals_v2_monday_check_verify.sh`,
+`scripts/verify_repairs_20260713.py`.
+
+**Not investigated tonight, by instruction** — the fleet owns bigmac through
+tomorrow's close and the trip quiet-down, so no diffs were read and nothing
+here was committed, reverted, or stashed. Flagging only that the tree is
+this dirty, not diagnosing any individual file. **Next step (post-trip):**
+review each modified file's diff and each untracked file to sort
+work-in-progress worth committing from stale generated artifacts (daily
+reports/relay files look like normal accretion; the code-file modifications
+— `dashboard/app.py`, `engine/alert_channels.py`, the `scripts/*.sh`
+health-check scripts — need an actual diff read before deciding keep/revert).
+
+---
 ## 🔵 HM-ARCHER-PORTRAIT-REPEAT-FETCH — filed 2026-07-18 (HM-FULL-AUDIT-2026Q3 add-on), LOW PRIORITY, propose-first, NOT INVESTIGATED
 
 Browser sweep observed `/classic` requesting `static/archer-portrait.png?v=4`
@@ -9873,3 +9909,146 @@ the double-refresh race under concurrent load), fix the race with a real
 lock, and commit; or (b) deliberately revert it if it's not wanted. Left
 untouched per instruction — do not silently commit or revert without a
 decision.
+
+---
+## 🔵 HM-WITNESS-AB-RETIRE-2026-07-18 — `scripts/witness_ab_scorer.py` RETIRED, do not re-schedule
+
+**Directive (DECOM-PHASE-2, 2026-07-18):** Ollie Max is being decommissioned.
+`witness_ab_scorer.py` scores queued war-room debates against McCoy
+(plutus-v1) using models hosted on Ollie Max (`.168`) — deepseek-r1:14b and
+gpt-oss:20b. With the host going away, the script has no home to run on.
+
+**Status at retirement:** never had a cron/launchd entry — always run
+manually/ad hoc. Last write to `witness_ab` table: 2026-07-10 (8 days stale
+as of this entry). Lifetime tally: deepseek-r1:14b 1,196 scored / 64.8%
+agreement with McCoy; gpt-oss:20b 452 scored / 47.3% agreement.
+
+**Disposition:** code kept in place (`scripts/witness_ab_scorer.py`), NOT
+deleted, per Archive Convention. `witness_ab` table and its data preserved.
+**Do not re-add to cron/launchd.** Rehab path, if ever revisited: needs a
+non-Ollie-Max inference target (or its own box) before it can run again —
+not a same-day fix.
+
+
+---
+## Counterfactual Report — 2026-07-19 (P1 measurement layer, scripts/counterfactual_report.py)
+
+# Counterfactual Report — 2026-07-19
+Window: last 30 days (2026-06-19 to 2026-07-19)
+Outlier guard: entry price >= $1.00, |forward return| <= 100% (see script docstring for why)
+
+Executed baseline (BUY signals that went live): n=33/31/23 (1d/3d/5d with bars available)
+  fwd_1d: mean=-1.035%, median=0.045%
+  fwd_3d: mean=-1.774%, median=-0.094%
+  fwd_5d: mean=-1.584%, median=0.200%
+
+| Gate | Blocked (deduped) | Bars avail | mean/median fwd_1d | mean/median fwd_3d | mean/median fwd_5d | Structural? |
+|---|---|---|---|---|---|---|
+| HALT | 4835 | 4796 | -0.05/0.15% | 0.15/0.44% | 0.47/0.56% | yes |
+| MARKET_CLOSED | 3010 | 2166 | 0.69/0.26% | 1.15/0.52% | 1.59/0.59% | yes |
+| BENCH | 1941 | 1392 | -0.38/-0.08% | -1.33/-0.26% | -0.81/-0.17% |  |
+| MAX_TRADES_REACHED | 245 | 236 | 0.03/0.02% | -0.42/0.54% | -0.34/0.32% |  |
+| MAX_POSITIONS_REACHED | 156 | 149 | -0.51/-0.33% | 0.10/0.34% | 0.51/0.23% |  |
+| MANDATE_BLOCKED | 119 | 77 | 3.31/-0.21% | 2.56/-0.74% | n/a |  |
+| LEARNING_BLOCK | 71 | 65 | 0.12/0.35% | -1.33/-0.54% | -0.64/0.24% |  |
+| GRADE_B | 34 | 32 | -0.17/0.36% | 0.48/0.92% | 0.23/1.53% |  |
+| LOW_CONVICTION | 33 | 29 | -0.12/-0.16% | 0.11/0.11% | 1.12/0.50% |  |
+| SCANNER_FILTER | 19 | 19 | -1.55/-0.40% | -0.72/-0.19% | -0.60/-0.23% |  |
+| QUALITY_GATE_FAILED | 6 | 4 | 0.47/0.23% | 2.03/1.11% | 2.03/1.11% |  |
+| DRAWDOWN_PAUSE | 5 | 5 | -3.56/0.39% | -2.04/1.07% | -5.00/0.26% |  |
+
+
+---
+## Counterfactual Report — 2026-07-26 (P1 measurement layer, scripts/counterfactual_report.py)
+
+# Counterfactual Report — 2026-07-26
+Window: last 30 days (2026-06-26 to 2026-07-26)
+Outlier guard: entry price >= $1.00, |forward return| <= 100% (see script docstring for why)
+
+Executed baseline (BUY signals that went live): n=32/32/30 (1d/3d/5d with bars available)
+  fwd_1d: mean=-0.739%, median=0.074%
+  fwd_3d: mean=-1.048%, median=-0.072%
+  fwd_5d: mean=-1.582%, median=-0.077%
+
+| Gate | Blocked (deduped) | Bars avail | mean/median fwd_1d | mean/median fwd_3d | mean/median fwd_5d | Structural? |
+|---|---|---|---|---|---|---|
+| BENCH | 3752 | 3411 | -0.16/-0.13% | -0.73/-0.47% | -0.81/-0.53% |  |
+| HALT | 3417 | 3393 | 0.17/0.25% | -0.15/0.34% | -0.41/0.24% | yes |
+| MARKET_CLOSED | 2762 | 1981 | 0.79/0.00% | 0.60/-0.03% | 0.59/-0.10% | yes |
+| MAX_TRADES_REACHED | 245 | 236 | 0.03/0.02% | -0.42/0.54% | -0.34/0.32% |  |
+| MANDATE_BLOCKED | 119 | 84 | 3.33/-0.24% | 1.80/-0.94% | 1.59/-1.19% |  |
+| LEARNING_BLOCK | 71 | 65 | 0.12/0.35% | -1.33/-0.54% | -0.64/0.24% |  |
+| MAX_POSITIONS_REACHED | 38 | 33 | 0.49/0.10% | -1.10/-0.10% | -0.28/0.27% |  |
+| LOW_CONVICTION | 22 | 18 | -0.22/-0.17% | -0.98/0.01% | -0.77/-0.01% |  |
+| GRADE_B | 19 | 17 | 2.34/2.74% | 0.94/0.92% | 0.94/2.22% |  |
+| SCANNER_FILTER | 19 | 19 | -1.55/-0.40% | -0.72/-0.19% | -1.13/-0.27% |  |
+| QUALITY_GATE_FAILED | 6 | 4 | 0.47/0.23% | 2.03/1.11% | 2.03/1.11% |  |
+| DRAWDOWN_PAUSE | 5 | 5 | -3.56/0.39% | -2.04/1.07% | -5.00/0.26% |  |
+
+
+---
+## Counterfactual Report — 2026-08-02 (P1 measurement layer, scripts/counterfactual_report.py)
+
+# Counterfactual Report — 2026-08-02
+Window: last 30 days (2026-07-03 to 2026-08-02)
+Outlier guard: entry price >= $1.00, |forward return| <= 100% (see script docstring for why)
+
+Executed baseline (BUY signals that went live): n=23/23/23 (1d/3d/5d with bars available)
+  fwd_1d: mean=-0.551%, median=0.122%
+  fwd_3d: mean=-0.984%, median=-0.094%
+  fwd_5d: mean=-1.751%, median=-0.265%
+
+| Gate | Blocked (deduped) | Bars avail | mean/median fwd_1d | mean/median fwd_3d | mean/median fwd_5d | Structural? |
+|---|---|---|---|---|---|---|
+| BENCH | 3752 | 3411 | -0.16/-0.13% | -0.76/-0.39% | -0.63/-0.26% |  |
+| MARKET_CLOSED | 2344 | 1570 | 0.53/-0.18% | 0.16/-0.33% | 0.32/-0.46% | yes |
+| HALT | 1541 | 1533 | -0.03/0.07% | -0.31/0.08% | -0.57/0.08% | yes |
+| MANDATE_BLOCKED | 119 | 84 | 3.33/-0.24% | 1.80/-0.94% | 1.59/-1.19% |  |
+| LEARNING_BLOCK | 71 | 65 | 0.12/0.35% | -1.33/-0.54% | -0.64/0.24% |  |
+| MAX_POSITIONS_REACHED | 32 | 27 | 0.67/0.10% | -1.48/-0.69% | -0.49/0.28% |  |
+| MAX_TRADES_REACHED | 22 | 20 | 0.98/0.98% | 0.14/0.14% | -0.59/0.19% |  |
+| GRADE_B | 16 | 15 | 2.60/2.99% | 0.68/0.92% | 0.57/0.92% |  |
+| LOW_CONVICTION | 14 | 11 | 0.11/0.78% | -1.58/0.00% | -1.24/-0.04% |  |
+| DRAWDOWN_PAUSE | 5 | 5 | -3.56/0.39% | -2.04/1.07% | -5.00/0.26% |  |
+| SCANNER_FILTER | 3 | 3 | -1.31/0.08% | -4.50/-7.46% | -8.06/-7.46% |  |
+| QUALITY_GATE_FAILED | 1 | 0 | n/a | n/a | n/a |  |
+
+
+---
+## Counterfactual Report — 2026-08-09 (P1 measurement layer, scripts/counterfactual_report.py)
+
+# Counterfactual Report — 2026-08-09
+Window: last 30 days (2026-07-10 to 2026-08-09)
+Outlier guard: entry price >= $1.00, |forward return| <= 100% (see script docstring for why)
+
+Executed baseline (BUY signals that went live): n=13/13/13 (1d/3d/5d with bars available)
+  fwd_1d: mean=-1.016%, median=-0.059%
+  fwd_3d: mean=-2.150%, median=-0.734%
+  fwd_5d: mean=-2.912%, median=-0.813%
+
+| Gate | Blocked (deduped) | Bars avail | mean/median fwd_1d | mean/median fwd_3d | mean/median fwd_5d | Structural? |
+|---|---|---|---|---|---|---|
+| BENCH | 3541 | 3205 | -0.15/-0.14% | -0.71/-0.40% | -0.63/-0.27% |  |
+| MARKET_CLOSED | 1825 | 1066 | 0.37/-0.19% | -0.11/-0.48% | -0.10/-0.47% | yes |
+| HALT | 747 | 742 | 0.18/0.20% | -0.45/0.19% | -0.32/0.17% | yes |
+| MANDATE_BLOCKED | 119 | 84 | 3.33/-0.24% | 1.80/-0.94% | 1.59/-1.19% |  |
+| LEARNING_BLOCK | 24 | 22 | -2.10/-1.25% | -2.10/-1.25% | -1.42/-1.22% |  |
+| GRADE_B | 2 | 2 | -0.68/-0.68% | -2.03/-2.03% | -2.83/-2.83% |  |
+| SCANNER_FILTER | 1 | 1 | -7.55/-7.55% | -7.91/-7.91% | -10.68/-10.68% |  |
+| DRAWDOWN_PAUSE | 1 | 1 | 1.07/1.07% | 1.07/1.07% | 4.29/4.29% |  |
+
+
+---
+## Counterfactual Report — 2026-08-23 (P1 measurement layer, scripts/counterfactual_report.py)
+
+# Counterfactual Report — 2026-08-23
+Window: last 30 days (2026-07-24 to 2026-08-23)
+Outlier guard: entry price >= $1.00, |forward return| <= 100% (see script docstring for why)
+
+Executed baseline (BUY signals that went live): n=0/0/0 (1d/3d/5d with bars available)
+  fwd_1d: mean=n/a, median=n/a
+  fwd_3d: mean=n/a, median=n/a
+  fwd_5d: mean=n/a, median=n/a
+
+| Gate | Blocked (deduped) | Bars avail | mean/median fwd_1d | mean/median fwd_3d | mean/median fwd_5d | Structural? |
+|---|---|---|---|---|---|---|
