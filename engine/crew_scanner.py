@@ -2035,7 +2035,73 @@ _SCALED_EXIT_TIERS: dict[str, list[tuple[float, float, str]]] = {
 }
 
 # Cache: {f"{player_id}|{symbol}|{tier}": date_str} — prevents re-firing same tier same day
-_tiers_triggered: dict[str, str] = {}
+#
+# === HM-TIERS-TRIGGERED-PERSIST 2026-08-27 ===
+# Path for JSON sidecar that persists _tiers_triggered across trader restarts.
+# Without this, a restart wiped the in-memory dict and every already-fired
+# scaled-exit tier became eligible again -- confirmed 2026-08-27: neo-matrix
+# fired 10 scaled exits where 3 tiers x 2 symbols caps at 6, because a ~13:00
+# restart re-armed tiers that had already fired earlier the same day.
+_TIERS_TRIGGERED_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "data",
+    "tiers_triggered.json",
+)
+
+
+def _load_tiers_triggered(path: str) -> dict[str, str]:
+    """Load the persisted tier-fired cache from a JSON sidecar.
+
+    Prunes entries whose date isn't today on load -- the same-day re-fire
+    guard only ever compares against today's date, so anything older is dead
+    weight; dropping it here keeps the file from growing unbounded.
+    Fail-safe -- returns empty dict on any error (missing file, corrupt JSON,
+    permission issue), mirroring _load_trail_highs.
+    """
+    today = datetime.now().strftime("%Y-%m-%d")
+    try:
+        with open(path, "r") as _f:
+            _raw = json.load(_f)
+        if not isinstance(_raw, dict):
+            return {}
+        return {str(k): v for k, v in _raw.items() if v == today}
+    except FileNotFoundError:
+        return {}
+    except Exception:
+        # Corrupt JSON or any other read error → start fresh, don't crash module init.
+        return {}
+
+
+def _save_tiers_triggered(path: str, state: dict[str, str]) -> None:
+    """Atomically persist the tier-fired cache to a JSON sidecar.
+
+    Mirrors _save_trail_highs: atomic write (temp file in same dir +
+    os.replace) prevents 0-byte corruption if the process dies mid-write,
+    and all errors are swallowed so a write failure can never break the
+    calling scaled-exit logic.
+    """
+    try:
+        import tempfile
+        serialized = json.dumps(state)
+        cache_dir = os.path.dirname(os.path.abspath(path))
+        os.makedirs(cache_dir, exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(dir=cache_dir, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w") as _f:
+                _f.write(serialized)
+            os.replace(tmp_path, path)
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+            raise
+    except Exception as e:
+        logger.warning("_save_tiers_triggered write failed for %s: %s", path, e)
+
+
+_tiers_triggered: dict[str, str] = _load_tiers_triggered(_TIERS_TRIGGERED_PATH)
+# === /HM-TIERS-TRIGGERED-PERSIST ===
 
 # === HM-NEO-TRAIL-PERSIST 2026-05-20 ===
 # Path for JSON sidecar that persists _neo_trail_highs across trader restarts.
@@ -2336,6 +2402,7 @@ def _check_mccoy_target_relative_exits() -> int:
                 if result:
                     sold += 1
                     _tiers_triggered[cache_key] = today
+                    _save_tiers_triggered(_TIERS_TRIGGERED_PATH, _tiers_triggered)
                     if label == "T2":
                         _mccoy_trail_highs[symbol] = current
                         _save_trail_highs(_MCCOY_TRAIL_HIGHS_PATH, _mccoy_trail_highs)
@@ -2669,6 +2736,7 @@ def _check_scaled_exits(volatile_day: bool = False) -> int:
                     )
                     if result:
                         _tiers_triggered[cache_key] = today
+                        _save_tiers_triggered(_TIERS_TRIGGERED_PATH, _tiers_triggered)
                         sold += 1
                         logger.info(
                             f"📈 SCALED EXIT {label}{vol_note}: {player_id} sold "
@@ -2801,6 +2869,7 @@ def _check_spread_tiered_exits() -> int:
                     )
                     if result:
                         _tiers_triggered[t1_key] = today
+                        _save_tiers_triggered(_TIERS_TRIGGERED_PATH, _tiers_triggered)
                         exited += 1
                         logger.info(f"📊 Model F T1: {player_id} sold 50% {symbol} {opt_type} "
                                     f"({duration_fraction*100:.0f}% elapsed)")
@@ -2822,6 +2891,7 @@ def _check_spread_tiered_exits() -> int:
                     )
                     if result:
                         _tiers_triggered[t2_key] = today
+                        _save_tiers_triggered(_TIERS_TRIGGERED_PATH, _tiers_triggered)
                         exited += 1
                         logger.info(f"📈 Model F T2: {player_id} sold 30% {symbol} {opt_type} "
                                     f"({duration_fraction*100:.0f}% elapsed)")
