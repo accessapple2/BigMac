@@ -21,6 +21,7 @@ Guardrails:
 from __future__ import annotations
 
 import json
+import os
 import re
 import sqlite3
 import sys
@@ -32,7 +33,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 DB = ROOT / "data" / "trader.db"
-OLLAMA_URL = "http://192.168.1.168:11434"
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 SCORE_CAP = 300   # max debates scored per model per run (300×2 models ≈ 2.5–4 hrs total)
 
 # ── Model taxonomy (HM-SHADOW-AB-WITNESS 2026-06-29) ─────────────────────────

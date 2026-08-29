@@ -93,7 +93,7 @@ cd "$ROOT_DIR" || { echo "[$(ts)] FATAL: cannot cd $ROOT_DIR" >&2; exit 1; }
 # ollama. weekend_backtest reads OLLAMA_BASE_URL (default http://localhost:11434);
 # everything else already uses config.OLLIE_URL. Localhost stays the dev fallback
 # when the var is unset. Applies on the next trader restart (no forced restart).
-export OLLAMA_BASE_URL="${OLLAMA_BASE_URL:-http://192.168.1.168:11434}"
+export OLLAMA_BASE_URL="${OLLAMA_BASE_URL:-http://localhost:11434}"
 echo "[$(ts)] starting trader: $PYTHON $ENTRYPOINT (OLLAMA_BASE_URL=$OLLAMA_BASE_URL)"
 nohup "$PYTHON" "$ENTRYPOINT" >> "$LOG" 2>> "$ERR" &
 disown

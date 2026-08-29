@@ -10,6 +10,7 @@ ADVISORY ONLY. Archer reasons and reports; he never executes.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import requests
 from datetime import datetime
@@ -20,7 +21,7 @@ from engine import ticker_names as _names  # FIX-4: verified ticker→company na
 
 logger = logging.getLogger(__name__)
 
-OLLAMA = "http://192.168.1.168:11434/api/generate"
+OLLAMA = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434") + "/api/generate"
 MODEL = "plutus-v1"   # resident, non-retiring tag (ruling #1) — NOT 0xroyce/plutus
 
 PERSONA = (

@@ -654,3 +654,66 @@ Only contacts where genuine NOW-edge exists earn a sortie path.
 ### VI. ONE-LINE STATEMENT OF INTENT
 
 *OllieTrades is the standing fleet. Bridge-v2 is the deployed carrier. Alerts are contacts. The kill chain turns a contact into a legible, reviewable, and — when the data has earned it — actionable paper sortie, in the window the edge is still live. The Navy proves the edge; the carrier projects it.*
+
+
+## Ollama Model Aliases (2026-08-25, updated 2026-08-27)
+
+On bigmac, the ollama tags `plutus-v1`, `ministral-3:3b`, `qwen3:4b` (as of
+2026-08-27), and `qwen2.5-coder:7b` (manually aliased ~2026-08-27 07:50,
+`ollama cp qwen3:8b qwen2.5-coder:7b`, to unblock `ollama-coder`/Data,
+which had no model pulled at all before this) are **aliases of `qwen3:8b`**
+(all five share model ID `500a1f067a9f`) — they are not distinct models.
+This was discovered 2026-08-25 and causes model-swap thrashing on the 16GB
+unified-memory budget when different logical "providers" that expect
+different models actually round-trip the same weights in and out of VRAM.
+Per-provider War Room attribution is **void until Friday, 2026-09-04**
+(moved from the original 2026-08-28 target — the 9900X build slipped to
+that date) while these aliases stand — a win/loss attributed to
+"plutus-v1", "ministral-3:3b", "qwen3:4b", or "qwen2.5-coder:7b" is really
+qwen3:8b under a different name.
+
+The real finance-tuned model is preserved separately as `0xroyce/plutus`
+(a distinct ID) — that is the one to reference for actual Plutus-branded
+finance-model behavior, not `plutus-v1`.
+
+**Downstream fix, REVISIT AT UN-ALIASING (target 2026-09-04):**
+`engine/providers/ollama_provider.py`'s `_QWEN3_ALIAS_MODEL_IDS` set
+(`{"plutus-v1", "plutus-v1:latest", "ministral-3:3b", "qwen2.5-coder:7b"}`)
+extends the qwen3 thinking-mode suppression (`payload["think"] = False`)
+to cover these aliases, since War Room/McCoy/Data calls under these names
+route to the same qwen3:8b weights and would otherwise leak `<think>`
+tokens. **Once the roster gets real, distinct models back, `plutus-v1`
+becomes a Llama-based model and `qwen2.5-coder:7b` becomes the real
+(non-thinking) Qwen2.5-Coder** — sending `think:false` to a non-thinking
+model can error on some Ollama versions. Shrink `_QWEN3_ALIAS_MODEL_IDS`
+back down (or remove it) at that point — `qwen2.5-coder:7b` in particular
+MUST come out once the real coder model is pulled, since it was never a
+thinking model to begin with.
+
+## Ollama Service: com.ollama.serve is the ONLY real service (2026-08-27)
+
+**Ground truth, confirmed live 2026-08-27:** the actual Ollama server on
+bigmac is the system LaunchDaemon **`com.ollama.serve`**
+(`/Library/LaunchDaemons/com.ollama.serve.plist`, root-owned, dated
+2026-07-01). It always wins port 11434 over Homebrew's
+`homebrew.mxcl.ollama` LaunchAgent, because a system LaunchDaemon starts
+before login and respawns faster on `KeepAlive`. **This fact was lost once
+on 2026-07-01 (when `com.ollama.serve` was created) and cost three days
+(2026-08-25 → 2026-08-27) of editing `homebrew.mxcl.ollama`'s plist — an
+inert config that never actually served a single request.** Any future
+Ollama tuning MUST target `com.ollama.serve`, not the Homebrew plist. This
+also obsoletes the "bigmac-local Ollama — RETIRED" note earlier in this
+file (2026-06-24) insofar as it implied no local bigmac Ollama serving
+happens — `com.ollama.serve` has been serving locally on bigmac the whole
+time, independent of that retirement decision about fleet routing.
+
+- Plist: `/Library/LaunchDaemons/com.ollama.serve.plist`
+- Backup: `com.ollama.serve.plist.bak-20260827`
+- Full `EnvironmentVariables` set as of 2026-08-27: `OLLAMA_KEEP_ALIVE=-1`,
+  `OLLAMA_CONTEXT_LENGTH=16384`, `OLLAMA_MODELS=/Users/bigmac/.ollama/models`,
+  `OLLAMA_HOST=127.0.0.1:11434`, `OLLAMA_MAX_LOADED_MODELS=1`,
+  `OLLAMA_FLASH_ATTENTION=1`, `OLLAMA_KV_CACHE_TYPE=q8_0`.
+- `homebrew.mxcl.ollama` was disabled 2026-08-27 (`launchctl bootout` +
+  `brew services stop ollama`) specifically so it stops crash-looping
+  against a port it can never win — it is not a live competitor anymore,
+  but if it's ever re-enabled it will lose the race again, silently.

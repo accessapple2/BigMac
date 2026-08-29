@@ -26,6 +26,23 @@ _HM_WR_CANCEL_BUDGET_S = 85
 # budget before erroring — the call can never block indefinitely either way.
 _HM_OLLAMA_CONNECT_TIMEOUT_S = 5
 
+# HM-OLLAMA-ALIAS 2026-08-27: plutus-v1, ministral-3:3b, and (added
+# 2026-08-27 ~7:50, manually `ollama cp qwen3:8b qwen2.5-coder:7b`)
+# qwen2.5-coder:7b are CURRENTLY aliases of qwen3:8b (same weights, ID
+# 500a1f067a9f — see project memory project_ollama_model_aliases_2026-08-25)
+# and need the same thinking-mode suppression as native qwen3:* tags below,
+# or War Room's witness arm, McCoy (ollama-plutus, model plutus-v1), and
+# Data (ollama-coder, model qwen2.5-coder:7b) leak <think> tokens through
+# this path. qwen3:4b is already covered by the startswith("qwen3") check.
+# REVISIT AT UN-ALIASING (target 2026-09-04): once the roster gets real,
+# distinct models back, plutus-v1 becomes a Llama-based model and
+# qwen2.5-coder:7b becomes the real (non-thinking) Qwen2.5-Coder — sending
+# think:false to a non-thinking model can error on some Ollama versions.
+# Shrink this set back to genuine qwen3 tags only once that happens.
+_QWEN3_ALIAS_MODEL_IDS = {
+    "plutus-v1", "plutus-v1:latest", "ministral-3:3b", "qwen2.5-coder:7b",
+}
+
 # HM-MODEL-LOUD 2026-06-01: a missing/failing model must ALARM, not silently return "".
 # (How devstral-small-2 etc. went dark — _do_request swallowed the 404 to an empty string.)
 # Throttled to ONE NTFY per (model_id) per process lifetime — the fleet inference path is
@@ -109,8 +126,10 @@ class OllamaProvider(AIProvider):
         # which blew the 180s timeout for qwen3-14b-pro (Dalio, 47% timeout rate)
         # and qwen3-8b-flash (Worf, 22%). debate_engine.py was patched 04-26 but
         # this provider path was missed. Disable thinking for qwen3 only —
-        # other model families ignore the flag harmlessly.
-        if self.model_id.startswith("qwen3"):
+        # other model families ignore the flag harmlessly. 2026-08-27: also
+        # covers the current qwen3-aliased tags — see _QWEN3_ALIAS_MODEL_IDS
+        # comment above for the un-aliasing revisit date.
+        if self.model_id.startswith("qwen3") or self.model_id in _QWEN3_ALIAS_MODEL_IDS:
             payload["think"] = False
 
         def _do_request() -> str:

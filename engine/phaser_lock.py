@@ -57,7 +57,7 @@ FLEET_NORM        = 4          # distinct families that saturate fleet_agreement
 try:
     from config import OLLIE_URL as _OLLIE_URL
 except Exception:  # pragma: no cover
-    _OLLIE_URL = "http://192.168.1.168:11434"
+    _OLLIE_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 OLLAMA_URL    = os.getenv("ADVISORY_OLLAMA_URL", os.getenv("OLLAMA_BASE_URL", _OLLIE_URL))
 PHASER_MODEL  = os.getenv("PHASER_LOCK_MODEL", "plutus-v1")
 

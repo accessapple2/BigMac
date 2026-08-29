@@ -12,7 +12,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import urllib.request
 
 PORT = 8090
-OLLIE_MAX_URL = "http://192.168.1.168:11434/"
 TRADER_URL = "http://localhost:8080/api/status"
 
 
@@ -37,12 +36,10 @@ def _check_tunnel() -> bool:
 def _build_status() -> dict:
     # bigmac: this script only runs if bigmac itself is up -- trivially true.
     bigmac_up = True
-    ollie_max_up = _check_http(OLLIE_MAX_URL)
     trader_up = _check_http(TRADER_URL)
     tunnel_up = _check_tunnel()
     return {
         "bigmac": bigmac_up,
-        "ollie_max": ollie_max_up,
         "trader": trader_up,
         "tunnel": tunnel_up,
         "checked_at": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
@@ -61,7 +58,6 @@ def _render_html(status: dict) -> str:
 
     rows = (
         row("bigmac (Mac Mini)", status["bigmac"])
-        + row("Ollie Max (GPU box)", status["ollie_max"])
         + row("Trader service", status["trader"])
         + row("Cloudflare Tunnel", status["tunnel"])
     )

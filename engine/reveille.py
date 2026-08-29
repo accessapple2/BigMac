@@ -43,7 +43,7 @@ PREMARKET_TOPIC  = os.environ.get("NTFY_PREMARKET_TOPIC", "ollie-premarket")
 try:
     from config import OLLIE_URL as _OLLIE_URL
 except Exception:  # pragma: no cover - config always present in prod
-    _OLLIE_URL = "http://192.168.1.168:11434"
+    _OLLIE_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 OLLAMA_URL    = os.getenv("ADVISORY_OLLAMA_URL", os.getenv("OLLAMA_BASE_URL", _OLLIE_URL))
 REVEILLE_MODEL = os.getenv("REVEILLE_MODEL", "plutus-v1")   # local, finance-tuned; Q-Grok is the override
 CATALYST_LOOKAHEAD_DAYS = 10
