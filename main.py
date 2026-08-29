@@ -2268,10 +2268,18 @@ def run_bk_orb_scan():
             console.log("[dim]HM-BK-A ORB scan: ORB_CONFIRMATORY_VOTE_ENABLED off — skipping")
             _bk_orb_off_logged = True
         return
-    # window gate: only the post-opening-range window (ET)
+    # window gate: only the post-opening-range window (ET) on an actual trading day.
+    # HM-GEX-COLLECTOR-DEAD follow-on (2026-08-29): this only checked clock time-of-day,
+    # so it fired every 3 min inside the 09:46-12:00 ET window on WEEKENDS too (confirmed
+    # live, Saturday) -- hammering Polygon per-symbol (all doomed to fail, market closed)
+    # every cycle and contributing to a "database is locked" burst from the resulting
+    # write volume. See [[feedback_freshness_count_sessions]] doctrine.
     try:
         from zoneinfo import ZoneInfo
+        from engine.market_calendar import is_trading_day
         et = datetime.now(ZoneInfo("America/New_York"))
+        if not is_trading_day(et.date()):
+            return
         mins = et.hour * 60 + et.minute
         if not (9 * 60 + 46 <= mins <= 12 * 60):
             return
@@ -5849,6 +5857,17 @@ if __name__ == "__main__":
     schedule.every().day.at("03:30").do(run_news_pulse)     # 7:30 AM ET
 
     def run_breadth_sector_corr():
+        # HM-GEX-COLLECTOR-DEAD follow-on (2026-08-29): this had NO gate at all --
+        # fired every 15 min, 7 days a week, including weekends. Confirmed live
+        # (Saturday) contributing to a "database is locked" burst (War Room
+        # posts + this job's own writes colliding) and needless Polygon calls
+        # on a closed market. See [[feedback_freshness_count_sessions]] doctrine.
+        try:
+            from engine.market_calendar import is_trading_day
+            if not is_trading_day(az_now().date()):
+                return
+        except Exception:
+            return
         try:
             from engine.breadth_scanner import get_breadth_snapshot
             from engine.sector_heatmap import get_sector_heatmap
