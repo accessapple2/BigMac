@@ -55,7 +55,7 @@ SIGNAL_CENTER_URL = "http://127.0.0.1:9000/"
 # bigmac-local instance — config.py routes ALL live inference to OLLIE_URL),
 # so the watchdog spammed "Ollama Down" for a host nothing actually calls.
 # Point it at the real inference host (olliemax, config.py OLLIE_URL).
-OLLAMA_URL        = "http://192.168.1.168:11434/api/tags"
+OLLAMA_URL        = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434") + "/api/tags"
 NTFY_TOPIC        = os.environ.get("NTFY_ADMIN_TOPIC", "ollietrades-admin")  # subscribe in ntfy app on iPhone
 
 DAILY_SNAPSHOT_HOUR_ET = 16   # 4 PM ET
@@ -75,6 +75,18 @@ BRIDGE_POST_RESTART_WAIT = 30    # was 6s — matches actual dashboard warmup
 # State
 _last_notify: dict = {}
 _last_snapshot_date: str = ""
+
+# HM-429-REMEDIATION-D (2026-08-28): watchdog.py is deliberately dependency-
+# free from engine/ (see push_alert's own docstring below), so it can't share
+# engine.alert_channels's dedup machinery -- self-contained equivalent here.
+# No 429s from THIS sender have actually been observed (unlike the separate,
+# already-mitigated engine/long_range_sensors.py storm) -- this is
+# precautionary, not reactive.
+_ntfy_daily_count: int = 0
+_ntfy_daily_date: str = ""
+NTFY_DAILY_CAP = 200
+_recent_pushes: dict = {}  # (title, body) -> last-sent epoch
+DEDUPE_WINDOW_SECS = 1800  # 30 min, identical title+body
 _bridge_down_count: int = 0
 _bridge_last_restart_ts: float = 0.0
 
@@ -117,37 +129,87 @@ def _ipv4_only_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
     return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
 
 
+def _daily_count_ok() -> bool:
+    """HM-429-REMEDIATION-D: hard stop at NTFY_DAILY_CAP sends/day, resetting
+    at local-date rollover (this process's wall-clock date, not market-day
+    aware -- watchdog runs 24/7, unlike the trading-hours-only jobs)."""
+    global _ntfy_daily_count, _ntfy_daily_date
+    today = datetime.now().strftime("%Y-%m-%d")
+    if today != _ntfy_daily_date:
+        _ntfy_daily_date = today
+        _ntfy_daily_count = 0
+    if _ntfy_daily_count >= NTFY_DAILY_CAP:
+        return False
+    _ntfy_daily_count += 1
+    return True
+
+
+def _content_dupe(title: str, body: str) -> bool:
+    """True if this exact title+body was already sent within DEDUPE_WINDOW_SECS."""
+    now = time.time()
+    dkey = (title, body)
+    last = _recent_pushes.get(dkey)
+    if last is not None and now - last < DEDUPE_WINDOW_SECS:
+        return True
+    _recent_pushes[dkey] = now
+    # Trim occasionally so this dict doesn't grow unbounded over a long uptime.
+    if len(_recent_pushes) > 500:
+        cutoff = now - DEDUPE_WINDOW_SECS
+        for k, ts in list(_recent_pushes.items()):
+            if ts < cutoff:
+                del _recent_pushes[k]
+    return False
+
+
 def push_alert(title: str, body: str, key: str = "", priority: str = "high") -> None:
     """iPhone push via ntfy.sh — free, no account needed.
     Install 'ntfy' from App Store → subscribe to: Ollie-Alert-35
     """
     if not _cooldown_ok((key or title) + "_ntfy"):
         return
+    if _content_dupe(title, body):
+        log.info(f"ntfy push suppressed (identical within {DEDUPE_WINDOW_SECS}s): {title}")
+        return
+    if not _daily_count_ok():
+        log.warning(f"ntfy push suppressed (daily cap {NTFY_DAILY_CAP} reached): {title}")
+        return
     # HTTP headers must be ASCII — strip non-ASCII characters from title
     ascii_title = title.encode("ascii", errors="ignore").decode("ascii").strip()
     if not ascii_title:
         ascii_title = "TradeMinds Alert"
-    try:
-        req = urllib.request.Request(
-            f"https://ntfy.sh/{NTFY_TOPIC}",
-            data=f"{title}\n{body}".encode("utf-8"),
-            headers={
-                "Title":        ascii_title,
-                "Priority":     priority,
-                "Tags":         "warning,trademinds",
-                "Content-Type": "text/plain; charset=utf-8",
-            },
-            method="POST",
-        )
-        with _ntfy_ipv4_lock:
-            socket.getaddrinfo = _ipv4_only_getaddrinfo
-            try:
-                with urllib.request.urlopen(req, timeout=8) as r:
-                    log.info(f"Push sent [{r.status}]: {ascii_title}")
-            finally:
-                socket.getaddrinfo = _orig_getaddrinfo
-    except Exception as e:
-        log.warning(f"ntfy push failed: {e}")
+    backoff = (0, 5, 20, 60)  # first attempt immediate, then 5s/20s/60s on 429
+    for attempt, delay in enumerate(backoff):
+        if delay:
+            time.sleep(delay)
+        try:
+            req = urllib.request.Request(
+                f"https://ntfy.sh/{NTFY_TOPIC}",
+                data=f"{title}\n{body}".encode("utf-8"),
+                headers={
+                    "Title":        ascii_title,
+                    "Priority":     priority,
+                    "Tags":         "warning,trademinds",
+                    "Content-Type": "text/plain; charset=utf-8",
+                },
+                method="POST",
+            )
+            with _ntfy_ipv4_lock:
+                socket.getaddrinfo = _ipv4_only_getaddrinfo
+                try:
+                    with urllib.request.urlopen(req, timeout=8) as r:
+                        log.info(f"Push sent [{r.status}]: {ascii_title}")
+                finally:
+                    socket.getaddrinfo = _orig_getaddrinfo
+            return
+        except urllib.error.HTTPError as e:
+            if e.code == 429 and attempt < len(backoff) - 1:
+                log.warning(f"ntfy push 429 (attempt {attempt + 1}/{len(backoff)}), retrying: {ascii_title}")
+                continue
+            log.warning(f"ntfy push failed: HTTPError {e.code}")
+            return
+        except Exception as e:
+            log.warning(f"ntfy push failed: {e}")
+            return
 
 
 def alert(title: str, body: str, key: str = "", priority: str = "high") -> None:
@@ -343,13 +405,15 @@ def check_signal_center() -> None:
 
 
 def check_ollama() -> None:
-    # Alert-only: olliemax owns the ollama process; the watchdog can't restart
-    # it remotely (see restart-path note above). One alert per NOTIFY_COOLDOWN.
+    # Alert-only: whichever host OLLAMA_URL points at (env override, default
+    # 127.0.0.1) owns the ollama process; the watchdog can't restart it
+    # remotely (see restart-path note above, written when this was olliemax-
+    # only — host is now configurable). One alert per NOTIFY_COOLDOWN.
     if http_ok(OLLAMA_URL):
         return
     alert(
         "🔴 Ollama Down",
-        "olliemax 192.168.1.168:11434 unreachable — check power/network on the box",
+        f"{OLLAMA_URL} unreachable — check the ollama process/host it points at",
         "ollama",
     )
 

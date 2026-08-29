@@ -990,15 +990,22 @@ def run_earnings_signals(as_of: date | None = None) -> dict[str, float]:
     conn = _conn()
 
     import yfinance as _yf_earnings  # earnings calendar has no Alpaca equivalent
+    from engine.yf_safe import yf_call_safe, reset_sweep, YFSweepAbort
+    reset_sweep()
     for sym in ALPHA_UNIVERSE:
         try:
-            tk = _yf_earnings.Ticker(sym)
+            tk = _yf_earnings.Ticker(sym)  # lazy -- no network call until a property is touched
 
-            # Next earnings date
+            # Next earnings date. yf_call_safe wraps the actual network hit
+            # (the .calendar property access), not the lazy Ticker() above.
             next_earnings = None
             days_to_earnings = 999
             try:
-                cal = tk.calendar
+                try:
+                    cal = yf_call_safe(lambda: tk.calendar)
+                except YFSweepAbort as e:
+                    logger.warning(f"Earnings signals: {e} — {len(scores)}/{len(ALPHA_UNIVERSE)} done")
+                    break
                 if cal is not None and not (isinstance(cal, dict) and not cal):
                     if isinstance(cal, dict):
                         erd = cal.get("Earnings Date")
@@ -1017,7 +1024,11 @@ def run_earnings_signals(as_of: date | None = None) -> dict[str, float]:
             beat_streak = 0
             beat_pcts: list[float] = []
             try:
-                hist = tk.earnings_history
+                try:
+                    hist = yf_call_safe(lambda: tk.earnings_history)
+                except YFSweepAbort as e:
+                    logger.warning(f"Earnings signals: {e} — {len(scores)}/{len(ALPHA_UNIVERSE)} done")
+                    break
                 if hist is not None and not hist.empty:
                     # Columns: epsEstimate, epsActual, epsDifference, surprisePercent
                     hist = hist.dropna(subset=["epsEstimate", "epsActual"])
@@ -1208,7 +1219,9 @@ def run_vix_structure(as_of: date | None = None) -> float:
 
     def _vix_last(sym: str) -> float | None:
         """Fetch latest VIX index close via Yahoo Finance HTTP API."""
-        try:
+        from engine.yf_safe import yf_call_safe, YFSweepAbort
+
+        def _fetch() -> float | None:
             import requests as _req
             url = f"https://query1.finance.yahoo.com/v8/finance/chart/%5E{sym.lstrip('^')}"
             resp = _req.get(
@@ -1221,6 +1234,12 @@ def run_vix_structure(as_of: date | None = None) -> float:
             meta = resp.json().get("chart", {}).get("result", [{}])[0].get("meta", {})
             price = meta.get("regularMarketPrice")
             return float(price) if price is not None else None
+
+        try:
+            return yf_call_safe(_fetch)
+        except YFSweepAbort as e:
+            logger.warning(f"vix_last {sym}: {e}")
+            return None
         except Exception as e:
             logger.debug(f"vix_last {sym}: {e}")
             return None

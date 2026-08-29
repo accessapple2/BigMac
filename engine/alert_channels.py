@@ -289,6 +289,13 @@ def _ipv4_only_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
 
 def _send_ntfy(title: str, message: str, priority: str = "default", tags: str = "ollietrades", topic: str = "") -> bool:
     """Push via ntfy.sh (iPhone / Android / browser). topic overrides NTFY_TOPIC."""
+    # DECOM-SILENCE 2026-07-19 — all ntfy pushes silenced ahead of Gate 2
+    # full removal (Admiral wants phone quiet immediately). Single choke
+    # point: everything through engine/ntfy.py and every direct
+    # alert_channels importer routes through here. Revert by deleting
+    # this guard if silence needs to be lifted before Gate 2 lands.
+    logger.info("ntfy suppressed (DECOM-SILENCE): [%s] %s", title, message[:80])
+    return False
     _topic = topic or NTFY_TOPIC
     if not _topic:
         return False
@@ -315,6 +322,41 @@ def _send_ntfy(title: str, message: str, priority: str = "default", tags: str = 
         return True
     except Exception as e:
         logger.warning("ntfy failed: %s", e)
+        return False
+
+
+def _send_pushover(title: str, message: str, priority: int = 0) -> bool:
+    """PUSHOVER-RED-ALERT 2026-08-28 — RED_ALERT lane only. ntfy stays
+    silenced per DECOM-SILENCE 2026-07-19; this restores delivery for
+    critical alerts alone. Creds from /usr/local/etc/pushover.env.
+    Priority 2 is reserved for GPU buy alerts and never used here."""
+    import urllib.parse, urllib.request
+    env = {}
+    try:
+        for line in open("/usr/local/etc/pushover.env"):
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                env[k.strip()] = v.strip()
+    except Exception as e:
+        logger.warning("pushover env unreadable: %s", e)
+        return False
+    tok, usr = env.get("PUSHOVER_TOKEN"), env.get("PUSHOVER_USER")
+    if not (tok and usr):
+        logger.warning("pushover creds missing")
+        return False
+    fields = {"token": tok, "user": usr, "title": title[:250],
+              "message": message[:1024], "priority": priority}
+    try:
+        req = urllib.request.Request(
+            "https://api.pushover.net/1/messages.json",
+            data=urllib.parse.urlencode(fields).encode())
+        with urllib.request.urlopen(req, timeout=10) as r:
+            r.read()
+        logger.info("pushover sent: %s", title[:60])
+        return True
+    except Exception as e:
+        logger.warning("pushover failed: %s", e)
         return False
 
 
@@ -468,6 +510,7 @@ def send_alert(
     elif level == AlertLevel.RED_ALERT:
         crit_topics = _ntfy_topics() + [NTFY_CRITICAL_TOPIC]   # HM-UHURA-HAILS: keep admin topic AND add critical lane
         results["ntfy"]    = any(_send_ntfy(title, message, ntfy_priority, ntfy_tags, t) for t in crit_topics)
+        results["pushover"] = _send_pushover(f"RED ALERT: {title}", message, priority=1)
         _db_notification(title, message, "critical", _notif_type)
         results["browser"] = True
         results["email"]   = _send_email(title, f"{message}\n\nLevel: RED ALERT\nType: {alert_type}")
@@ -478,7 +521,8 @@ def send_alert(
     # unconditionally above (a pre-existing inaccuracy, not touched here) and
     # would make `any(results.values())` always truthy for WARNING/RED_ALERT,
     # silently defeating this fix for exactly the levels the sentinel uses.
-    if not bypass_rate_limit and (results.get("ntfy") or results.get("email")):
+    if not bypass_rate_limit and (results.get("ntfy") or results.get("email")
+                                  or results.get("pushover")):
         _mark_rate_limit_sent(alert_type)
 
     logger.info("Alert dispatched [%s/%s]: %s", level, alert_type, message[:80])

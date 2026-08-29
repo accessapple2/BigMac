@@ -87,6 +87,9 @@ class UOAScraper:
 
         print(f"[UOA] Starting {scan_type} scan of {len(tickers)} tickers...")
 
+        from engine.yf_safe import reset_sweep, YFSweepAbort
+        reset_sweep()  # once per scan -- option_chain() pacing/abort is per-call inside _scan_single_ticker
+
         for i, ticker in enumerate(tickers):
             try:
                 if (i + 1) % 25 == 0:
@@ -102,6 +105,10 @@ class UOAScraper:
                 if i % 10 == 9:
                     time.sleep(1)
 
+            except YFSweepAbort as e:
+                print(f"[UOA] {e} — stopping scan at {i+1}/{len(tickers)} tickers")
+                errors.append(f"scan aborted: {e}")
+                break
             except Exception as e:
                 errors.append(f"{ticker}: {str(e)}")
                 continue
@@ -216,8 +223,14 @@ class UOAScraper:
             except ValueError:
                 continue
 
+            from engine.yf_safe import yf_call_safe, YFSweepAbort
             try:
-                chain = stock.option_chain(exp_date)
+                chain = yf_call_safe(stock.option_chain, exp_date)
+            except YFSweepAbort:
+                # Deliberately NOT caught below -- must propagate out of
+                # _scan_single_ticker to scan_tickers()'s loop, which stops
+                # the whole scan rather than just skipping this expiration.
+                raise
             except Exception:
                 continue
 
