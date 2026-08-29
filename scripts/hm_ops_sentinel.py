@@ -25,6 +25,15 @@ Four checks, each alerts independently (own alert_type, own rate limit):
   4. signals_v2 pending-queue depth + oldest-pending age
        (HM-SIGNALS-V2-FIFO-STARVATION). WARNING if pending>3000 or
        oldest-pending age >48h.
+  5. Daily-collector freshness (GEX + fred_carts), market-hours-aware.
+       RED_ALERT/WARNING if stale past COLLECTOR_STALE_MARKET_HOURS.
+       See check_collector_freshness().
+  6. status.ollietrades.com's internal heartbeat file (ANY hours, not
+       market-hours-gated). RED_ALERT if >15 min stale. See
+       check_status_page_heartbeat() -- added after HM-STATUSPAGE-FREEZE-
+       2026-08-29 (the page's "Last checked" froze ~11.5h with no internal
+       signal since it had no independent heartbeat, only computed
+       on-request).
 
 HM-SENTINEL-ACK (2026-07-12): each alert can be acknowledged (suppressed)
 via scripts/hm_sentinel_ack.py, which writes data/.hm_ops_sentinel_acks.json.
@@ -327,6 +336,69 @@ def check_collector_freshness(alerts: list[AlertTuple]) -> dict:
     return results
 
 
+STATUS_PAGE_HEARTBEAT_PATH = ROOT / "data" / ".status_page_heartbeat.json"
+STATUS_PAGE_STALE_MIN = 15.0
+
+
+def check_status_page_heartbeat(alerts: list[AlertTuple]) -> dict:
+    """HM-STATUSPAGE-FREEZE-2026-08-29: status.ollietrades.com froze
+    "Last checked" for ~11.5h (Fri 21:54 -> Sat 09:25) with zero indication
+    anything was wrong internally -- root cause was that scripts/status_page.py
+    had NO independent heartbeat at all, only computed a fresh timestamp
+    on-request (do_GET). An external watchdog caught it after ~11.5h; nothing
+    internal did. scripts/status_page.py now runs its own checks on a fixed
+    5-min cadence in a background thread, independent of HTTP traffic, and
+    persists the result to STATUS_PAGE_HEARTBEAT_PATH.
+
+    Deliberately checks the PERSISTED FILE's age, not the live web page's
+    displayed "Last checked" -- probing the page itself would trivially look
+    fresh the instant anything (including this sentinel) requests it, which
+    is the exact self-defeating check that let the original freeze go
+    undetected in the first place.
+
+    Unlike the GEX/fred_carts check above, this runs ANY hours -- the status
+    page's whole purpose is being checkable 24/7, unlike GEX which is
+    inherently tied to market data availability.
+    """
+    try:
+        raw = json.loads(STATUS_PAGE_HEARTBEAT_PATH.read_text())
+        checked_at = raw.get("checked_at")
+        if not checked_at:
+            return {"status_page_heartbeat_age_min": None}
+        checked_dt = datetime.strptime(checked_at, "%Y-%m-%d %H:%M:%S UTC").replace(tzinfo=timezone.utc)
+        age_min = (datetime.now(timezone.utc) - checked_dt).total_seconds() / 60.0
+        if age_min > STATUS_PAGE_STALE_MIN:
+            alerts.append((
+                "red_alert", "sentinel_status_page_heartbeat_stale",
+                f"HM-OPS-SENTINEL: status.ollietrades.com's internal heartbeat "
+                f"is {age_min:.1f} min stale (last write {checked_at}, > "
+                f"{STATUS_PAGE_STALE_MIN:.0f}min threshold). "
+                f"scripts/status_page.py's background heartbeat thread may have "
+                f"died, or the process itself may be down -- check "
+                f"`launchctl print system/com.trademinds.statuspage` and "
+                f"logs/status_page_error.log.",
+                age_min,
+            ))
+        return {"status_page_heartbeat_age_min": round(age_min, 1)}
+    except FileNotFoundError:
+        # First run before the heartbeat thread has written once yet, or the
+        # thread genuinely never started -- either way, worth a WARNING, not
+        # silent (a RED_ALERT here would false-fire for the first 5 min after
+        # every restart, which is routine, not an incident).
+        alerts.append((
+            "warning", "sentinel_status_page_heartbeat_missing",
+            "HM-OPS-SENTINEL: status.ollietrades.com heartbeat file "
+            f"({STATUS_PAGE_HEARTBEAT_PATH}) doesn't exist yet -- normal for "
+            "the first 5 min after a status_page restart, otherwise the "
+            "background heartbeat thread never started.",
+            None,
+        ))
+        return {"status_page_heartbeat_age_min": None}
+    except Exception as e:
+        print(f"[sentinel] status_page heartbeat check error: {type(e).__name__}: {e}", file=sys.stderr)
+        return {"status_page_heartbeat_age_min": None}
+
+
 def check_lock_errors(alerts: list[AlertTuple]) -> dict:
     """Count "database is locked" occurrences appended since the last run.
 
@@ -447,12 +519,13 @@ def main() -> int:
         lock_status = check_lock_errors(alerts)
         queue_status = check_signals_v2_queue(alerts)
         collector_status = check_collector_freshness(alerts)
+        status_page_status = check_status_page_heartbeat(alerts)
     except Exception as e:
         print(f"[sentinel] error running checks: {type(e).__name__}: {e}", file=sys.stderr)
         return 1
 
     print(f"[sentinel] fd={fd_status} lock={lock_status} queue={queue_status} "
-          f"collectors={collector_status}")
+          f"collectors={collector_status} status_page={status_page_status}")
 
     acks = _load_acks()
     fired = [a for a in alerts if not _is_suppressed(a[1], a[3], acks)]

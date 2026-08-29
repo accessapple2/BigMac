@@ -3,9 +3,15 @@
 Ollie Max, trader service, and the cloudflared tunnel.
 
 Admiral-approved 2026-07-02. Deliberately minimal: no auth, no secrets,
-no write paths -- read-only health checks only, safe to expose publicly.
+no HTTP write paths -- read-only health checks only, safe to expose
+publicly. The heartbeat file below (HM-STATUS-HEARTBEAT) is a purely
+internal, local-disk write from a background thread -- not reachable or
+influenced by any HTTP request, so it doesn't change that posture.
 """
+import json
+import os
 import subprocess
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -13,6 +19,38 @@ import urllib.request
 
 PORT = 8090
 TRADER_URL = "http://localhost:8080/api/status"
+
+# HM-STATUS-HEARTBEAT (2026-08-29, HM-STATUSPAGE-FREEZE-2026-08-29 follow-up):
+# _build_status()/do_GET() only ever compute "checked_at" AT REQUEST TIME --
+# there was no independent heartbeat at all. During a Fri 21:54 -> Sat 09:25
+# window with zero incoming requests to the page, "Last checked" froze for
+# ~11.5h looking exactly like an outage (the process itself never crashed or
+# restarted -- confirmed live, same PID spanning the whole window). An
+# external watchdog caught it after ~11.5h; nothing internal did.
+#
+# This background thread runs the SAME checks on a fixed 5-min cadence,
+# independent of HTTP traffic, and persists the result to a local JSON
+# sidecar. hm_ops_sentinel.py reads THIS file's age (not the web page's
+# displayed timestamp, which would trivially "look fresh" the instant
+# anything -- including the sentinel's own probe -- requests the page).
+_HEARTBEAT_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "data", ".status_page_heartbeat.json",
+)
+_HEARTBEAT_INTERVAL_S = 300  # 5 min
+
+
+def _write_heartbeat() -> None:
+    while True:
+        try:
+            status = _build_status()
+            tmp_path = _HEARTBEAT_PATH + ".tmp"
+            with open(tmp_path, "w") as f:
+                json.dump(status, f)
+            os.replace(tmp_path, _HEARTBEAT_PATH)
+        except Exception:
+            pass  # never let a heartbeat-write failure kill the loop
+        time.sleep(_HEARTBEAT_INTERVAL_S)
 
 
 def _check_http(url: str, timeout: float = 4.0) -> bool:
@@ -88,7 +126,6 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         status = _build_status()
         if self.path == "/api/status":
-            import json
             body = json.dumps(status).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -107,6 +144,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    threading.Thread(target=_write_heartbeat, daemon=True).start()
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     print(f"[status_page] serving on :{PORT}")
     server.serve_forever()
