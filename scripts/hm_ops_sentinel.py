@@ -200,6 +200,15 @@ def check_fd_count(alerts: list[AlertTuple]) -> dict:
     return {"pid": pid, "fd_count": fd_count}
 
 
+# RETIRED 2026-08-29 (HM-GEX-COLLECTOR-DEAD remediation pass): riker_synthesis
+# was permanently retired at the code level 2026-06-24 (main.py's scheduler for
+# it removed, not just paused -- see CLAUDE.md "Riker XO synthesis job"). Its
+# rikers_log heartbeat has been dead since (confirmed MAX(created_at) =
+# 2026-07-22 20:21:23, i.e. the stand-down's own kill timestamp, not a later
+# failure) and will never write again. Re-enabling this check as-is would fire
+# a false RED_ALERT on every single cron tick forever. Kept in place per this
+# repo's Archive Convention (retired code stays, doesn't get deleted) but no
+# longer called from main() below.
 def check_riker_heartbeat(alerts: list[AlertTuple]) -> dict:
     import sqlite3
 
@@ -226,6 +235,96 @@ def check_riker_heartbeat(alerts: list[AlertTuple]) -> dict:
             age_min,
         ))
     return {"last": last, "age_min": round(age_min, 1)}
+
+
+# HM-GEX-COLLECTOR-DEAD (2026-08-29): the GEX daily collector cron script was
+# renamed away by the 2026-07-22 fleet stand-down (workaround for the
+# crontab-write EINTR bug, see CLAUDE.md's LaunchAgent Reboot Lifecycle /
+# HM-CRONTAB-EINTR) and never restored when the fleet resumed trading -- the
+# staged, corrected crontab at backups/crontab_20260722_quietdown_STAGED_
+# NOT_YET_INSTALLED.txt was never installed either. 39 days of "file not
+# found" in logs/gex_collector.log, completely silent because THIS sentinel
+# was swept into the same stand-down and disabled too (same-failure-mode
+# blind spot CLAUDE.md already warns about under "Alarms must not share a
+# failure mode with what they watch"). This check is the fix: independent of
+# the collector cron, catches any daily-cadence collector going stale during
+# market hours, not just GEX.
+FLOW_GEX_DB_PATH = ROOT / "data" / "flow_gex.db"
+COLLECTOR_STALE_MARKET_HOURS = 7.0   # > one full RTH session (~6.5h) untouched
+
+
+def check_collector_freshness(alerts: list[AlertTuple]) -> dict:
+    """Freshness check for daily-cadence collectors that write a durable
+    last-updated timestamp: GEX (data/flow_gex.db gex_snapshots.asof, per
+    underlying) and macro/FRED CARTS (data/trader.db fred_carts.fetched_at).
+    Market-hours-elapsed, not wall-clock (see [[feedback_freshness_count_sessions]]
+    doctrine) -- a weekend/overnight gap must not false-fire.
+
+    fear-greed (engine/fear_greed.py) and congress (engine/congress_scraper.py)
+    are deliberately NOT checked here: both are request-time-computed with no
+    "last successful collector run" row to go stale (fear-greed recomputes
+    live every call; congress has its own 30-min TTL cache + a dedicated
+    zero-result watchdog, _record_scrape_health, that already NTFYs after 3
+    consecutive empty scrapes). Neither shares the file-deletion /
+    entitlement-loss failure mode this check targets. Checked 2026-08-29.
+    """
+    from engine.market_calendar import is_us_market_open, market_hours_elapsed
+
+    if not is_us_market_open():
+        return {"checked": False, "reason": "market closed"}
+
+    results: dict = {}
+
+    try:
+        import sqlite3
+        conn = sqlite3.connect(FLOW_GEX_DB_PATH, timeout=10)
+        rows = conn.execute(
+            "SELECT underlying, MAX(asof) FROM gex_snapshots GROUP BY underlying"
+        ).fetchall()
+        conn.close()
+        for underlying, asof in rows:
+            if not asof:
+                continue
+            asof_dt = datetime.strptime(asof, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+            age_mh = market_hours_elapsed(asof_dt)
+            results[f"gex_{underlying}"] = round(age_mh, 1)
+            if age_mh > COLLECTOR_STALE_MARKET_HOURS:
+                alerts.append((
+                    "red_alert", f"sentinel_collector_stale_gex_{underlying.lower()}",
+                    f"HM-OPS-SENTINEL: {underlying} GEX snapshot is {age_mh:.1f} "
+                    f"market-hours stale (last asof {asof} UTC, > "
+                    f"{COLLECTOR_STALE_MARKET_HOURS}h threshold). "
+                    f"scripts/hm_gex_daily_collect.py (cron 13:05 AZ weekdays) "
+                    f"may be failing -- check logs/gex_collector.log.",
+                    age_mh,
+                ))
+    except Exception as e:
+        print(f"[sentinel] gex freshness check error: {type(e).__name__}: {e}", file=sys.stderr)
+
+    try:
+        import sqlite3
+        conn = sqlite3.connect(DB_PATH, timeout=10)
+        row = conn.execute("SELECT MAX(fetched_at) FROM fred_carts").fetchone()
+        conn.close()
+        fetched_at = row[0] if row else None
+        if fetched_at:
+            fetched_dt = datetime.strptime(fetched_at, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+            age_mh = market_hours_elapsed(fetched_dt)
+            results["fred_carts"] = round(age_mh, 1)
+            if age_mh > COLLECTOR_STALE_MARKET_HOURS:
+                alerts.append((
+                    "warning", "sentinel_collector_stale_fred_carts",
+                    f"HM-OPS-SENTINEL: fred_carts macro data is {age_mh:.1f} "
+                    f"market-hours stale (last fetched_at {fetched_at} UTC). "
+                    f"main.py's run_carts_persist (06:00 AZ daily) may be "
+                    f"failing -- check trader_error.log for "
+                    f"engine.fred_data.persist_carts_all exceptions.",
+                    age_mh,
+                ))
+    except Exception as e:
+        print(f"[sentinel] fred_carts freshness check error: {type(e).__name__}: {e}", file=sys.stderr)
+
+    return results
 
 
 def check_lock_errors(alerts: list[AlertTuple]) -> dict:
@@ -345,15 +444,15 @@ def main() -> int:
     alerts: list[AlertTuple] = []
     try:
         fd_status = check_fd_count(alerts)
-        heartbeat_status = check_riker_heartbeat(alerts)
         lock_status = check_lock_errors(alerts)
         queue_status = check_signals_v2_queue(alerts)
+        collector_status = check_collector_freshness(alerts)
     except Exception as e:
         print(f"[sentinel] error running checks: {type(e).__name__}: {e}", file=sys.stderr)
         return 1
 
-    print(f"[sentinel] fd={fd_status} heartbeat={heartbeat_status} "
-          f"lock={lock_status} queue={queue_status}")
+    print(f"[sentinel] fd={fd_status} lock={lock_status} queue={queue_status} "
+          f"collectors={collector_status}")
 
     acks = _load_acks()
     fired = [a for a in alerts if not _is_suppressed(a[1], a[3], acks)]
