@@ -234,7 +234,13 @@ def test_ntfy_individual_under_throttle(db_path):
         mock_urlopen.return_value.read = lambda: b""
         fired = ss._ntfy_priority_candidates(db_path=db_path, max_individual=5)
     assert fired == 3
-    assert mock_urlopen.call_count == 3
+    # DECOM-SILENCE (engine/alert_channels.py, 2026-07-19): _send_ntfy() now
+    # short-circuits before any real POST, so urlopen is never actually
+    # called -- 0, not 3, is correct today. _post() (this file) only checks
+    # for a raised exception, not _send_ntfy()'s return value, so the
+    # ntfy_sent bookkeeping below is genuinely unaffected either way. Revisit
+    # this assertion if/when DECOM-SILENCE is lifted (Gate 2).
+    assert mock_urlopen.call_count == 0
     rows = _select_all(db_path)
     assert all(r["ntfy_sent"] == 1 for r in rows)
 
@@ -257,7 +263,11 @@ def test_ntfy_rollup_over_throttle(db_path):
         mock_urlopen.return_value.read = lambda: b""
         fired = ss._ntfy_priority_candidates(db_path=db_path, max_individual=5)
     # All 7 marked ntfy_sent on the single rollup post
-    assert mock_urlopen.call_count == 1
+    # DECOM-SILENCE (engine/alert_channels.py, 2026-07-19): _send_ntfy() now
+    # short-circuits before any real POST -- 0, not 1, is correct today.
+    # See test_ntfy_individual_under_throttle for the full explanation;
+    # revisit if/when DECOM-SILENCE is lifted (Gate 2).
+    assert mock_urlopen.call_count == 0
     assert fired == 7
     rows = _select_all(db_path)
     assert all(r["ntfy_sent"] == 1 for r in rows)
