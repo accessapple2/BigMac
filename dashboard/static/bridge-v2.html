@@ -1312,8 +1312,14 @@ async function loadFleetPnl() {
     const d = await api('GET', '/api/fleet/pnl');
     const el = document.getElementById('vFleetPnl');
     const ret = document.getElementById('vFleetPnlRet');
-    if (el) { el.textContent = fmtPnl(d.total_pnl); el.className = 'vv ' + colorClass(d.total_pnl); }
-    if (ret) ret.textContent = 'LIFETIME · ' + (d.return_pct >= 0 ? '+' : '') + d.return_pct.toFixed(1) + '%';
+    // HM-BRIDGE-SEASON-PNL 2026-08-29: this tile now reads the genuine
+    // cross-season lifetime_pnl/lifetime_return_pct. Before this fix it read
+    // total_pnl/return_pct, which under the $10k-per-season-reset accounting
+    // (Season 5+) is actually THIS season's figure, not lifetime -- same
+    // number the new S{season} tile below shows, just mislabeled. See
+    // dashboard/app.py::_fleet_lifetime_pnl for how the real figure is built.
+    if (el) { el.textContent = fmtPnl(d.lifetime_pnl); el.className = 'vv ' + colorClass(d.lifetime_pnl); }
+    if (ret) ret.textContent = 'LIFETIME · ' + (d.lifetime_return_pct >= 0 ? '+' : '') + d.lifetime_return_pct.toFixed(1) + '%';
 
     // HM-BRIDGE-SEASON-PNL 2026-08-29: current-season P&L, side by side with
     // lifetime above — dynamic season number (S7 today, S8 next season, ...)

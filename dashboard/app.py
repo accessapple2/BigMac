@@ -3591,33 +3591,117 @@ def leaderboard(season: int = 0, _force: bool = False, nocache: bool = False, sh
 def _fleet_season_rollup(rows: list) -> dict:
     """Fleet-level current-season P&L rollup (HM-BRIDGE-SEASON-PNL 2026-08-29).
 
-    Pure function over already-computed leaderboard rows (each carrying a
-    per-agent `season_overlay` dict from `_season_overlay()`) — no DB access
-    of its own, so it's cheap to unit-test with synthetic rows. Sums
-    `season_overlay.season_pnl` across rows, same "vs the season baseline"
-    percent convention as the per-agent `vs_baseline_return_pct` field
-    (denominator is the fleet's summed `season_baseline` — the $10k/agent
-    starting-capital convention from `_season_starting_capital()` — not the
-    summed `season_start_value`, which can drift slightly from baseline
-    depending on exactly when a season's first portfolio_history row landed).
+    Pure function over already-computed leaderboard rows — no DB access of
+    its own, cheap to unit-test with synthetic rows. Sums each row's
+    `total_pnl`/`starting_capital`, NOT `season_overlay.season_pnl` —
+    investigating the ticket this fed found `season_overlay` mixes two
+    incompatible quantities for a season>=5 player: `portfolio_history`'s
+    raw, never-reset cash+positions total_value as the season-start
+    baseline, against the leaderboard's *anchored* current total_value
+    (`$10,000 + season_realized + unrealized`, resets every season, see
+    the row-building comment "Season 5+: anchor equity to $10k reset +
+    current-season P&L only") as the endpoint. That mismatch produced a
+    flat, bogus ~+$3,000/agent artifact fleet-wide the day this was built
+    (season_overlay itself not fixed here — wider blast radius, other
+    consumers, separate pass).
 
-    A row with no `season_overlay` (defensive — shouldn't happen, every
-    leaderboard row gets one) or an agent with zero season trades both
-    contribute 0 P&L on a nonzero baseline, same as any other row — no
-    special-casing needed since `_season_overlay()` already returns a flat
-    (baseline, baseline, 0, 0) tuple-equivalent for a player with no
-    portfolio_history rows yet this season.
+    `total_pnl`/`starting_capital` don't have that problem: for a season>=5
+    player they're BOTH already anchored to the same $10k-per-season reset,
+    so `total_pnl` genuinely *is* this season's P&L by construction — which
+    is also why it was being shown as "lifetime" in both dashboard headers
+    before this fix (mislabeled, not miscalculated: same number, wrong
+    label). See _fleet_lifetime_pnl() for the true cross-season figure now
+    carrying the LIFETIME label instead.
+
+    An agent with zero season trades contributes total_pnl=0 on a nonzero
+    starting_capital, same as any other row — no special-casing needed.
     """
     season_pnl = 0.0
     season_baseline = 0.0
     for r in rows:
-        overlay = r.get("season_overlay") or {}
-        season_pnl += overlay.get("season_pnl") or 0
-        season_baseline += overlay.get("season_baseline") or 0
+        season_pnl += r.get("total_pnl") or 0
+        season_baseline += r.get("starting_capital") or 0
     return {
         "season_pnl": round(season_pnl, 2),
         "season_baseline": round(season_baseline, 2),
         "season_return_pct": round(season_pnl / season_baseline * 100, 2) if season_baseline else 0.0,
+    }
+
+
+def _fleet_lifetime_pnl(conn, rows: list) -> dict:
+    """True cross-season lifetime P&L rollup (HM-BRIDGE-SEASON-PNL 2026-08-29
+    follow-up, Admiral-directed after the season-rollup investigation above
+    found the dashboards' existing "lifetime" figure is actually season-
+    scoped). Realized P&L summed across EVERY season a player has traded
+    (no season filter) + each player's current unrealized_pnl (already
+    correctly computed per-row by leaderboard(), reused here rather than
+    recomputed) — vs each player's ORIGINAL starting capital, from their
+    first season of activity (not season 1 unconditionally — several fleet
+    agents joined later with different baselines, see _season_starting_capital).
+
+    Known simplification, documented rather than hidden: the % denominator
+    is the ORIGINAL baseline only. It does not chain-link across each
+    season's equity reset (capital effectively injected/removed at every
+    reset boundary), so lifetime_return_pct is a "return on original stake"
+    approximation, not a rigorous multi-period chain-linked return. The
+    dollar figure (lifetime_pnl) has no such ambiguity — realized P&L is a
+    permanent historical record unaffected by any cash reset.
+    """
+    player_ids = [r["player_id"] for r in rows]
+    if not player_ids:
+        return {"lifetime_pnl": 0.0, "lifetime_starting_capital": 0.0, "lifetime_return_pct": 0.0}
+
+    placeholders = ",".join("?" for _ in player_ids)
+    realized_all_seasons: dict = {}
+    for row in conn.execute(
+        "SELECT player_id, COALESCE(SUM(realized_pnl), 0) as total FROM trades "
+        "WHERE action='SELL' AND realized_pnl IS NOT NULL AND " + CLEAN_TRADES_WHERE + " "
+        f"AND player_id IN ({placeholders}) GROUP BY player_id",
+        player_ids,
+    ).fetchall():
+        realized_all_seasons[row["player_id"]] = float(row["total"])
+
+    # options-sosnoff/Troi: real activity is CSP wheel trades (options_trades),
+    # invisible to the `trades` query above. _csp_realized_pnl_real_quotes
+    # already covers her FULL real-quotes-era history unconditionally (per
+    # its own use a few hundred lines up in leaderboard() -- "her entire v1
+    # CSP history ... falls within the current season by construction, so
+    # it's added in full rather than needing a season filter"), so it's
+    # already a lifetime figure, not a season one -- reuse as-is.
+    if "options-sosnoff" in player_ids:
+        try:
+            from engine.paper_trader import _csp_realized_pnl_real_quotes
+            realized_all_seasons["options-sosnoff"] = (
+                realized_all_seasons.get("options-sosnoff", 0.0)
+                + _csp_realized_pnl_real_quotes("options-sosnoff")
+            )
+        except Exception:
+            pass
+
+    first_season: dict = {}
+    for row in conn.execute(
+        f"SELECT player_id, MIN(season) as first FROM portfolio_history "
+        f"WHERE player_id IN ({placeholders}) GROUP BY player_id",
+        player_ids,
+    ).fetchall():
+        if row["first"] is not None:
+            first_season[row["player_id"]] = int(row["first"])
+
+    lifetime_pnl = 0.0
+    lifetime_starting_capital = 0.0
+    for r in rows:
+        pid = r["player_id"]
+        realized = realized_all_seasons.get(pid, 0.0)
+        unrealized = r.get("unrealized_pnl") or 0
+        lifetime_pnl += realized + unrealized
+        lifetime_starting_capital += _season_starting_capital(pid, first_season.get(pid, 1))
+
+    return {
+        "lifetime_pnl": round(lifetime_pnl, 2),
+        "lifetime_starting_capital": round(lifetime_starting_capital, 2),
+        "lifetime_return_pct": (
+            round(lifetime_pnl / lifetime_starting_capital * 100, 2) if lifetime_starting_capital else 0.0
+        ),
     }
 
 
@@ -3629,10 +3713,14 @@ def fleet_pnl(season: int = 0, show_all: bool = False):
     computes correctly per player, so every UI surface (v1 header, bridge-v2,
     signal-center) reports one number instead of each deriving its own.
 
-    HM-BRIDGE-SEASON-PNL (2026-08-29): also rolls up current-season P&L
-    (season_pnl/season_return_pct) alongside the existing lifetime figures,
-    so the header can show both side by side instead of only lifetime —
-    see _fleet_season_rollup().
+    HM-BRIDGE-SEASON-PNL (2026-08-29): total_pnl/return_pct ARE this
+    season's figures under the current $10k-per-season-reset accounting
+    (see _fleet_season_rollup docstring) — also exposed here explicitly as
+    season_pnl/season_return_pct so callers don't have to know that. Adds
+    a genuinely separate lifetime_pnl/lifetime_return_pct (cross-season,
+    see _fleet_lifetime_pnl) so the two dashboard headers can show real
+    lifetime next to season instead of the same number twice under two
+    different labels.
     """
     lb = leaderboard(season=season, show_all=show_all)
     rows = lb.get("leaderboard", [])
@@ -3641,6 +3729,11 @@ def fleet_pnl(season: int = 0, show_all: bool = False):
     current_equity = sum((r.get("current_equity") or 0) for r in rows)
     starting_capital = sum((r.get("starting_capital") or 0) for r in rows)
     season_rollup = _fleet_season_rollup(rows)
+    conn = _conn()
+    try:
+        lifetime_rollup = _fleet_lifetime_pnl(conn, rows)
+    finally:
+        conn.close()
     return _sanitize({
         "season": lb.get("season"),
         "current_season": lb.get("current_season"),
@@ -3653,6 +3746,9 @@ def fleet_pnl(season: int = 0, show_all: bool = False):
         "season_pnl": season_rollup["season_pnl"],
         "season_baseline": season_rollup["season_baseline"],
         "season_return_pct": season_rollup["season_return_pct"],
+        "lifetime_pnl": lifetime_rollup["lifetime_pnl"],
+        "lifetime_starting_capital": lifetime_rollup["lifetime_starting_capital"],
+        "lifetime_return_pct": lifetime_rollup["lifetime_return_pct"],
     })
 
 

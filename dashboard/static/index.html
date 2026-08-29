@@ -23746,11 +23746,17 @@ function updateFleetBar() {
   var totalPositions = players.reduce(function(s,p){ return s + (p.positions_count || 0); }, 0);
 
   // HM-DIRECTIVE-2026-07-02: prefer the canonical /api/fleet/pnl figure so this
-  // header is byte-identical to bridge-v2's — fall back to the local per-player
-  // sum only until the first canonical fetch resolves (avoids a blank flash).
+  // header is byte-identical to bridge-v2's.
+  // HM-BRIDGE-SEASON-PNL 2026-08-29: this is now the true cross-season
+  // lifetime_pnl (was total_pnl, which under the $10k-per-season-reset
+  // accounting is actually THIS season's figure, not lifetime -- see
+  // dashboard/app.py::_fleet_lifetime_pnl). No per-row lifetime figure
+  // exists in window.arenaData to approximate from, so the pre-fetch-flash
+  // fallback is a plain 0 rather than a mismatched (season-scoped) guess --
+  // briefly blank reads honest; briefly showing the wrong season's number
+  // under the LIFETIME label does not.
   var activeAgentCount = _canonicalFleetPnl ? (_canonicalFleetPnl.player_count || _FLEET_CORE.size) : _FLEET_CORE.size;
-  var fleetPnl         = _canonicalFleetPnl ? (_canonicalFleetPnl.total_pnl || 0)
-                                             : players.reduce(function(s,p){ return s + (p.total_pnl || 0); }, 0);
+  var fleetPnl         = _canonicalFleetPnl ? (_canonicalFleetPnl.lifetime_pnl || 0) : 0;
   var avgPnl           = activeAgentCount > 0 ? fleetPnl / activeAgentCount : 0;
   var fleetPnlSign     = fleetPnl >= 0 ? '▲' : '▼';
   var avgSign          = avgPnl   >= 0 ? '▲' : '▼';
