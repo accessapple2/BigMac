@@ -69,6 +69,11 @@ lib/TradingAgents/
 backups/*.db
 backups/*.db-shm
 backups/*.db-wal
+
+# Local DB backup artifacts (scripts/db_snapshot.sh, offhost_backup.sh, etc.) —
+# generated routinely, too large/noisy for git, never meant to be committed.
+data/backups/*.db.gz
+data/backups/*.db-journal
 signal-center/signals.db
 signal-center/*.db
 
