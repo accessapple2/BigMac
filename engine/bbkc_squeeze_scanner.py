@@ -614,12 +614,18 @@ def _persist_results(
             composite = _composite_for_duration(duration)
             tier = _tier_for_duration(duration)
 
-            # Dedupe vs prior bbkc row for same symbol
+            # Dedupe vs prior bbkc row for same symbol. HM-SQUEEZE-TIEBREAK
+            # 2026-08-29: scan_ts is second-precision (no fractional seconds)
+            # -- two rows for the same symbol inserted within the same second
+            # (a real possibility in a burst scan) tie on scan_ts alone, and
+            # ORDER BY on a tie is unspecified in SQLite, not guaranteed to
+            # fall back to insertion order. `id` (autoincrement) breaks the
+            # tie deterministically in true insertion order.
             row = conn.execute(
                 """SELECT id, threshold_tier FROM squeeze_watch
                    WHERE symbol = ? AND kind = 'bbkc'
                      AND scan_ts >= ? AND dismissed = 0
-                   ORDER BY scan_ts DESC LIMIT 1""",
+                   ORDER BY scan_ts DESC, id DESC LIMIT 1""",
                 (symbol, cutoff_ts),
             ).fetchone()
             if row is not None and _tier_rank(row["threshold_tier"]) >= _tier_rank(
@@ -949,7 +955,8 @@ def _scan_for_releases(
                   AND released_at IS NULL
                   AND threshold_tier IN ('ALERT', 'PRIORITY')
                   AND scan_ts >= ?
-                ORDER BY scan_ts DESC""",
+                ORDER BY scan_ts DESC, id DESC""",
+            # HM-SQUEEZE-TIEBREAK: scan_ts is second-precision, see the dedupe query above
             (lookback_cutoff,),
         ).fetchall()
 

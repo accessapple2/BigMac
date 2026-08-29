@@ -9,15 +9,15 @@ consensus rung of passes_quality_gate:
 Outright "sell" / "underperform" still scores 0 and is marked FAIL. Strong-buy /
 buy ratings are unchanged — still +1.
 
-NOTE — int-truncation contract:
-    passes_quality_gate() returns int(score) (engine/quality_gate.py:138). A
-    single +0.5 partial credit is therefore invisible to the returned integer
-    (e.g. internal 3.5 → returned 3). The user-visible signal that Patch 2
-    fired is the `details` list — entries like "analyst=hold (partial)" vs the
-    pre-patch "FAIL analyst=hold". Two partial credits combine to tip the
-    int score by one full point — see test_partial_credits_combine. A future
-    follow-up may surface the raw float score for richer caller introspection
-    (see project_qg_score_float_truncation.md memory note).
+NOTE — score truncation contract (updated 2026-08-29):
+    passes_quality_gate() used to return int(score) (engine/quality_gate.py:138),
+    which made a single +0.5 partial credit invisible to the caller (internal
+    3.5 -> returned 3) -- exactly the "future follow-up" flagged below as not
+    yet done. HM-QG-SCORE-FLOAT-TRUNCATION has since shipped: it now returns
+    round(score, 1), so 3.5 surfaces as 3.5, not 3. The pass/fail boolean is
+    unaffected either way (still `int(score) >= 3` internally). The
+    user-visible signal that Patch 2 fired is still also the `details` list --
+    entries like "analyst=hold (partial)" vs the pre-patch "FAIL analyst=hold".
 
 These tests stub engine.stock_fundamentals.fetch_fundamentals so the live Yahoo
 API is never hit, and stub smart-money so the score is deterministic. Each
@@ -87,9 +87,9 @@ class TestHoldRatingPartialCredit(unittest.TestCase):
                       msg=f"hold rating must yield '(partial)' note; got {details}")
         self.assertNotIn("fail analyst", joined,
                          msg=f"hold rating must NOT be marked FAIL; got {details}")
-        # int-truncation: internal 3.5 → returned int(3.5)=3. See module NOTE.
-        self.assertEqual(score, 3,
-                         msg=f"expected int(3.5)==3 (eg+rg+hold0.5+rsi, truncated), got {score}; details={details}")
+        # score is un-truncated (HM-QG-SCORE-FLOAT-TRUNCATION). See module NOTE.
+        self.assertEqual(score, 3.5,
+                         msg=f"expected eg+rg+hold0.5+rsi = 3.5, got {score}; details={details}")
         self.assertTrue(passes)
 
     def test_neutral_rating_gets_partial_credit(self):
@@ -99,8 +99,8 @@ class TestHoldRatingPartialCredit(unittest.TestCase):
         joined = " ".join(details).lower()
         self.assertIn("partial", joined,
                       msg=f"neutral rating must yield '(partial)' note; got {details}")
-        self.assertEqual(score, 3,
-                         msg=f"expected int(3.5)==3, got {score}; details={details}")
+        self.assertEqual(score, 3.5,
+                         msg=f"expected 3.5, got {score}; details={details}")
         self.assertTrue(passes)
 
     def test_hold_rating_case_insensitive(self):
@@ -114,8 +114,8 @@ class TestHoldRatingPartialCredit(unittest.TestCase):
         joined = " ".join(details).lower()
         self.assertIn("partial", joined,
                       msg=f"HOLD (uppercase) must yield '(partial)'; got {details}")
-        self.assertEqual(score, 3,
-                         msg=f"case-insensitive hold: int(3.5)==3, got {score}")
+        self.assertEqual(score, 3.5,
+                         msg=f"case-insensitive hold: expected 3.5, got {score}")
 
     def test_no_recommendation_gets_partial_credit(self):
         """recommendation=None → +0.5 (was bare SKIP detail pre-patch).
@@ -130,8 +130,8 @@ class TestHoldRatingPartialCredit(unittest.TestCase):
         joined = " ".join(details).lower()
         self.assertIn("skip analyst", joined,
                       msg=f"None recommendation must yield SKIP note; got {details}")
-        self.assertEqual(score, 3,
-                         msg=f"missing analyst: int(3.5)==3 post-patch, got {score}")
+        self.assertEqual(score, 3.5,
+                         msg=f"missing analyst: expected 3.5, got {score}")
 
     def test_buy_rating_unchanged(self):
         """Regression: 'buy' must still earn +1 (NOT downgraded to +0.5)."""

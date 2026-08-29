@@ -119,8 +119,18 @@ def test_call_model_no_cancel_log_on_normal_response(caplog) -> None:
 
 
 def test_requests_post_receives_self_timeout() -> None:
-    """The timeout we pass to requests.post matches self.timeout — not a hard-coded value."""
-    from engine.providers.ollama_provider import OllamaProvider
+    """The READ half of the timeout tuple we pass to requests.post matches
+    self.timeout — not a hard-coded value.
+
+    HM-TEST-STALE-2026-08-29: this asserted a bare scalar timeout; the code
+    since moved to a (connect, read) tuple (_HM_OLLAMA_CONNECT_TIMEOUT_S,
+    self.timeout) so a hung TCP connect can't block indefinitely
+    independent of the read timeout -- a real, deliberate improvement, not
+    a regression. Test updated to match, and now also pins the connect
+    half to the documented constant so this stays meaningful rather than
+    just loosely passing.
+    """
+    from engine.providers.ollama_provider import OllamaProvider, _HM_OLLAMA_CONNECT_TIMEOUT_S
 
     p = OllamaProvider(player_id="test-agent", model="ministral-3:3b", timeout=42)
     mock_resp = MagicMock()
@@ -130,4 +140,6 @@ def test_requests_post_receives_self_timeout() -> None:
          patch("engine.providers.ollama_provider.requests.post", return_value=mock_resp) as mock_post:
         p.call_model("prompt")
 
-    assert mock_post.call_args.kwargs["timeout"] == 42
+    connect_timeout, read_timeout = mock_post.call_args.kwargs["timeout"]
+    assert connect_timeout == _HM_OLLAMA_CONNECT_TIMEOUT_S
+    assert read_timeout == 42

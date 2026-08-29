@@ -7,11 +7,25 @@ by tests/test_market_calendar.py + tests/test_market_calendar_gates.py.
 """
 from __future__ import annotations
 
+import importlib
+import os
 import unittest
 from unittest.mock import patch
 
 import engine.risk_manager as rm
 from engine.stops import get_stop_loss_pct, get_trail_pct
+
+
+def _reload_with(env: dict):
+    """HM-TEST-ENV-ISOLATION-2026-08-29: both conviction-scale flags have
+    since been deliberately promoted to true in the real .env (per the
+    module's own Feature Flags doctrine, "flip via .env") -- a bare
+    `import engine.risk_manager as rm` captures whatever the ambient
+    environment happens to be at process start, not a controlled default.
+    Mirrors tests/test_conviction_stop_shadow.py's helper of the same name."""
+    with patch.dict(os.environ, env):
+        importlib.reload(rm)
+    return rm
 
 
 class TrailTierTableTests(unittest.TestCase):
@@ -59,20 +73,32 @@ class TrailTierTableTests(unittest.TestCase):
 class TrailGateModuleConstantTests(unittest.TestCase):
     """Verify risk_manager module reads flag at import-time correctly."""
 
+    def tearDown(self) -> None:
+        # Restore the shared rm module to real-environment state -- other
+        # test files import engine.risk_manager too, and importlib.reload
+        # mutates the one shared module object process-wide.
+        importlib.reload(rm)
+
     def test_trail_flag_default_off(self) -> None:
-        """With no env override (or 'False'), flag should resolve False."""
-        # The constant was captured at module import; just verify the type
-        # and that production .env / clean shell defaults to off.
-        self.assertIsInstance(rm._CONVICTION_SCALED_TRAIL_ENABLED, bool)
-        # In production .env on this branch the flag is False; in test env
-        # without override it's also False.
-        self.assertFalse(rm._CONVICTION_SCALED_TRAIL_ENABLED)
+        """With no env override, flag should resolve False.
+
+        HM-TEST-ENV-ISOLATION-2026-08-29: both conviction-scale flags have
+        since been deliberately promoted to true in the real .env -- this
+        now tests the OFF default in a controlled reload rather than
+        asserting against whatever the ambient environment happens to be
+        (which, unpinned, currently reads True and would fail here).
+        """
+        mod = _reload_with({"CONVICTION_SCALED_TRAIL_ENABLED": "false"})
+        self.assertIsInstance(mod._CONVICTION_SCALED_TRAIL_ENABLED, bool)
+        self.assertFalse(mod._CONVICTION_SCALED_TRAIL_ENABLED)
 
     def test_trail_flag_is_separate_from_stops_flag(self) -> None:
         """Two SEPARATE module-level attributes exist so Admiral can enable
         scaled-stops first (after shadow validation), then later enable
-        scaled-trail without coupling them. Both default False in
-        production .env."""
+        scaled-trail without coupling them. Both default False when unset
+        (2026-08-29: both are now deliberately True in production .env --
+        this test only checks the attributes are independent, not their
+        current values)."""
         self.assertTrue(hasattr(rm, "_CONVICTION_SCALED_STOPS_ENABLED"))
         self.assertTrue(hasattr(rm, "_CONVICTION_SCALED_TRAIL_ENABLED"))
         # They each read their own env var key (paired but separate).

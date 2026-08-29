@@ -119,8 +119,24 @@ class ConvictionStopShadowTests(unittest.TestCase):
         self.assertEqual(self._ghost_rows(), [])
 
     def test_shadow_flag_default_on(self) -> None:
-        """Default ON (the counter-proposal default) when env unset."""
-        mod = _reload_with({"CONVICTION_SCALED_STOPS_SHADOW": "on"})
+        """Default ON (the counter-proposal default) when env unset.
+
+        HM-TEST-ENV-ISOLATION-2026-08-29: CONVICTION_SCALED_STOPS_ENABLED
+        is explicitly pinned "false" here -- the real .env now has it set
+        "true" (the feature was deliberately promoted live at some point
+        after this test was written, per the module's own Feature Flags
+        doctrine comment). patch.dict merges with the existing environment
+        rather than replacing it, so leaving this var out let the real
+        .env value leak through and made "the live actuator stays
+        independent" assert against production config instead of a
+        controlled one. The independence property under test (shadow=on
+        doesn't imply enabled=on) is unaffected either way -- pin the
+        input, don't rely on whatever happens to be live.
+        """
+        mod = _reload_with({
+            "CONVICTION_SCALED_STOPS_SHADOW": "on",
+            "CONVICTION_SCALED_STOPS_ENABLED": "false",
+        })
         self.assertIsInstance(mod._CONVICTION_SCALED_STOPS_SHADOW, bool)
         self.assertTrue(mod._CONVICTION_SCALED_STOPS_SHADOW)
         # and the live actuator stays default-off + independent

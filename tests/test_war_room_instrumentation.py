@@ -8,7 +8,10 @@ War Room providers.
 
 Asserted behaviors:
 
-  - ``main._WR_STALL_THRESHOLD_S`` is exactly 600s (10 min).
+  - ``main._WR_STALL_THRESHOLD_S`` is exactly 750s (12.5 min) -- raised from
+    600s by HM-WR-STALL-ALARM-RATE-LIMIT (2026-05-20) to cut false-alarm
+    volume after a genuine 1175s cycle with all providers individually
+    healthy (91-202s each) showed 600s was too tight.
   - Every cycle (regardless of duration) emits a ``[WR-DUR] cycle wall=…s``
     line via ``console.log`` so trader.log captures the wall-clock.
   - Cycles at or under the threshold do NOT call
@@ -45,11 +48,24 @@ class WarRoomInstrumentationTests(unittest.TestCase):
         import main  # noqa: WPS433 — testing main.py directly
         cls.main = main
 
+    def setUp(self) -> None:
+        # HM-TEST-ISOLATION-2026-08-29: _wr_stall_last_ntfy is a real,
+        # persistent module-level float (main.py's own 1-hour NTFY rate
+        # limit, HM-WR-STALL-ALARM-RATE-LIMIT) -- mocking send_alert does
+        # NOT prevent _emit_wr_duration from updating it on every fired
+        # stall. Without a reset, whichever test fires a stall first
+        # permanently consumes the hour-window for every later test in this
+        # same process (pytest runs the whole suite in one process), making
+        # every subsequent "does it fire" assertion see 0 calls regardless
+        # of wall_seconds. Reset before each test so they're independent.
+        self.main._wr_stall_last_ntfy = 0.0
+
     # ---- threshold contract --------------------------------------------------
 
-    def test_threshold_constant_is_600s(self) -> None:
-        """10-minute stall threshold is the authoritative value Captain spec'd."""
-        self.assertEqual(self.main._WR_STALL_THRESHOLD_S, 600)
+    def test_threshold_constant_is_750s(self) -> None:
+        """12.5-minute stall threshold (HM-WR-STALL-ALARM-RATE-LIMIT,
+        2026-05-20 -- raised from 600s to cut false-alarm volume)."""
+        self.assertEqual(self.main._WR_STALL_THRESHOLD_S, 750)
 
     # ---- [WR-DUR] log emission ----------------------------------------------
 
@@ -86,17 +102,17 @@ class WarRoomInstrumentationTests(unittest.TestCase):
             mock_alert.assert_not_called()
 
     def test_no_stall_alert_at_exactly_threshold(self) -> None:
-        """Exactly 600s does NOT fire — strict greater-than semantics."""
+        """Exactly 750s does NOT fire — strict greater-than semantics."""
         with mock.patch.object(self.main, "console"), \
              mock.patch("engine.alert_channels.send_alert") as mock_alert:
-            self.main._emit_wr_duration(600.0)
+            self.main._emit_wr_duration(750.0)
             mock_alert.assert_not_called()
 
     def test_stall_alert_fires_above_threshold(self) -> None:
-        """11-min cycle (660s) fires WARNING NTFY with the right alert_type."""
+        """800s (>750s threshold) fires WARNING NTFY with the right alert_type."""
         with mock.patch.object(self.main, "console"), \
              mock.patch("engine.alert_channels.send_alert") as mock_alert:
-            self.main._emit_wr_duration(660.0)
+            self.main._emit_wr_duration(800.0)
             mock_alert.assert_called_once()
             kwargs = mock_alert.call_args.kwargs
             self.assertEqual(
@@ -109,7 +125,7 @@ class WarRoomInstrumentationTests(unittest.TestCase):
             )
             msg = kwargs.get("message", "")
             self.assertIn("[WR-STALL]", msg)
-            self.assertIn("11.0min", msg)
+            self.assertIn("13.3min", msg)
 
     # ---- failure containment ------------------------------------------------
 
@@ -121,7 +137,7 @@ class WarRoomInstrumentationTests(unittest.TestCase):
                  side_effect=RuntimeError("ntfy down"),
              ):
             try:
-                self.main._emit_wr_duration(700.0)
+                self.main._emit_wr_duration(800.0)  # > 750s threshold, must reach the NTFY dispatch path
             except Exception as e:
                 self.fail(
                     f"_emit_wr_duration must absorb NTFY failures (caller is "

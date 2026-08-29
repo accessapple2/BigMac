@@ -35,12 +35,54 @@ def test_trust_etf_overrides_constant():
 
 
 def test_trust_etfs_in_active_universe():
-    """After HM-AO-α migration, all 5 trust ETFs are in get_active_universe()."""
-    from engine.universe import get_active_universe
+    """After HM-AO-α migration, every trust ETF that clears the live dollar-
+    volume bar is in get_active_universe() -- i.e. none are excluded due to
+    ticker_type misclassification (the original HM-AO-α bug), only due to
+    genuinely insufficient volume.
+
+    HM-TEST-VOLATILE-THRESHOLD-2026-08-29: this used to hard-assert all 5
+    are always included. SIVR (abrdn Physical Silver Shares, the smallest/
+    least liquid of the five) verified live at ~$77-91M dollar volume
+    (10-day and 3-month averages, yfinance) against a $100M bar --
+    genuinely marginal, real market liquidity, not a data or classification
+    bug. A fixed dollar threshold will legitimately drift a borderline
+    symbol in and out over time; hard-coding "SIVR always qualifies" just
+    encodes whatever was true the day this was written. Compute the
+    expectation from the SAME live threshold the production code uses
+    instead of assuming a fixed roster.
+    """
+    from engine.universe import (
+        ETF_DOLLAR_VOLUME_THRESHOLD, MAX_STALENESS_DAYS, _conn,
+        get_active_universe,
+    )
+
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT symbol, avg_volume, avg_price FROM scan_universe "
+            "WHERE symbol IN ({}) AND ticker_type='ETF' "
+            "AND julianday('now') - julianday(last_updated) <= ?".format(
+                ",".join("?" * len(EXPECTED_TRUST_ETFS))
+            ),
+            (*EXPECTED_TRUST_ETFS, MAX_STALENESS_DAYS),
+        ).fetchall()
+    expected_active = {
+        sym for sym, vol, price in rows
+        if (vol or 0) * (price or 0) >= ETF_DOLLAR_VOLUME_THRESHOLD
+    }
+    assert expected_active, (
+        "No trust ETF cleared the live volume bar at all -- if this ever "
+        "happens it's a real signal (all 5 illiquid simultaneously, or the "
+        "threshold/classification broke), not routine drift."
+    )
 
     u = set(get_active_universe())
-    missing = EXPECTED_TRUST_ETFS - u
-    assert not missing, f"Trust ETFs missing from active universe: {missing}"
+    missing = expected_active - u
+    assert not missing, (
+        f"Trust ETFs that clear the ${ETF_DOLLAR_VOLUME_THRESHOLD:,.0f} "
+        f"volume bar are still missing from active universe (likely a "
+        f"ticker_type misclassification regression, the original HM-AO-α "
+        f"bug): {missing}"
+    )
 
 
 def test_trust_etfs_classified_as_etf():

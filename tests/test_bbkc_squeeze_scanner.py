@@ -182,7 +182,7 @@ def test_dedupe_same_tier_skipped_higher_tier_upgrades(db_path):
     conn = sqlite3.connect(db_path)
     rows = conn.execute(
         "SELECT threshold_tier FROM squeeze_watch WHERE symbol='DDD' "
-        "ORDER BY scan_ts"
+        "ORDER BY scan_ts, id"  # HM-SQUEEZE-TIEBREAK: scan_ts is second-precision, ties are real
     ).fetchall()
     conn.close()
     assert [r[0] for r in rows] == ["WATCH", "ALERT"]
