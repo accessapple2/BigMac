@@ -745,7 +745,7 @@ mechanism was added to `hm_ops_sentinel.py` so a known, understood recurrence
 of this condition can be acknowledged without going permanently silent.
 
 ---
-## 🔵 HM-SIGNALS-V2-STARVATION-RECURRENCE — filed 2026-07-12 (XO directive, post-fix watch item), propose-first, NOT IMPLEMENTED
+## 🟢 HM-SIGNALS-V2-STARVATION-RECURRENCE — filed 2026-07-12 (XO directive, post-fix watch item), RESOLVED 2026-08-29
 
 Structural follow-on risk identified while verifying `HM-SIGNALS-V2-FIFO-STARVATION` closed (above): the newest-first ordering (`ORDER BY created_at DESC`, live since 07-06 commit `aa55f1d`) combined with the consumer's fixed drain cap (`max_batch=10` per 1-min tick, `engine/events_bus_consumer.py::consume_pending_signals()`) can permanently outrank *any* batch of pending rows that isn't the newest — not just the specific pre-07-06 and pre-07-09 backlogs already cleaned up. This same mechanism produced both prior one-time cleanups; nothing structural stops it from recurring with a third batch.
 
@@ -756,6 +756,62 @@ Structural follow-on risk identified while verifying `HM-SIGNALS-V2-FIFO-STARVAT
 - **(b) Hybrid ordering:** reserve a small slice of the consumer's per-tick drain cap (e.g. 1-2 of the 10) for the single oldest pending row regardless of source recency, so nothing can be *permanently* outranked even under sustained high newest-source volume — just slower. Tradeoff: touches the live consumer's dequeue logic directly (higher blast radius than (a), since it changes order-submission-adjacent behavior, not just an archive script).
 
 **Monday verification task (queued, not yet run):** after 2026-07-13 market open, re-check whether these 140 rows are draining or being newest-first-outranked. That result decides whether this ticket becomes active work or closes as "didn't recur this time." Needs Admiral sign-off before either candidate fix is built.
+
+**RESOLVED 2026-08-29 (Admiral directive, "OPS TRIAGE" item 1) — the
+Monday verification task above never ran** (the 2026-07-22 fleet
+stand-down and its aftermath intervened first). The predicted recurrence
+happened at much larger scale before anyone checked: `hm_ops_sentinel.py`
+(itself down since the same 07-22 stand-down, restored 2026-08-29 in the
+HM-GEX-COLLECTOR-DEAD pass) surfaced pending=11,663 (>3000 cap), oldest
+1199h on its first real run.
+
+**Live breakdown at resolution time:**
+```
+source          halt_mode   pending   already past own stale_after
+ollama-qwen3    active      4,039     4,013  (99.4%)
+ollama-plutus   active      3,955     2,854  (72.2%)
+mlx-qwen3       full        3,666     3,648  (99.5%)
+ollie-auto      exit_only       3          0
+```
+Different shape than the 2026-07-06 incident (91.5% dead-letter via
+halt_mode alone) — this time 68.5% of the backlog is from *active*
+sources. But nearly all of it (6,867 of 7,994 active-source rows) is
+independently dead via its own `stale_after` marker: the consumer already
+refuses to execute a row past its own staleness budget regardless of
+source status, so archiving loses nothing that could ever have run.
+
+**Both candidate fixes applied, per Admiral direction "no more proposed":**
+- **One-time cleanup** (`scripts/hm_signals_v2_expire_dead_letter_20260829.py`,
+  archive-not-delete, same convention as the 07-06/07-09 scripts, snapshot
+  at `data/backups/hm_signals_v2_expire_dead_letter_20260829_133052.ids`):
+  archived the union of (non-active-source rows) ∪ (rows already past their
+  own `stale_after`) = **10,536 rows**. Left the remaining **1,127** rows
+  (1,101 `ollama-plutus` + 26 `ollama-qwen3`) untouched — all `NULL
+  stale_after`, which `engine/events_bus_consumer.py`'s own comment
+  documents as "never-stale" by explicit design, not missing data. Archiving
+  them just for being old would have contradicted that design rather than
+  fixed a bug.
+- **Candidate (b), hybrid ordering** (`engine/events_bus_consumer.py::consume_pending_signals()`):
+  every tick now reserves 2 of the 10 drain-cap slots for the single oldest
+  pending row(s) regardless of source recency, before filling the rest
+  newest-first as before. Guarantees forward progress on the tail of the
+  queue under any sustained newer-source volume — the exact mechanism that
+  produced this incident three times can't recur structurally, only slow
+  the drain. Candidate (a) (TTL auto-expiry) was not built on top of this —
+  (b) already guarantees eventual drainage for genuinely-live signals, and
+  TTL would have fought the `NULL stale_after` = never-stale design
+  decision from the previous paragraph.
+- 4 new tests (`tests/test_events_bus_consumer_starvation_fix.py`) pin the
+  hybrid-ordering behavior directly: an ancient row survives 20+ newer
+  arrivals in the same tick, small queues aren't double-counted, the newest
+  rows still dominate the non-reserved slots, empty queue doesn't crash.
+
+**Not done:** the 1,127 remaining `NULL stale_after` rows (oldest:
+2026-07-10) will drain naturally over the next few days under the new
+2-per-tick oldest-reserve (390 market-minute ticks/day × 2 = up to 780
+oldest-slot opportunities/day, comfortably clearing 1,127 within 1-2
+trading days) — not force-cleared today, left to the mechanism this ticket
+just shipped rather than a second manual sweep.
 
 ---
 ## 🔴 HM-RIKER-SYNTHESIS-LOCK-CONTENTION — filed 2026-07-06 (HM-MONDAY-OPEN-WATCH), propose-first

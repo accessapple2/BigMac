@@ -74,12 +74,37 @@ def consume_pending_signals(max_batch: int = 10) -> dict:
         # matters more than arrival order for time-sensitive trading signals,
         # so process newest-first; the bulk of the old FIFO backlog was
         # separately archived (halted-source rows that could never execute).
-        rows = conn.execute(
+        #
+        # HM-SIGNALS-V2-STARVATION-RECURRENCE fix (2026-08-29, Admiral
+        # directive -- this was the explicitly-proposed, never-implemented
+        # follow-up from the same 2026-07-12 filing that predicted it):
+        # newest-first ALONE can still permanently starve any batch that
+        # isn't the newest, if fresher signals keep arriving every tick --
+        # this recurred a third time (11,663 pending, oldest 1199h, before
+        # today's one-time archive cleared the definitively-dead 90% of it).
+        # Reserve a small slice of every tick's batch for the single oldest
+        # pending row(s) regardless of source recency, so the tail always
+        # makes forward progress -- a batch can be SLOW to drain now, but
+        # never structurally unreachable again.
+        _OLDEST_RESERVE = min(2, max_batch)
+        oldest_rows = conn.execute(
             "SELECT id, source, symbol, confidence, timeframe, stale_after "
             "FROM signals_v2 WHERE status='pending' "
-            "ORDER BY created_at DESC LIMIT ?",
-            (int(max_batch),),
+            "ORDER BY created_at ASC LIMIT ?",
+            (_OLDEST_RESERVE,),
         ).fetchall()
+        _newest_n = max(0, int(max_batch) - len(oldest_rows))
+        if oldest_rows:
+            _exclude = ",".join("?" * len(oldest_rows))
+            newest_rows = conn.execute(
+                f"SELECT id, source, symbol, confidence, timeframe, stale_after "
+                f"FROM signals_v2 WHERE status='pending' AND id NOT IN ({_exclude}) "
+                f"ORDER BY created_at DESC LIMIT ?",
+                (*[r["id"] for r in oldest_rows], _newest_n),
+            ).fetchall()
+        else:
+            newest_rows = []
+        rows = list(oldest_rows) + list(newest_rows)
         conn.close()
         stats["scanned"] = len(rows)
         if not rows:
