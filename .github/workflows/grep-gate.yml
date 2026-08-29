@@ -17,11 +17,20 @@ jobs:
 
       - name: Check — no qwen3.5 model references (replaced by qwen3:8b/14b)
         run: |
-          # Exclude .bak files, REPAIR_LOG (has historical notes), and this workflow itself
+          # Exclude .bak files, REPAIR_LOG (has historical notes), this workflow itself,
+          # and the three files that deliberately reference the qwen3.5 shadow-CSP A/B
+          # test seat (engine/shadow_csp.py itself, main.py's scheduler wiring for it,
+          # dashboard/app.py's agent-name display mapping) -- a real, intentional
+          # feature, not a stray/accidental reference. Excluded by exact full path, not
+          # by loosening the qwen3.5 pattern itself, so a genuinely new/accidental
+          # qwen3.5 reference anywhere else still fails the gate.
           if grep -r "qwen3\.5" \
                --include="*.py" --include="*.json" --include="*.yaml" --include="*.yml" \
                --exclude-dir=".git" \
-               . | grep -v "\.bak\." | grep -v "was qwen3\.5" | grep -v "grep-gate\.yml"; then
+               . | grep -v "\.bak\." | grep -v "was qwen3\.5" | grep -v "grep-gate\.yml" \
+                 | grep -vE "^(\./)?main\.py:" \
+                 | grep -vE "^(\./)?engine/shadow_csp\.py:" \
+                 | grep -vE "^(\./)?dashboard/app\.py:"; then
             echo "❌ Found qwen3.5 reference in source files — replace with qwen3:8b or qwen3:14b"
             exit 1
           fi
