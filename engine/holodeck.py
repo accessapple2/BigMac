@@ -26,6 +26,17 @@ def _stat(stats, key, decimals=2):
     return round(_s(v), decimals)
 
 
+def _dd_stat(stats, decimals=2):
+    """HM-BACKTEST-ARENA-DD-SIGN-2026-08-29: vectorbt's own 'Max Drawdown [%]'
+    stat is a POSITIVE magnitude (e.g. 23.5 meaning a 23.5% drawdown), while
+    every other strategy path in dashboard/app.py (buy_hold, momentum) computes
+    it as a negative number (peak-to-trough %, so a real drawdown is <0). RSI
+    and MA-cross both route through this module, so their leaderboard rows
+    persisted the opposite sign from Buy & Hold/Momentum -- normalize to
+    negative here, once, for every caller."""
+    return -abs(_stat(stats, 'Max Drawdown [%]', decimals))
+
+
 class Holodeck:
     """VectorBT-powered fast backtesting engine for TradeMinds"""
 
@@ -56,7 +67,7 @@ class Holodeck:
                         'exit': exit_th,
                         'total_return': _stat(stats, 'Total Return [%]'),
                         'win_rate': _stat(stats, 'Win Rate [%]'),
-                        'max_drawdown': _stat(stats, 'Max Drawdown [%]'),
+                        'max_drawdown': _dd_stat(stats),
                         'sharpe': _stat(stats, 'Sharpe Ratio', 3),
                         'profit_factor': _stat(stats, 'Profit Factor'),
                         'num_trades': int(_s(stats.get('Total Trades', 0))),
@@ -93,7 +104,7 @@ class Holodeck:
                     'window': window, 'std_dev': std,
                     'total_return': _stat(stats, 'Total Return [%]'),
                     'win_rate': _stat(stats, 'Win Rate [%]'),
-                    'max_drawdown': _stat(stats, 'Max Drawdown [%]'),
+                    'max_drawdown': _dd_stat(stats),
                     'sharpe': _stat(stats, 'Sharpe Ratio', 3),
                     'num_trades': int(_s(stats.get('Total Trades', 0))),
                     'final_value': round(_s(pf.final_value()), 2),
@@ -133,7 +144,7 @@ class Holodeck:
                         'fast': fast, 'slow': slow, 'signal': sig,
                         'total_return': _stat(stats, 'Total Return [%]'),
                         'win_rate': _stat(stats, 'Win Rate [%]'),
-                        'max_drawdown': _stat(stats, 'Max Drawdown [%]'),
+                        'max_drawdown': _dd_stat(stats),
                         'sharpe': _stat(stats, 'Sharpe Ratio', 3),
                         'num_trades': int(_s(stats.get('Total Trades', 0))),
                         'final_value': round(_s(pf.final_value()), 2),
@@ -205,7 +216,7 @@ class Holodeck:
             'symbol': symbol, 'strategy': strategy_type, 'params': params, 'days': days,
             'total_return': _stat(stats, 'Total Return [%]'),
             'win_rate': _stat(stats, 'Win Rate [%]'),
-            'max_drawdown': _stat(stats, 'Max Drawdown [%]'),
+            'max_drawdown': _dd_stat(stats),
             'sharpe': _stat(stats, 'Sharpe Ratio', 3),
             'profit_factor': _stat(stats, 'Profit Factor'),
             'num_trades': int(_s(stats.get('Total Trades', 0))),

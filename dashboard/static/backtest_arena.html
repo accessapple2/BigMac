@@ -555,6 +555,18 @@ window.runBacktest = function() {
   });
 };
 
+// HM-BACKTEST-ARENA-RESULT-CARD-2026-08-29: a bare '—' for Win Rate reads as
+// "we don't know" when it's actually "there's nothing to measure yet" (no
+// trades at all, e.g. Buy & Hold) or "not measurable yet" (the strategy's
+// most recent position is still open, so it hasn't won or lost). Distinct
+// messages so the card explains itself instead of looking broken.
+function _winRateDisplay(winRate, reason) {
+  if (winRate != null) return winRate.toFixed(1) + '%';
+  if (reason === 'no_trades') return 'N/A (no trades)';
+  if (reason === 'open_position') return 'N/A (position open)';
+  return '—';
+}
+
 // ── Render results ────────────────────────────────────────────────────────
 function renderResults(d) {
   var section = document.getElementById('results-section');
@@ -578,7 +590,7 @@ function renderResults(d) {
     {label: 'Final Value',  value: d.final_value != null ? '$' + d.final_value.toLocaleString() : '—', cls: ''},
     {label: 'Max Drawdown', value: d.max_drawdown != null ? d.max_drawdown.toFixed(2) + '%' : '—', cls: d.max_drawdown < -20 ? 'neg' : ''},
     {label: 'Sharpe Ratio', value: d.sharpe != null ? d.sharpe.toFixed(2) : '—', cls: d.sharpe > 1 ? 'pos' : ''},
-    {label: 'Win Rate',     value: d.win_rate != null ? d.win_rate.toFixed(1) + '%' : '—', cls: ''},
+    {label: 'Win Rate',     value: _winRateDisplay(d.win_rate, d.win_rate_reason), cls: ''},
     {label: '# Trades',     value: d.num_trades != null ? String(d.num_trades) : '—', cls: ''},
   ];
   document.getElementById('stats-grid').innerHTML = stats.map(function(s) {

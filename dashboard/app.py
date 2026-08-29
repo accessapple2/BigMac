@@ -22818,11 +22818,37 @@ async def api_backtest_run(request: Request):
             "strategy": strategy,
             "period_days": period_days,
             **{k: result[k] for k in ("total_return", "max_drawdown", "sharpe", "win_rate",
-                                       "num_trades", "final_value", "equity_curve")
+                                       "win_rate_reason", "num_trades", "closed_trades",
+                                       "final_value", "equity_curve")
                if k in result},
         })
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+def _sharpe_from_equity_curve(equity_curve: list, periods_per_year: int = 252) -> float | None:
+    """HM-BACKTEST-ARENA-RESULT-CARD-2026-08-29: annualized Sharpe (rf=0,
+    the same simplifying assumption vectorbt's default 'Sharpe Ratio' stat
+    uses) computed from daily equity-curve values, for the two strategies
+    (buy_hold, momentum) that don't route through vectorbt and previously
+    just returned None -- the result card showed a bare '—' for every
+    non-holodeck run. Returns None (not 0.0) when there isn't enough data
+    or the return series has zero variance (e.g. a dead/flat market) --
+    an honest "not computable" is better than a fabricated 0.0 that would
+    misleadingly render as a real (bad) Sharpe.
+    """
+    values = [float(pt["value"]) for pt in equity_curve if pt.get("value") is not None]
+    if len(values) < 3:
+        return None
+    returns = [(values[i] - values[i - 1]) / values[i - 1] for i in range(1, len(values)) if values[i - 1]]
+    if len(returns) < 2:
+        return None
+    mean_r = sum(returns) / len(returns)
+    variance = sum((r - mean_r) ** 2 for r in returns) / (len(returns) - 1)
+    stdev_r = variance ** 0.5
+    if stdev_r == 0:
+        return None
+    return round(mean_r / stdev_r * (periods_per_year ** 0.5), 3)
 
 
 def _run_buy_hold(ticker: str, days: int) -> dict:
@@ -22849,8 +22875,14 @@ def _run_buy_hold(ticker: str, days: int) -> dict:
     return {
         "total_return": total_return,
         "max_drawdown": max_dd,
-        "sharpe": None,
+        "sharpe": _sharpe_from_equity_curve(equity_curve),
+        # HM-BACKTEST-ARENA-RESULT-CARD-2026-08-29: buy & hold has no
+        # discrete trades to win/lose (one continuous holding period) --
+        # win_rate is meaningless here, not just unmeasured. "N/A (no
+        # trades)" on the frontend distinguishes this from a strategy that
+        # DID trade but has an unresolved/open position (see _run_momentum).
         "win_rate": None,
+        "win_rate_reason": "no_trades",
         "num_trades": 1,
         "final_value": round(10000 * final / initial, 2),
         "equity_curve": equity_curve,
@@ -22904,7 +22936,7 @@ def _run_momentum(ticker: str, days: int, lookback: int = 20) -> dict:
         cash, shares = 10000.0, 0.0
         in_trade = False
         equity = []
-        trades, wins = 0, 0
+        trades, closed_trades, wins = 0, 0, 0
         entry_price = 0.0
         peak_eq = 10000.0
         max_dd = 0.0
@@ -22929,17 +22961,39 @@ def _run_momentum(ticker: str, days: int, lookback: int = 20) -> dict:
                 cash = shares * price
                 shares = 0.0
                 in_trade = False
+                closed_trades += 1
                 if price > entry_price:
                     wins += 1
 
         final_val = cash + shares * float(close.iloc[-1])
         total_ret = round((final_val - 10000) / 10000 * 100, 2)
+        # HM-BACKTEST-ARENA-RESULT-CARD-2026-08-29: win_rate must be computed
+        # from CLOSED trades only -- `trades` counts entries, so a final
+        # entry still open at the end of the window was previously counted
+        # in the denominator despite never having a chance to win or lose,
+        # silently understating the real win rate. win_rate_reason lets the
+        # frontend explain a null/partial figure instead of a bare dash:
+        # no_trades (momentum never triggered an entry) vs open_position
+        # (at least one trade closed, but the most recent entry is still
+        # running as of the window's end -- win_rate reflects closed trades
+        # only, not "no data").
+        if trades == 0:
+            win_rate = None
+            win_rate_reason = "no_trades"
+        elif closed_trades == 0:
+            win_rate = None
+            win_rate_reason = "open_position"
+        else:
+            win_rate = round(wins / closed_trades * 100, 1)
+            win_rate_reason = "open_position" if in_trade else None
         return {
             "total_return": total_ret,
             "max_drawdown": round(max_dd, 2),
-            "sharpe": None,
-            "win_rate": round(wins / trades * 100, 1) if trades > 0 else 0,
+            "sharpe": _sharpe_from_equity_curve(equity),
+            "win_rate": win_rate,
+            "win_rate_reason": win_rate_reason,
             "num_trades": trades,
+            "closed_trades": closed_trades,
             "final_value": round(final_val, 2),
             "equity_curve": equity,
         }
