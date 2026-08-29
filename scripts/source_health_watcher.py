@@ -115,7 +115,15 @@ def _ntfy(title: str, message: str, priority: str = "high", tags: str = "rotatin
         req = urllib.request.Request(
             f"https://ntfy.sh/{NTFY_TOPIC}",
             data=f"{title}\n{message}".encode("utf-8"),
-            headers={"Title": "TradeMinds — source health", "Priority": priority, "Tags": tags},
+            # HM-SRC-HEALTH-FALLBACK-ENCODING-2026-08-29: HTTP header VALUES are
+            # latin-1-encoded by Python's http.client, unlike the body above
+            # (which is explicitly utf-8) -- the em-dash in the original title
+            # ('—') isn't representable in latin-1, so every fallback POST
+            # raised UnicodeEncodeError before a request was ever sent. Plain
+            # ASCII hyphen instead; this fallback only fires when the primary
+            # engine.alert_channels path is unavailable, so it needs to be
+            # bulletproof, not stylistically matched to the primary path.
+            headers={"Title": "TradeMinds - source health", "Priority": priority, "Tags": tags},
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=10) as r:

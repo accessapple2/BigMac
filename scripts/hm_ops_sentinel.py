@@ -399,6 +399,159 @@ def check_status_page_heartbeat(alerts: list[AlertTuple]) -> dict:
         return {"status_page_heartbeat_age_min": None}
 
 
+SOURCE_HEALTH_HEARTBEAT_PATH = ROOT / "data" / "source_health_watcher_heartbeat.json"
+SOURCE_HEALTH_STALE_MIN = 35.0  # matches main.py's own _SOURCE_HEALTH_HB_STALE_S
+
+
+def check_source_health_watcher_heartbeat(alerts: list[AlertTuple]) -> dict:
+    """OPS TRIAGE item 2 (2026-08-29): scripts/source_health_watcher.py died
+    2026-07-22 (same stand-down, same root cause as HM-GEX-COLLECTOR-DEAD --
+    renamed to *.quietdown-disabled, crontab literal text never updated) and
+    stayed dead for 54,682 minutes (~38 days) before this fix.
+
+    main.py already has an in-process dead-man's-switch for this exact
+    heartbeat (_bg_source_health_dms, main.py ~line 2514, scheduled every 30
+    min) -- and it had been firing correctly the ENTIRE time
+    ("Alert dispatched [warning/source-health-watcher-stale]" every ~30 min
+    in trader_error.log, going back to shortly after the 07-22 death). The
+    alert was never the gap. The gap: it fires at AlertLevel.WARNING, which
+    DECOM-SILENCE (2026-07-19, blanket ntfy silence ahead of Gate 2 removal)
+    has muted since before this even died -- the alert existed and worked
+    perfectly, computed and "dispatched" every 30 minutes for 38 days, and
+    zero of those dispatches ever reached a phone.
+
+    This check exists specifically to reach a phone despite that: fires
+    RED_ALERT (not WARNING), which routes through the PUSHOVER-RED-ALERT
+    lane (2026-08-28) that DECOM-SILENCE does not gate. Same heartbeat file
+    as main.py's in-process check, same staleness threshold (35 min, ~3.5
+    missed 10-min cron runs) -- genuinely redundant coverage on a different
+    mechanism (main.py in-process vs. this independent cron), which matters
+    because the in-process check shares fate with main.py itself: if main.py
+    is the thing that's unhealthy, its own dead-man's-switch dies with it.
+    """
+    try:
+        raw = json.loads(SOURCE_HEALTH_HEARTBEAT_PATH.read_text())
+        last_run = raw.get("last_run")
+        if last_run is None:
+            return {"source_health_heartbeat_age_min": None}
+        age_min = (datetime.now(timezone.utc).timestamp() - float(last_run)) / 60.0
+        if age_min > SOURCE_HEALTH_STALE_MIN:
+            alerts.append((
+                "red_alert", "sentinel_source_health_watcher_heartbeat_stale",
+                f"HM-OPS-SENTINEL: source_health_watcher's heartbeat is "
+                f"{age_min:.1f} min stale (last run {raw.get('last_run_iso', '?')}, "
+                f"> {SOURCE_HEALTH_STALE_MIN:.0f}min threshold). This watcher is "
+                f"itself the backstop for source-staleness alerting (incl. the "
+                f"Movers-gap class of incident) -- check "
+                f"`crontab -l | grep source_health_watcher` and "
+                f"logs/source_health_watcher_cron.log.",
+                age_min,
+            ))
+        return {"source_health_heartbeat_age_min": round(age_min, 1)}
+    except FileNotFoundError:
+        alerts.append((
+            "warning", "sentinel_source_health_watcher_heartbeat_missing",
+            "HM-OPS-SENTINEL: source_health_watcher heartbeat file "
+            f"({SOURCE_HEALTH_HEARTBEAT_PATH}) doesn't exist yet -- normal for "
+            "the first 10 min after a fresh install, otherwise the cron job "
+            "never ran even once.",
+            None,
+        ))
+        return {"source_health_heartbeat_age_min": None}
+    except Exception as e:
+        print(f"[sentinel] source_health_watcher heartbeat check error: {type(e).__name__}: {e}", file=sys.stderr)
+        return {"source_health_heartbeat_age_min": None}
+
+
+_CRON_MISSING_FILE_SIGNATURES = (
+    "No such file or directory",
+    "can't open file",
+    "ModuleNotFoundError",
+)
+
+
+def check_cron_missing_scripts(alerts: list[AlertTuple]) -> dict:
+    """OPS TRIAGE item 2 (2026-08-29), "no more unwatched watchers anywhere."
+
+    A generic, self-maintaining check rather than N hand-built heartbeats:
+    reads `crontab -l` directly, and for every active (non-comment) entry
+    that redirects to a logs/*.log file, tails that log for the exact
+    failure signature this whole investigation kept finding -- a cron job
+    whose target script was renamed/deleted (the 2026-07-22 stand-down's
+    *.quietdown-disabled rename, crontab literal text never updated).
+
+    Deliberately NOT an mtime/staleness check: a dead-script cron entry's
+    log keeps getting touched every single tick (cron appends the shell's
+    "No such file or directory" error each time) -- the log looks
+    perfectly *fresh* by mtime alone while being 100% useless. That's
+    exactly how GEX and source_health_watcher's deaths went unnoticed for
+    39-54 days even though something was "writing to the log" the whole
+    time. Content, not recency, is the actual signal here.
+
+    Covers every current AND future entry automatically (re-reads crontab
+    live each run) -- no per-script registration needed, unlike the
+    heartbeat-file checks above.
+    """
+    import re
+    import subprocess
+
+    results: dict = {"scanned": 0, "broken": []}
+    try:
+        cron_out = subprocess.run(
+            ["crontab", "-l"], capture_output=True, text=True, timeout=10
+        ).stdout
+    except Exception as e:
+        print(f"[sentinel] cron missing-script check error (crontab -l): {type(e).__name__}: {e}", file=sys.stderr)
+        return results
+
+    log_re = re.compile(r">>\s*(\S+\.log)\b")
+    for line in cron_out.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or line.startswith("@reboot"):
+            continue
+        m = log_re.search(line)
+        if not m:
+            continue  # a handful of entries log internally (exec >>) rather than via the crontab redirect -- not covered here
+        log_path = Path(m.group(1))
+        if not log_path.is_absolute():
+            log_path = ROOT / log_path
+        results["scanned"] += 1
+        try:
+            with open(log_path, "rb") as f:
+                f.seek(0, 2)
+                size = f.tell()
+                f.seek(max(0, size - 4000))
+                tail = f.read().decode("utf-8", errors="replace")
+        except FileNotFoundError:
+            continue  # log never written yet -- not this check's concern
+        except Exception:
+            continue
+        # Only the true LAST non-empty line(s) -- a 4000-byte window can span
+        # a genuine fix (e.g. the script was just restored) mixed with older
+        # error lines from before the fix, which would false-positive on a
+        # simple "does this chunk contain the signature anywhere" check. The
+        # most recent tick's own outcome is the only thing that matters.
+        last_lines = [ln for ln in tail.splitlines() if ln.strip()][-1:]
+        if any(sig in ln for ln in last_lines for sig in _CRON_MISSING_FILE_SIGNATURES):
+            results["broken"].append(str(log_path.name))
+
+    if results["broken"]:
+        alerts.append((
+            "warning", "sentinel_cron_missing_script",
+            f"HM-OPS-SENTINEL: {len(results['broken'])} active cron entr"
+            f"{'y is' if len(results['broken']) == 1 else 'ies are'} silently "
+            f"failing every tick -- most recent log line matches a "
+            f"file-not-found signature ('No such file or directory'/'can't "
+            f"open file'/'ModuleNotFoundError'). Could be the cron target "
+            f"script itself missing/renamed, OR a script that runs fine but "
+            f"can't find a data file it depends on -- check the log itself, "
+            f"not just this list, before assuming which: "
+            f"{', '.join(sorted(results['broken']))}.",
+            float(len(results["broken"])),
+        ))
+    return results
+
+
 def check_lock_errors(alerts: list[AlertTuple]) -> dict:
     """Count "database is locked" occurrences appended since the last run.
 
@@ -520,12 +673,15 @@ def main() -> int:
         queue_status = check_signals_v2_queue(alerts)
         collector_status = check_collector_freshness(alerts)
         status_page_status = check_status_page_heartbeat(alerts)
+        source_health_status = check_source_health_watcher_heartbeat(alerts)
+        cron_status = check_cron_missing_scripts(alerts)
     except Exception as e:
         print(f"[sentinel] error running checks: {type(e).__name__}: {e}", file=sys.stderr)
         return 1
 
     print(f"[sentinel] fd={fd_status} lock={lock_status} queue={queue_status} "
-          f"collectors={collector_status} status_page={status_page_status}")
+          f"collectors={collector_status} status_page={status_page_status} "
+          f"source_health={source_health_status} cron={cron_status}")
 
     acks = _load_acks()
     fired = [a for a in alerts if not _is_suppressed(a[1], a[3], acks)]

@@ -72,7 +72,20 @@ def test_ack_is_per_alert_type():
 
 def test_main_dispatches_only_unsuppressed_alerts():
     """End-to-end: two alerts fire from the checks, one is acked-and-under-
-    ceiling (suppressed), the other is unacked (must dispatch)."""
+    ceiling (suppressed), the other is unacked (must dispatch).
+
+    HM-TEST-ENV-ISOLATION-2026-08-29: every check main() calls must be
+    mocked here, not just the two under direct test -- main() now also
+    runs check_collector_freshness/check_status_page_heartbeat/
+    check_source_health_watcher_heartbeat/check_cron_missing_scripts
+    against the REAL live environment (real files, real crontab) when
+    left unpatched, and OPS TRIAGE item 2's check_cron_missing_scripts in
+    particular found this test's own dev box has genuinely broken cron
+    entries -- which leaked a real, unplanned alert into this test's
+    strict alert-set assertion. Pin every check to a known-quiet return so
+    this test is hermetic regardless of what's actually broken on the
+    machine running it.
+    """
     with tempfile.TemporaryDirectory() as tmp:
         acks_path = Path(tmp) / "acks.json"
         acks_path.write_text(json.dumps({
@@ -81,12 +94,15 @@ def test_main_dispatches_only_unsuppressed_alerts():
         with patch.object(sentinel, "ACKS_PATH", acks_path):
             with patch.object(sentinel, "check_fd_count", side_effect=lambda alerts: alerts.append(
                 ("warning", "sentinel_fd_warn", "fd high", 200.0)) or {"pid": 1, "fd_count": 200}):
-                with patch.object(sentinel, "check_riker_heartbeat", return_value={"last": None, "age_min": None}):
-                    with patch.object(sentinel, "check_lock_errors", return_value={"lock_errors": 0}):
-                        with patch.object(sentinel, "check_signals_v2_queue", side_effect=lambda alerts: alerts.append(
-                            ("warning", "sentinel_signals_v2_queue", "queue stale", 0.0)) or {"pending": 140, "oldest": "x", "oldest_age_hours": 45.9, "oldest_age_market_hours": 0.0}):
-                            with patch.object(sentinel, "_dispatch") as mock_dispatch:
-                                rc = sentinel.main()
+                with patch.object(sentinel, "check_lock_errors", return_value={"lock_errors": 0}):
+                    with patch.object(sentinel, "check_signals_v2_queue", side_effect=lambda alerts: alerts.append(
+                        ("warning", "sentinel_signals_v2_queue", "queue stale", 0.0)) or {"pending": 140, "oldest": "x", "oldest_age_hours": 45.9, "oldest_age_market_hours": 0.0}):
+                        with patch.object(sentinel, "check_collector_freshness", return_value={"checked": False, "reason": "market closed"}):
+                            with patch.object(sentinel, "check_status_page_heartbeat", return_value={"status_page_heartbeat_age_min": 1.0}):
+                                with patch.object(sentinel, "check_source_health_watcher_heartbeat", return_value={"source_health_heartbeat_age_min": 1.0}):
+                                    with patch.object(sentinel, "check_cron_missing_scripts", return_value={"scanned": 0, "broken": []}):
+                                        with patch.object(sentinel, "_dispatch") as mock_dispatch:
+                                            rc = sentinel.main()
 
     assert rc == 2  # sentinel_fd_warn fired unsuppressed
     dispatched_types = {a[1] for a in mock_dispatch.call_args[0][0]}
