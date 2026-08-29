@@ -27,6 +27,8 @@ exec >>"$LOG" 2>&1
 echo "=== $(date -Iseconds) backup_freshness_check START ==="
 
 ntfy_post() {
+    # DECOM-SILENCE 2026-07-19 — suppressed ahead of Gate 2 full removal.
+    return 0
     local prio="$1"; shift
     curl -s -H "Priority: $prio" -d "$*" "$NTFY_URL" >/dev/null 2>&1 || true
 }
