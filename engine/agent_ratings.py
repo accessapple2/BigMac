@@ -80,7 +80,7 @@ def calculate_rating(player_id: str, period: str = "alltime") -> dict[str, Any]:
         where = ""
 
     # Fix 1: Season 5 only — pre-S5 had options mispriced as stocks
-    rows = conn.execute(f"""
+    stock_rows = conn.execute(f"""
         SELECT realized_pnl, confidence, entry_price, exit_price,
                executed_at, symbol, asset_type
         FROM trades
@@ -92,15 +92,58 @@ def calculate_rating(player_id: str, period: str = "alltime") -> dict[str, Any]:
           {where}
         ORDER BY executed_at DESC
     """, (player_id,)).fetchall()
+
+    # HM-RATING-OPTIONS-BLIND-2026-08-29 (Admiral-directed): calculate_rating()
+    # was entirely blind to options activity -- Fix 3 below excluded every
+    # options trade unconditionally, a deliberate pre-Season-5 data-quality
+    # guard (options were mispriced as stocks before TROI_REAL_QUOTES_ERA_START,
+    # see HM-RATING-VS-LEADERBOARD-LABEL / P0-A OPTIONS FILL INTEGRITY). For a
+    # predominantly options-trading fleet this made fleet_report_card() show
+    # 0 trades / N/A rating for nearly the entire active roster -- in turn
+    # starving engine.ollietrades_signal.get_winning_models() (it reuses this
+    # exact function per docs/OLLIETRADES_SIGNAL.md), which would have found
+    # zero winning models and never actually ghost-logged anything. Fixed at
+    # the source, not scoped to one caller, per Admiral direction -- but the
+    # original guard's rationale still holds for OLD data, so this reuses the
+    # SAME already-established era boundary (TROI_REAL_QUOTES_ERA_START,
+    # 2026-07-07) the options-fill-integrity fix already uses elsewhere
+    # (engine.paper_trader._csp_realized_pnl_real_quotes) rather than
+    # trusting options data of unknown pricing provenance.
+    opt_where = ""
+    if period == "daily":
+        opt_where = "AND exit_date > datetime('now', '-1 day')"
+    elif period == "weekly":
+        opt_where = "AND exit_date > datetime('now', '-7 days')"
+    try:
+        from engine.paper_trader import TROI_REAL_QUOTES_ERA_START
+    except Exception:
+        TROI_REAL_QUOTES_ERA_START = "2026-07-07"  # fallback matches the source constant
+    opt_rows = conn.execute(f"""
+        SELECT pnl AS realized_pnl, NULL AS confidence, NULL AS entry_price,
+               NULL AS exit_price, exit_date AS executed_at, symbol, 'option' AS asset_type
+        FROM options_trades
+        WHERE agent_id = ?
+          AND status = 'closed'
+          AND pnl IS NOT NULL
+          AND exit_date >= ?
+          {opt_where}
+        ORDER BY exit_date DESC
+    """, (player_id, TROI_REAL_QUOTES_ERA_START)).fetchall()
     conn.close()
 
-    # Fix 2 & 3: drop suspicious trades and non-stock symbols
+    rows = list(stock_rows) + list(opt_rows)
+
+    # Fix 2 & 3: drop suspicious trades and non-stock/non-option symbols.
+    # Options rows come from the real-quotes-era-gated query above, already
+    # trustworthy -- they skip the stock-ticker regex (option symbols aren't
+    # plain 1-5 letter tickers) but still go through the sanity-cap check.
     clean_rows = []
     skipped = 0
     for r in rows:
         pnl    = float(r["realized_pnl"])
         sym    = (r["symbol"] or "").strip()
         atype  = (r["asset_type"] or "stock").lower()
+        is_option = atype in ("option", "options")
 
         # Fix 2: reject trades where |pnl| > 50% of $7k account
         if abs(pnl) > _MAX_SANE_PNL:
@@ -111,8 +154,9 @@ def calculate_rating(player_id: str, period: str = "alltime") -> dict[str, Any]:
             skipped += 1
             continue
 
-        # Fix 3: stock symbols only — skip options contracts
-        if atype in ("option", "options") or not _STOCK_RE.match(sym):
+        # Fix 3: stock symbols only (options already vetted above via the
+        # real-quotes-era gate, not this ticker-shape check)
+        if not is_option and not _STOCK_RE.match(sym):
             skipped += 1
             continue
 
@@ -252,15 +296,19 @@ def calculate_rating(player_id: str, period: str = "alltime") -> dict[str, Any]:
         "expectancy":          round(expectancy, 2),
         "max_drawdown_pct":    round(max_dd_pct, 2),
         "win_rate_is_display_only": True,
-        # HM-RATING-VS-LEADERBOARD-LABEL 2026-07-03: this total_pnl is a
-        # quality-filtered SUBSET (stock trades only, current season,
-        # excludes outlier trades >$3,500) used to compute a comparable
-        # skill rating across agents -- it is NOT the same figure as the
-        # Leaderboard's Total P&L (options included, unrealized mark-to-
-        # market, every trade). Third recurrence of this exact confusion
-        # (season/lifetime-style label mismatch); this field makes the
-        # scope self-documenting for any consumer of this endpoint.
-        "scope_excludes":      "options trades, outlier trades over $3,500",
+        # HM-RATING-VS-LEADERBOARD-LABEL 2026-07-03, updated 2026-08-29
+        # (HM-RATING-OPTIONS-BLIND fix): this total_pnl is a quality-filtered
+        # SUBSET (current season for stocks, real-quotes-era only for options
+        # i.e. exit_date >= TROI_REAL_QUOTES_ERA_START, excludes outlier
+        # trades >$3,500) used to compute a comparable skill rating across
+        # agents -- it is NOT the same figure as the Leaderboard's Total P&L
+        # (unrealized mark-to-market included, every trade regardless of
+        # pricing era, every closed trade regardless of size). Options were
+        # EXCLUDED ENTIRELY prior to 2026-08-29 (pre-Season-5 mispricing
+        # guard); now included but only from the same real-quotes era the
+        # options-fill-integrity fix already trusts elsewhere. This field
+        # makes the scope self-documenting for any consumer of this endpoint.
+        "scope_excludes":      "outlier trades over $3,500, options priced before the real-quotes era (pre-2026-07-07)",
         "scope_note":          "quality-filtered rating sample, not total portfolio P&L",
     }
 
