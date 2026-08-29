@@ -447,6 +447,22 @@ Historical drift snapshot archived to [`docs/CLAUDE-archive-2026-05.md`](docs/CL
 - Propose edits and ask for approval before applying.
 - For multi-file changes, show the plan first, then apply incrementally.
 
+## Fleet Lifecycle Doctrine (added 2026-08-29, HM-FLEET-LIFECYCLE)
+Full doctrine + drift enforcement detail: [`docs/FLEET_LIFECYCLE.md`](docs/FLEET_LIFECYCLE.md).
+**Rule (load-bearing):** every agent/job state change (retire, bench,
+shadow, halt, revive) goes through `scripts/fleet_lifecycle.py <action>
+<name> --reason "..."` — never a raw `UPDATE ai_players` or
+`launchctl disable`/`enable` by hand. The tool atomically writes a dated
+order doc, applies the live change, and records it in the
+`fleet_lifecycle_ledger` table (which the sentinel reads to know what
+*should* be running and to catch drift when it isn't). Built specifically
+so a future "why is X off?" is one lookup (`scripts/fleet_lifecycle.py
+status <name>`), not the multi-hour forensic reconstruction the
+2026-07-22 stand-down required five weeks later. See the doctrine doc for
+why: manual edits still work mechanically but produce no record and will
+surface as a `sentinel_lifecycle_drift` finding on the next sentinel
+cycle.
+
 ## Archive Convention
 - Retired agents: keep code in `engine/` (muted via threshold), DO NOT delete.
 - If file must be moved, use `agents/_archive/` with date suffix.

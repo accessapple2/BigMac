@@ -61,6 +61,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sqlite3
 import subprocess
 import sys
 import time
@@ -586,48 +587,75 @@ LAUNCHD_JOB_REGISTRY: dict[str, tuple[str, float]] = {
 # hardcoded absolute-path map, resolve each entry against both roots and
 # use whichever exists.
 _ALT_LOG_ROOT = Path.home() / "ollietrades"
+_LAUNCHAGENTS_DIR = Path.home() / "Library" / "LaunchAgents"
+_KNOWN_JOB_PREFIXES = ("com.ollietrades", "com.trademinds")
+
+
+def _resolve_job_label(name: str) -> str | None:
+    """Same resolution scripts/fleet_lifecycle.py uses -- most jobs are
+    com.ollietrades.*, a few (premarket, signal-center) are com.trademinds.*."""
+    for prefix in _KNOWN_JOB_PREFIXES:
+        if (_LAUNCHAGENTS_DIR / f"{prefix}.{name}.plist").exists():
+            return f"{prefix}.{name}"
+    return None
+
+
+def _ledger_latest_by_target(target_type: str) -> dict[str, dict]:
+    """Latest fleet_lifecycle_ledger row per target_name for one target_type.
+    Empty dict (not a raise) if the ledger table or DB is unreachable --
+    every caller degrades to "no ledger opinion" rather than failing."""
+    try:
+        conn = sqlite3.connect(str(DB_PATH), timeout=10)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("""
+            SELECT l.* FROM fleet_lifecycle_ledger l
+            INNER JOIN (
+                SELECT target_name, MAX(created_at) AS mx FROM fleet_lifecycle_ledger
+                WHERE target_type = ? GROUP BY target_name
+            ) latest ON l.target_name = latest.target_name AND l.created_at = latest.mx
+            WHERE l.target_type = ?
+        """, (target_type, target_type)).fetchall()
+        conn.close()
+        return {r["target_name"]: dict(r) for r in rows}
+    except Exception as e:
+        print(f"[sentinel] fleet_lifecycle_ledger read error ({target_type}): {type(e).__name__}: {e}", file=sys.stderr)
+        return {}
+
+
+_PAUSE_LEDGER_ACTIONS = {"halt", "bench", "shadow"}
+_ACTIVE_LEDGER_ACTIONS = {"active", "revive"}
 
 
 def check_launchd_jobs_health(alerts: list[AlertTuple]) -> dict:
-    """OPS TRIAGE follow-up (2026-08-29): every job reactivated today after
-    the 2026-07-22 stand-down gets freshness coverage, same "no unwatched
-    watchers" philosophy as check_cron_missing_scripts -- but launchd's
-    disabled-flag and calendar scheduling need a different check shape than
-    crontab's tail-the-log-for-an-error-signature approach:
+    """OPS TRIAGE follow-up (2026-08-29): every job the fleet_lifecycle
+    ledger currently says should be running gets freshness coverage, same
+    "no unwatched watchers" philosophy as check_cron_missing_scripts --
+    adapted for launchd's calendar scheduling instead of crontab's
+    tail-the-log-for-an-error-signature approach.
 
-      1. Drift-back-to-disabled: re-reads `launchctl print-disabled gui/501`
-         live every run. If any of these 18 jobs shows disabled again
-         (accidental re-disable, a future stand-down that forgets to update
-         this registry, etc.) that's worth flagging immediately regardless
-         of log content.
-      2. Staleness: each job's log file's mtime vs. a generous ceiling
-         scaled to its own calendar cadence (see registry above). Catches
-         a job that's enabled+loaded but has stopped actually firing --
-         the exact failure mode a naive "is it in launchctl print-disabled"
-         check alone would miss.
+    Skips any job the ledger's latest entry marks halt/bench/shadow/retire
+    -- an intentionally-off job going log-stale is not a finding, it's the
+    plan working. (Whether the *live* launchd state actually matches that
+    ledger entry is a DIFFERENT check --
+    see check_fleet_lifecycle_drift below.)
 
-    Never raises -- a missing log or a launchctl-command failure just
-    lands with a note, not a fatal.
+    Staleness ceilings (LAUNCHD_JOB_REGISTRY) are generous multiples of
+    each job's own calendar cadence (weekly jobs ~9 days, weekday-daily
+    ~48h, daily ~30h) so a normal weekend gap never false-fires.
+
+    Never raises -- a missing log just lands as "not stale yet", a ledger
+    read failure just means every registered job is treated as active
+    (fail toward checking, not toward silence).
     """
-    import subprocess
-
-    results: dict = {"checked": 0, "disabled_again": [], "stale": []}
-    try:
-        disabled_out = subprocess.run(
-            ["launchctl", "print-disabled", "gui/501"],
-            capture_output=True, text=True, timeout=10,
-        ).stdout
-    except Exception as e:
-        print(f"[sentinel] launchd disabled-check error: {type(e).__name__}: {e}", file=sys.stderr)
-        disabled_out = ""
-
+    ledger = _ledger_latest_by_target("job")
+    results: dict = {"checked": 0, "skipped_by_ledger": [], "stale": []}
     now = time.time()
     for label, (rel_log, max_age_hours) in LAUNCHD_JOB_REGISTRY.items():
+        entry = ledger.get(label)
+        if entry and entry["action"] not in _ACTIVE_LEDGER_ACTIONS:
+            results["skipped_by_ledger"].append(label)
+            continue
         results["checked"] += 1
-        full_label = f"com.ollietrades.{label}"
-        if f'"{full_label}" => disabled' in disabled_out:
-            results["disabled_again"].append(label)
-            continue  # disabled is the more serious finding -- skip staleness on top
 
         log_path = ROOT / rel_log
         if not log_path.exists():
@@ -638,25 +666,117 @@ def check_launchd_jobs_health(alerts: list[AlertTuple]) -> dict:
         if age_hours > max_age_hours:
             results["stale"].append({"label": label, "age_hours": round(age_hours, 1), "ceiling_hours": max_age_hours})
 
-    if results["disabled_again"]:
-        alerts.append((
-            "warning", "sentinel_launchd_job_disabled_again",
-            f"HM-OPS-SENTINEL: {len(results['disabled_again'])} of the 18 "
-            f"jobs reactivated 2026-08-29 (post-07-22-standdown revival) "
-            f"{'is' if len(results['disabled_again']) == 1 else 'are'} back in "
-            f"launchd's disabled state: {', '.join(sorted(results['disabled_again']))}.",
-            float(len(results["disabled_again"])),
-        ))
     if results["stale"]:
         worst = max(results["stale"], key=lambda s: s["age_hours"] - s["ceiling_hours"])
         alerts.append((
             "warning", "sentinel_launchd_job_stale",
-            f"HM-OPS-SENTINEL: {len(results['stale'])} reactivated launchd "
-            f"job log{'s are' if len(results['stale']) != 1 else ' is'} stale "
+            f"HM-OPS-SENTINEL: {len(results['stale'])} launchd job log"
+            f"{'s are' if len(results['stale']) != 1 else ' is'} stale "
             f"past its ceiling -- worst: {worst['label']} "
             f"({worst['age_hours']}h since last write, ceiling {worst['ceiling_hours']}h). "
             f"Full list: {', '.join(s['label'] for s in results['stale'])}.",
             float(len(results["stale"])),
+        ))
+    return results
+
+
+def check_fleet_lifecycle_drift(alerts: list[AlertTuple]) -> dict:
+    """HM-FLEET-LIFECYCLE-2026-08-29: "manual plist/cron edits to fleet jobs
+    become a sentinel finding of their own: any job whose live state
+    disagrees with the lifecycle ledger = drift alert." Two failure modes:
+
+      1. Drift -- the ledger's latest recorded action for a target and its
+         ACTUAL live state disagree (someone hand-edited a plist, ran raw
+         launchctl/SQL instead of scripts/fleet_lifecycle.py, or a future
+         stand-down forgets to record itself). Covers both jobs
+         (launchctl print-disabled) and agents (ai_players.halt_mode).
+      2. Overdue review -- a pause-type ledger entry (halt/bench/shadow)
+         whose resume_by or review_by date has passed. Per
+         scripts/fleet_lifecycle.py's own order-doc template: "a sentinel
+         finding against this target before its review-by date is a false
+         alarm; after it, it is a legitimate 'this pause was forgotten'
+         alert." This is that alert.
+
+    Never raises -- unreachable launchctl/DB just means this check reports
+    nothing rather than failing the whole sentinel run.
+    """
+    results: dict = {"job_drift": [], "agent_drift": [], "overdue": []}
+
+    job_ledger = _ledger_latest_by_target("job")
+    try:
+        disabled_out = subprocess.run(
+            ["launchctl", "print-disabled", "gui/501"],
+            capture_output=True, text=True, timeout=10,
+        ).stdout
+    except Exception as e:
+        print(f"[sentinel] launchd disabled-check error: {type(e).__name__}: {e}", file=sys.stderr)
+        disabled_out = ""
+    for label, entry in job_ledger.items():
+        # Resolve the real label prefix the same way fleet_lifecycle.py does --
+        # most are com.ollietrades.*, a few (premarket, signal-center) are
+        # com.trademinds.*. Try both rather than assuming.
+        full_label = _resolve_job_label(label)
+        if full_label is None:
+            continue  # no plist to check against (e.g. the documented 'crew' orphan) -- can't verify, don't guess
+        live_disabled = f'"{full_label}" => disabled' in disabled_out
+        ledger_says_active = entry["action"] in _ACTIVE_LEDGER_ACTIONS
+        if ledger_says_active == live_disabled:  # active-but-disabled, or halted-but-enabled
+            results["job_drift"].append({"name": label, "ledger_action": entry["action"],
+                                          "live_disabled": live_disabled})
+
+    agent_ledger = _ledger_latest_by_target("agent")
+    _expected_halt_mode = {"active": "active", "revive": "active", "retire": "full",
+                            "bench": "full", "halt": "full", "shadow": "exit_only"}
+    if agent_ledger:
+        try:
+            conn = sqlite3.connect(str(DB_PATH), timeout=10)
+            conn.row_factory = sqlite3.Row
+            live_rows = {r["id"]: r["halt_mode"] for r in conn.execute(
+                "SELECT id, COALESCE(halt_mode,'active') AS halt_mode FROM ai_players").fetchall()}
+            conn.close()
+        except Exception as e:
+            print(f"[sentinel] ai_players drift-check read error: {type(e).__name__}: {e}", file=sys.stderr)
+            live_rows = {}
+        for name, entry in agent_ledger.items():
+            live_mode = live_rows.get(name)
+            if live_mode is None:
+                continue  # agent no longer exists -- not a drift finding
+            expected = _expected_halt_mode.get(entry["action"])
+            if expected and live_mode != expected:
+                results["agent_drift"].append({"name": name, "ledger_action": entry["action"],
+                                                "expected_halt_mode": expected, "live_halt_mode": live_mode})
+
+    today = datetime.now(timezone.utc).date().isoformat()
+    for target_type, ledger in (("job", job_ledger), ("agent", agent_ledger)):
+        for name, entry in ledger.items():
+            if entry["action"] not in _PAUSE_LEDGER_ACTIONS:
+                continue
+            for date_field in ("resume_by", "review_by"):
+                d = entry.get(date_field)
+                if d and d < today:
+                    results["overdue"].append({"target_type": target_type, "name": name,
+                                                "action": entry["action"], "date_field": date_field,
+                                                "date": d})
+                    break  # one overdue mention per target is enough
+
+    if results["job_drift"] or results["agent_drift"]:
+        n = len(results["job_drift"]) + len(results["agent_drift"])
+        names = [d["name"] for d in results["job_drift"] + results["agent_drift"]]
+        alerts.append((
+            "warning", "sentinel_lifecycle_drift",
+            f"HM-OPS-SENTINEL: {n} target{'s' if n != 1 else ''} where live state "
+            f"disagrees with the fleet_lifecycle_ledger's latest recorded action -- "
+            f"someone likely bypassed scripts/fleet_lifecycle.py: {', '.join(names)}.",
+            float(n),
+        ))
+    if results["overdue"]:
+        names = [f"{o['name']} ({o['action']}, {o['date_field']} {o['date']})" for o in results["overdue"]]
+        alerts.append((
+            "warning", "sentinel_lifecycle_review_overdue",
+            f"HM-OPS-SENTINEL: {len(results['overdue'])} paused target"
+            f"{'s' if len(results['overdue']) != 1 else ''} past their resume_by/review_by "
+            f"date: {', '.join(names)}.",
+            float(len(results["overdue"])),
         ))
     return results
 
@@ -785,6 +905,7 @@ def main() -> int:
         source_health_status = check_source_health_watcher_heartbeat(alerts)
         cron_status = check_cron_missing_scripts(alerts)
         launchd_status = check_launchd_jobs_health(alerts)
+        lifecycle_drift_status = check_fleet_lifecycle_drift(alerts)
     except Exception as e:
         print(f"[sentinel] error running checks: {type(e).__name__}: {e}", file=sys.stderr)
         return 1
@@ -792,7 +913,7 @@ def main() -> int:
     print(f"[sentinel] fd={fd_status} lock={lock_status} queue={queue_status} "
           f"collectors={collector_status} status_page={status_page_status} "
           f"source_health={source_health_status} cron={cron_status} "
-          f"launchd={launchd_status}")
+          f"launchd={launchd_status} lifecycle_drift={lifecycle_drift_status}")
 
     acks = _load_acks()
     fired = [a for a in alerts if not _is_suppressed(a[1], a[3], acks)]

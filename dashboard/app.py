@@ -14673,6 +14673,48 @@ def fleet_report_card_alias():
     return out
 
 
+@app.get("/api/fleet-lifecycle")
+def fleet_lifecycle_ledger_read(type: str | None = Query(default=None)):
+    """HM-FLEET-LIFECYCLE-2026-08-29: read-only view of fleet_lifecycle_ledger's
+    current state per target (agent or job) -- latest row per target_name.
+    Exists so "the dashboard reflects the same source of truth" (doctrine
+    requirement d) holds for JOBS too, not just agents (agent state was
+    already covered -- every panel reads ai_players.halt_mode live). No
+    dedicated visual panel consumes this yet; it's the read surface for
+    scripts/fleet_lifecycle.py's ledger, ready for one. See
+    docs/FLEET_LIFECYCLE.md.
+
+    Query params: type=agent|job (optional filter).
+    """
+    target_type = type
+    try:
+        c = _conn()
+        c.row_factory = sqlite3.Row
+        try:
+            where = "WHERE l.target_type = ?" if target_type else ""
+            params = (target_type,) if target_type else ()
+            rows = c.execute(f"""
+                SELECT l.target_type, l.target_name, l.action, l.reason, l.order_doc,
+                       l.resume_by, l.review_by, l.backfilled, l.created_at
+                FROM fleet_lifecycle_ledger l
+                INNER JOIN (
+                    SELECT target_type, target_name, MAX(created_at) AS mx
+                    FROM fleet_lifecycle_ledger GROUP BY target_type, target_name
+                ) latest ON l.target_type = latest.target_type
+                        AND l.target_name = latest.target_name
+                        AND l.created_at = latest.mx
+                {where}
+                ORDER BY l.target_type, l.target_name
+            """, params).fetchall()
+            return {"targets": [dict(r) for r in rows], "count": len(rows)}
+        finally:
+            c.close()
+    except sqlite3.OperationalError as e:
+        return JSONResponse(status_code=503, content={"error": f"DB busy, retry: {e}"})
+    except Exception as e:
+        return {"error": str(e)}
+
+
 # NOTE: /api/ratings/advice and /api/ratings/cold must be defined BEFORE
 # /api/ratings/{player_id} so FastAPI doesn't swallow them as path params.
 

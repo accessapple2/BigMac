@@ -101,9 +101,10 @@ def test_main_dispatches_only_unsuppressed_alerts():
                             with patch.object(sentinel, "check_status_page_heartbeat", return_value={"status_page_heartbeat_age_min": 1.0}):
                                 with patch.object(sentinel, "check_source_health_watcher_heartbeat", return_value={"source_health_heartbeat_age_min": 1.0}):
                                     with patch.object(sentinel, "check_cron_missing_scripts", return_value={"scanned": 0, "broken": []}):
-                                        with patch.object(sentinel, "check_launchd_jobs_health", return_value={"checked": 0, "disabled_again": [], "stale": []}):
-                                            with patch.object(sentinel, "_dispatch") as mock_dispatch:
-                                                rc = sentinel.main()
+                                        with patch.object(sentinel, "check_launchd_jobs_health", return_value={"checked": 0, "skipped_by_ledger": [], "stale": []}):
+                                            with patch.object(sentinel, "check_fleet_lifecycle_drift", return_value={"job_drift": [], "agent_drift": [], "overdue": []}):
+                                                with patch.object(sentinel, "_dispatch") as mock_dispatch:
+                                                    rc = sentinel.main()
 
     assert rc == 2  # sentinel_fd_warn fired unsuppressed
     dispatched_types = {a[1] for a in mock_dispatch.call_args[0][0]}

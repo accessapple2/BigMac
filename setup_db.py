@@ -934,6 +934,32 @@ def setup():
         "ON agent_memory(player_id, memory_layer, created_at)"
     )
 
+    # === HM-FLEET-LIFECYCLE-2026-08-29 ====================================
+    # Single source of truth for every agent/job state change (retire, bench,
+    # shadow, halt, revive, or the "active" baseline row a target starts
+    # with). Built specifically so "why is X off?" is one lookup, not
+    # forensics -- see docs/FLEET_LIFECYCLE.md. Written exclusively by
+    # scripts/fleet_lifecycle.py (or the one-time backfill script); never
+    # hand-edited. INSERT ONLY -- current state for a target is its latest
+    # row by created_at, never mutated or deleted (sacred-data rule).
+    c.execute("""CREATE TABLE IF NOT EXISTS fleet_lifecycle_ledger (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        target_type   TEXT    NOT NULL,   -- 'agent' | 'job'
+        target_name   TEXT    NOT NULL,   -- ai_players.id, or a launchd label (e.g. 'universe-refresh')
+        action        TEXT    NOT NULL,   -- 'active' | 'retire' | 'bench' | 'shadow' | 'halt' | 'revive'
+        reason        TEXT    NOT NULL,
+        order_doc     TEXT,               -- path to the dated order doc (NULL only for pre-doctrine backfill rows)
+        resume_by     TEXT,               -- pause-type actions: explicit resume-by date
+        review_by     TEXT,               -- pause-type actions: explicit review-by date
+        backfilled    INTEGER NOT NULL DEFAULT 0,  -- 1 = reconstructed from pre-doctrine state, not a real order
+        created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+        created_by    TEXT    NOT NULL DEFAULT 'fleet_lifecycle.py'
+    )""")
+    c.execute(
+        "CREATE INDEX IF NOT EXISTS idx_fleet_lifecycle_target "
+        "ON fleet_lifecycle_ledger(target_type, target_name, created_at)"
+    )
+
     # === HM-EVENTS-BUS-FOUNDATION 2026-05-22 ============================
     # Canonical events bus + signals_v2 + engine_allocation + timeframe tags.
     # Spec: ~/.claude/projects/-Users-bigmac/memory/project_hm_events_bus_foundation.md
