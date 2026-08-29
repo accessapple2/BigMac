@@ -7,12 +7,12 @@ import logging  # Add logging import at the top
 
 logging.basicConfig(level=logging.INFO)  # Set up logging at the beginning
 
-load_dotenv(dotenv_path='../.env')
+_ENV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.env')
+load_dotenv(dotenv_path=_ENV_PATH)
 
 BASE_URL = "http://localhost:8080"
-import os
 
-USERNAME = os.getenv('USERNAME')
+USERNAME = "Sniff"  # os.getenv('USERNAME') collides with a shell env var load_dotenv won't override
 PASSWORD = os.getenv('PASSWORD')
 TOTP_SECRET = os.getenv('TOTP_SECRET')
 
@@ -27,7 +27,9 @@ print("Login status:", r.status_code)
 if r.status_code == 200:
     totp = pyotp.TOTP(TOTP_SECRET)
     code = totp.now()
-r = session.post(f"{BASE_URL}/2fa", json={"totp": code})
+# Real second-factor endpoint (dashboard/app.py login_submit, step=2): POST /login
+# with query param step=2 and form field totp_code — NOT /2fa (never existed).
+r = session.post(f"{BASE_URL}/login", params={"step": "2"}, data={"totp_code": code})
 if r.status_code != 200:
     raise ValueError(f"2FA failed with status code {r.status_code}")
 
