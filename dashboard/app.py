@@ -909,6 +909,7 @@ _sec_logger.setLevel(_sec_log_mod.WARNING)
 _LOGIN_PAGE = """<!DOCTYPE html>
 <html lang="en">
 <head>
+<link rel="icon" href="/static/favicon.ico">
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <title>OllieTrades — Authorization Required</title>
 <style>
@@ -964,6 +965,7 @@ input:focus{border-color:#3b82f6}
 _TOTP_PAGE = """<!DOCTYPE html>
 <html lang="en">
 <head>
+<link rel="icon" href="/static/favicon.ico">
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <title>OllieTrades — 2FA Verification</title>
 <style>
@@ -1219,6 +1221,7 @@ def setup_2fa(request: Request):
     return HTMLResponse(f"""<!DOCTYPE html>
 <html lang="en">
 <head>
+<link rel="icon" href="/static/favicon.ico">
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>OllieTrades — 2FA Setup</title>
 <style>
@@ -1503,7 +1506,7 @@ _BOT_UA_BLOCKLIST = [
 
 # Paths that are ALWAYS exempt from rate limiting — public read-only content
 # that must remain reachable even while a login-block or rapid-fire block is active.
-_RATE_EXEMPT_EXACT = frozenset({"/charts", "/api/health", "/robots.txt", "/sw.js"})
+_RATE_EXEMPT_EXACT = frozenset({"/charts", "/api/health", "/robots.txt", "/sw.js", "/favicon.ico"})
 _RATE_EXEMPT_PREFIX = ("/api/charts/", "/api/chart/", "/static/")
 
 def _is_rate_exempt(path: str) -> bool:
@@ -3585,6 +3588,39 @@ def leaderboard(season: int = 0, _force: bool = False, nocache: bool = False, sh
     return _sanitize(_lb_result)
 
 
+def _fleet_season_rollup(rows: list) -> dict:
+    """Fleet-level current-season P&L rollup (HM-BRIDGE-SEASON-PNL 2026-08-29).
+
+    Pure function over already-computed leaderboard rows (each carrying a
+    per-agent `season_overlay` dict from `_season_overlay()`) — no DB access
+    of its own, so it's cheap to unit-test with synthetic rows. Sums
+    `season_overlay.season_pnl` across rows, same "vs the season baseline"
+    percent convention as the per-agent `vs_baseline_return_pct` field
+    (denominator is the fleet's summed `season_baseline` — the $10k/agent
+    starting-capital convention from `_season_starting_capital()` — not the
+    summed `season_start_value`, which can drift slightly from baseline
+    depending on exactly when a season's first portfolio_history row landed).
+
+    A row with no `season_overlay` (defensive — shouldn't happen, every
+    leaderboard row gets one) or an agent with zero season trades both
+    contribute 0 P&L on a nonzero baseline, same as any other row — no
+    special-casing needed since `_season_overlay()` already returns a flat
+    (baseline, baseline, 0, 0) tuple-equivalent for a player with no
+    portfolio_history rows yet this season.
+    """
+    season_pnl = 0.0
+    season_baseline = 0.0
+    for r in rows:
+        overlay = r.get("season_overlay") or {}
+        season_pnl += overlay.get("season_pnl") or 0
+        season_baseline += overlay.get("season_baseline") or 0
+    return {
+        "season_pnl": round(season_pnl, 2),
+        "season_baseline": round(season_baseline, 2),
+        "season_return_pct": round(season_pnl / season_baseline * 100, 2) if season_baseline else 0.0,
+    }
+
+
 @app.get("/api/fleet/pnl")
 def fleet_pnl(season: int = 0, show_all: bool = False):
     """
@@ -3592,6 +3628,11 @@ def fleet_pnl(season: int = 0, show_all: bool = False):
     Sums the same normalized total_pnl/day_pnl fields leaderboard() already
     computes correctly per player, so every UI surface (v1 header, bridge-v2,
     signal-center) reports one number instead of each deriving its own.
+
+    HM-BRIDGE-SEASON-PNL (2026-08-29): also rolls up current-season P&L
+    (season_pnl/season_return_pct) alongside the existing lifetime figures,
+    so the header can show both side by side instead of only lifetime —
+    see _fleet_season_rollup().
     """
     lb = leaderboard(season=season, show_all=show_all)
     rows = lb.get("leaderboard", [])
@@ -3599,6 +3640,7 @@ def fleet_pnl(season: int = 0, show_all: bool = False):
     day_pnl = sum((r.get("day_pnl") or 0) for r in rows)
     current_equity = sum((r.get("current_equity") or 0) for r in rows)
     starting_capital = sum((r.get("starting_capital") or 0) for r in rows)
+    season_rollup = _fleet_season_rollup(rows)
     return _sanitize({
         "season": lb.get("season"),
         "current_season": lb.get("current_season"),
@@ -3608,6 +3650,9 @@ def fleet_pnl(season: int = 0, show_all: bool = False):
         "current_equity": current_equity,
         "starting_capital": starting_capital,
         "return_pct": (total_pnl / starting_capital * 100) if starting_capital else 0.0,
+        "season_pnl": season_rollup["season_pnl"],
+        "season_baseline": season_rollup["season_baseline"],
+        "season_return_pct": season_rollup["season_return_pct"],
     })
 
 
@@ -14602,7 +14647,7 @@ def service_worker():
 def clear_sw():
     """Unregisters all service workers and redirects to home. Visit once to fix stale SW cache."""
     return HTMLResponse("""<!DOCTYPE html>
-<html><head><title>Clearing SW...</title></head>
+<html><head><link rel="icon" href="/static/favicon.ico"><title>Clearing SW...</title></head>
 <body style="background:#0a0e1a;color:#e0e6f0;font-family:monospace;padding:40px;text-align:center;">
 <h2>Clearing service worker cache...</h2>
 <p id="msg">Working...</p>
@@ -18326,8 +18371,28 @@ def institutional_intel():
 
 
 @app.get("/api/uhura/signal")
-@timed_cache(120)
 def uhura_signal():
+    """HM-UHURA-NONBLOCK 2026-07-18: non-blocking wrapper. Serves last-known
+    Uhura v2 signal instantly; refreshes via background thread when stale.
+    Fixes the >10s cold-call hang seen by /classic and archer intel_sources."""
+    import threading, time as _t
+    cache = getattr(uhura_signal, "_c", None)
+    stale = cache is None or (_t.time() - cache[0]) > 120
+    if stale and not getattr(uhura_signal, "_busy", False):
+        uhura_signal._busy = True
+        def _refresh():
+            try:
+                uhura_signal._c = (_t.time(), _uhura_signal_compute())
+            finally:
+                uhura_signal._busy = False
+        threading.Thread(target=_refresh, daemon=True).start()
+    if cache is not None:
+        return cache[1]
+    return {"status": "warming", "flow_bias": None, "conviction": None,
+            "recommended_trade": None, "tickers_flagged": [], "signal_votes": []}
+
+@timed_cache(120)
+def _uhura_signal_compute():
     """Lt. Uhura v2 — Full Spectrum Signal. Confluence of 7 independent sources.
     Only recommends a trade when 4+ signals align (the 86% filter).
     """
@@ -22194,6 +22259,7 @@ def v1_docs():
     html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
+<link rel="icon" href="/static/favicon.ico">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>TradeMinds API v1 — Docs</title>

@@ -23756,6 +23756,18 @@ function updateFleetBar() {
   var avgSign          = avgPnl   >= 0 ? '▲' : '▼';
   var pnlColor         = fleetPnl >= 0 ? '#00ff88' : '#ff4444';
   var avgColor         = avgPnl   >= 0 ? '#00ff88' : '#ff4444';
+
+  // HM-BRIDGE-SEASON-PNL 2026-08-29: current-season figure, server-computed
+  // in /api/fleet/pnl (no local re-aggregation, same canonical-source
+  // discipline as fleetPnl above) — only rendered once the canonical fetch
+  // has actually resolved, so it never shows a stale/zeroed season number
+  // during the pre-fetch flash. Dynamic season label (S7 today, S8 next
+  // season, ...) — never hardcode the number.
+  var seasonPnl       = _canonicalFleetPnl ? (_canonicalFleetPnl.season_pnl || 0) : 0;
+  var seasonReturnPct = _canonicalFleetPnl ? (_canonicalFleetPnl.season_return_pct || 0) : 0;
+  var seasonLabel     = _canonicalFleetPnl && _canonicalFleetPnl.current_season ? ('S' + _canonicalFleetPnl.current_season) : 'SEASON';
+  var seasonPnlSign   = seasonPnl >= 0 ? '▲' : '▼';
+  var seasonPnlColor  = seasonPnl >= 0 ? '#00ff88' : '#ff4444';
   var fmt = function(val) {
     var abs  = Math.abs(val);
     var sign = val >= 0 ? '+' : '-';
@@ -23795,6 +23807,15 @@ function updateFleetBar() {
   // label so this always reads unambiguously against bridge-v2's identical figure.
   html += '<span style="color:var(--muted);" title="Canonical /api/fleet/pnl — lifetime P&amp;L, same figure as bridge-v2">FLEET P&amp;L <span style="font-size:10px;">(lifetime)</span></span> ';
   html += '<span style="font-weight:700;color:' + pnlColor + ';">' + fleetPnlSign + ' ' + fmt(fleetPnl) + '</span>';
+  html += '<span style="color:var(--border);margin:0 4px;">|</span>';
+
+  // SEASON P&L — HM-BRIDGE-SEASON-PNL 2026-08-29: side by side with lifetime
+  // just above, explicitly labeled with the dynamic season number so it's
+  // never mistaken for the lifetime figure. Server-computed, same canonical
+  // /api/fleet/pnl call as FLEET P&L above (no separate fetch).
+  html += '<span style="color:var(--muted);" title="Canonical /api/fleet/pnl — current-season P&amp;L, same figure as bridge-v2">' + seasonLabel + ' P&amp;L <span style="font-size:10px;">(season)</span></span> ';
+  html += '<span style="font-weight:700;color:' + seasonPnlColor + ';">' + seasonPnlSign + ' ' + fmt(seasonPnl) + '</span>';
+  html += '<span style="font-size:10px;color:' + seasonPnlColor + ';margin-left:2px;">' + (seasonReturnPct >= 0 ? '+' : '') + seasonReturnPct.toFixed(1) + '%</span>';
   html += '<span style="color:var(--border);margin:0 4px;">|</span>';
 
   // AVG /agent

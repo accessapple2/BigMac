@@ -370,7 +370,8 @@ body{background:var(--hull);color:var(--tx);font-family:var(--ui);font-size:14px
       <div class="vital"><div class="vl">Buying Power</div><div class="vv" id="vBP">—</div><div class="vs">4× margin</div></div>
       <div class="vital"><div class="vl">Positions</div><div class="vv" id="vPosCount">—</div><div class="vs" id="vPosUnreal">—</div></div>
       <div class="vital"><div class="vl">Fleet Agents</div><div class="vv" id="vAgents">—</div><div class="vs" id="vTrades">—</div></div>
-      <div class="vital"><div class="vl">Fleet P&amp;L</div><div class="vv" id="vFleetPnl">—</div><div class="vs" id="vFleetPnlRet">lifetime</div></div>
+      <div class="vital"><div class="vl">Fleet P&amp;L</div><div class="vv" id="vFleetPnl">—</div><div class="vs" id="vFleetPnlRet">LIFETIME</div></div>
+      <div class="vital"><div class="vl" id="vSeasonPnlLbl">Season P&amp;L</div><div class="vv" id="vSeasonPnl">—</div><div class="vs" id="vSeasonPnlRet">—</div></div>
       <div class="vital"><div class="vl">Season</div><div class="vv" id="vSeason">—</div><div class="vs" id="vSeasonTrades">— trades</div></div>
       <div class="vital"><div class="vl">Scan</div><div class="vv" id="vScanLbl" style="font-size:16px">UOA Quick</div>
         <div class="scanrow"><button class="btn go sm" onclick="triggerScan()">▸ Run now</button></div></div>
@@ -1312,7 +1313,17 @@ async function loadFleetPnl() {
     const el = document.getElementById('vFleetPnl');
     const ret = document.getElementById('vFleetPnlRet');
     if (el) { el.textContent = fmtPnl(d.total_pnl); el.className = 'vv ' + colorClass(d.total_pnl); }
-    if (ret) ret.textContent = 'lifetime · ' + (d.return_pct >= 0 ? '+' : '') + d.return_pct.toFixed(1) + '%';
+    if (ret) ret.textContent = 'LIFETIME · ' + (d.return_pct >= 0 ? '+' : '') + d.return_pct.toFixed(1) + '%';
+
+    // HM-BRIDGE-SEASON-PNL 2026-08-29: current-season P&L, side by side with
+    // lifetime above — dynamic season number (S7 today, S8 next season, ...)
+    // so this never needs a hardcode bump at season rollover.
+    const sLbl = document.getElementById('vSeasonPnlLbl');
+    const sEl  = document.getElementById('vSeasonPnl');
+    const sRet = document.getElementById('vSeasonPnlRet');
+    if (sLbl) sLbl.textContent = 'S' + (d.current_season ?? '—') + ' P&L';
+    if (sEl)  { sEl.textContent = fmtPnl(d.season_pnl); sEl.className = 'vv ' + colorClass(d.season_pnl); }
+    if (sRet) sRet.textContent = 'SEASON · ' + (d.season_return_pct >= 0 ? '+' : '') + d.season_return_pct.toFixed(1) + '%';
   } catch (_) { /* non-critical */ }
 
   // Also hit /api/fleet/status for richer health
