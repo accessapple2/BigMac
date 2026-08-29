@@ -125,23 +125,46 @@ def _alpaca_headers() -> dict:
 # Snapshot fetcher
 # ---------------------------------------------------------------------------
 
+# HM-429-REMEDIATION-B (2026-08-28): backoff on 429, never immediate-retry.
+# Root cause is the free data tier's per-minute request-rate limit shared
+# across ~20 different Alpaca-calling modules -- a real 429 was observed on
+# an 80-symbol batch, well under Alpaca's actual 1000-symbol/call limit, so
+# this is a rate problem, not a size problem. A shared cross-module pacer is
+# a bigger design (see the 429-remediation relay docs) -- this is the
+# narrow, in-scope fix: give any single call here a couple of spaced
+# chances before giving up, instead of one attempt.
+SNAPSHOT_RETRY_BACKOFF = (5, 15)  # seconds; never immediate-retry on 429
+
+
 def _fetch_snapshots(symbols: list[str], headers: dict) -> dict[str, dict]:
     """Fetch Alpaca snapshots for a batch of symbols.
 
     Returns {symbol: snapshot_dict} for all symbols that returned data.
     """
     symbols_csv = ",".join(symbols)
-    try:
-        resp = requests.get(
-            f"{ALPACA_DATA_BASE}/v2/stocks/snapshots",
-            headers=headers,
-            params={"symbols": symbols_csv, "feed": "iex"},
-            timeout=30,
-        )
-        resp.raise_for_status()
-        return resp.json()
-    except Exception as e:
-        logger.warning(f"Snapshot fetch failed ({len(symbols)} symbols): {e}")
+    last_exc = None
+    for attempt, delay in enumerate((0, *SNAPSHOT_RETRY_BACKOFF)):
+        if delay:
+            time.sleep(delay)
+        try:
+            resp = requests.get(
+                f"{ALPACA_DATA_BASE}/v2/stocks/snapshots",
+                headers=headers,
+                params={"symbols": symbols_csv, "feed": "iex"},
+                timeout=30,
+            )
+            if resp.status_code == 429 and attempt < len(SNAPSHOT_RETRY_BACKOFF):
+                logger.warning(f"Snapshot fetch 429 (attempt {attempt + 1}/"
+                               f"{len(SNAPSHOT_RETRY_BACKOFF) + 1}, {len(symbols)} symbols)")
+                continue
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as e:
+            last_exc = e
+            if "429" not in str(e):
+                break  # non-rate-limit error -- don't burn the retry budget on it
+    if last_exc:
+        logger.warning(f"Snapshot fetch failed ({len(symbols)} symbols): {last_exc}")
         return {}
 
 
