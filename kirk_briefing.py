@@ -20,8 +20,9 @@ DOCTRINE COMPLIANCE
   The only "fleet" read is Alpaca PAPER positions (after_close reconcile,
   report-only). No order path exists in this file.
 * "Free Models First": synthesis is Grok-primary ONLY while under the shared
-  GROK_ADVISOR_DAILY_CAP (engine.team_advisor_grok ledger); otherwise Ollama
-  (.168 / Ollie Max, free). If both are unreachable the briefing still renders
+  GROK_ADVISOR_DAILY_CAP (engine.team_advisor_grok ledger); otherwise local
+  Ollama on bigmac (see config.OLLIE_URL; Ollie Max/.168 decommissioned, HM-
+  KIRK-RESTORE 2026-08-28). If both are unreachable the briefing still renders
   from deterministic real data — a dead LLM never blocks a briefing.
 * market_calendar is the authoritative holiday / early-close / hours source
   (full NYSE table through 2027, observed-day + early-close aware). Used in
@@ -127,8 +128,20 @@ def _ipv4_only_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
     return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
 
 
+# HM-KIRK-NTFY-429-RETRY (2026-08-28): every single briefing push has been
+# failing with ntfy.sh 429 since ~2026-07-20 (confirmed live in
+# logs/kirk_briefing_cron.log) — this box runs enough other ntfy-emitting
+# jobs that the shared anonymous per-IP limit is frequently exhausted during
+# market hours. A manual retry minutes later succeeds fine, so the limit is
+# a transient token-bucket, not a hard daily wall — worth 2-3 spaced retries
+# before giving up rather than dropping the message after one 429.
+NTFY_MAX_ATTEMPTS = 4
+NTFY_RETRY_BACKOFF = (5, 20, 60)  # seconds between attempts 1->2, 2->3, 3->4
+
+
 def push_ntfy(title: str, body: str, priority: int = 4) -> bool:
-    """POST one ntfy.sh message synchronously. Returns True on HTTP 200.
+    """POST one ntfy.sh message synchronously, retrying on 429. Returns True
+    on HTTP 200 from any attempt.
 
     Distinct from engine.ntfy._fire (fire-and-forget, swallows result): Job B's
     delivery guarantee needs to KNOW the push landed. Same ntfy.sh JSON shape.
@@ -136,30 +149,43 @@ def push_ntfy(title: str, body: str, priority: int = 4) -> bool:
     body = body if len(body) <= NTFY_BODY_MAX else (
         body[:NTFY_BODY_MAX] + "\n…(truncated — full briefing archived)"
     )
-    try:
-        data = json.dumps({
-            "topic": NTFY_TOPIC,
-            "title": title,
-            "message": body,
-            "priority": priority,
-            "tags": ["rocket"],
-        }).encode()
+    data = json.dumps({
+        "topic": NTFY_TOPIC,
+        "title": title,
+        "message": body,
+        "priority": priority,
+        "tags": ["rocket"],
+    }).encode()
+
+    for attempt in range(1, NTFY_MAX_ATTEMPTS + 1):
         req = urllib.request.Request(
             "https://ntfy.sh", data=data,
             headers={"Content-Type": "application/json"}, method="POST",
         )
-        with _ntfy_ipv4_lock:
-            socket.getaddrinfo = _ipv4_only_getaddrinfo
-            try:
-                with urllib.request.urlopen(req, timeout=10) as resp:
-                    ok = resp.status == 200
-                    _log(f"ntfy push [{resp.status}]: {title}")
-                    return ok
-            finally:
-                socket.getaddrinfo = _orig_getaddrinfo
-    except Exception as e:
-        _log(f"ntfy push FAILED ({type(e).__name__}: {e!r}): {title}")
-        return False
+        try:
+            with _ntfy_ipv4_lock:
+                socket.getaddrinfo = _ipv4_only_getaddrinfo
+                try:
+                    with urllib.request.urlopen(req, timeout=10) as resp:
+                        _log(f"ntfy push [{resp.status}] attempt {attempt}: {title}")
+                        return resp.status == 200
+                finally:
+                    socket.getaddrinfo = _orig_getaddrinfo
+        except urllib.error.HTTPError as e:
+            if e.code == 429 and attempt < NTFY_MAX_ATTEMPTS:
+                wait = NTFY_RETRY_BACKOFF[attempt - 1]
+                if e.headers and e.headers.get("Retry-After", "").isdigit():
+                    wait = max(wait, int(e.headers["Retry-After"]))
+                _log(f"ntfy push 429 (attempt {attempt}/{NTFY_MAX_ATTEMPTS}), "
+                     f"retrying in {wait}s: {title}")
+                time.sleep(wait)
+                continue
+            _log(f"ntfy push FAILED (HTTPError {e.code}, attempt {attempt}): {title}")
+            return False
+        except Exception as e:
+            _log(f"ntfy push FAILED ({type(e).__name__}: {e!r}, attempt {attempt}): {title}")
+            return False
+    return False
 
 
 # ── LLM synthesis: Grok-primary (under shared cap) → Ollama fallback ─────────
@@ -174,7 +200,7 @@ _SYSTEM_PROMPT = (
 
 def _synthesize(prompt: str) -> tuple[str, str]:
     """Return (narrative_text, model_used). Grok if under the shared daily cap,
-    else Ollama (.168). Returns ('', 'none') if both are unreachable — callers
+    else local Ollama. Returns ('', 'none') if both are unreachable — callers
     must degrade gracefully (the deterministic data sections still render)."""
     import requests  # available in .venv (2.33.0)
 
@@ -218,12 +244,21 @@ def _synthesize(prompt: str) -> tuple[str, str]:
         except Exception as e:
             _log(f"Grok synth failed ({type(e).__name__}: {e!r}) — falling back to Ollama")
 
-    # Ollama fallback (free, .168 Ollie Max).
+    # Ollama fallback (free, local bigmac).
+    # HM-KIRK-RESTORE 2026-08-28: OLLIE_URL now resolves to localhost:11434
+    # (config.py, olliemax decommissioned) — no code change needed there. Model
+    # default changed qwen3:8b -> ministral-3:3b: standing GPU rule requires
+    # this fallback use a model the trader already rotates through, never
+    # trigger a fresh load. Note ministral-3:3b is currently an ALIAS of
+    # qwen3:8b (same weights, ID 500a1f067a9f — see project memory
+    # project_ollama_model_aliases_2026-08-25) but Ollama's residency
+    # tracking is per-tag, not per-blob, so the two names still count as a
+    # "different model" for swap/eviction purposes -- the tag choice matters.
     try:
         from config import OLLIE_URL
         base = os.getenv("ADVISORY_OLLAMA_URL",
                          os.getenv("OLLAMA_BASE_URL", OLLIE_URL))
-        model = os.getenv("CREWAI_MODEL", "qwen3:8b")
+        model = os.getenv("CREWAI_MODEL", "ministral-3:3b")
         resp = requests.post(
             f"{base}/api/generate",
             json={
@@ -637,7 +672,7 @@ def build_briefing(mode: str, catchup: bool = False) -> tuple[str, dict]:
         "",
     ]
     read = (narrative if narrative
-            else "_⚠️ SYNTHESIS DEGRADED — LLM (Grok + Ollama .168) unreachable. "
+            else "_⚠️ SYNTHESIS DEGRADED — LLM (Grok + local Ollama) unreachable. "
                  "Data-only brief; numbers below are live and authoritative._")
     body = ["## KIRK'S READ", read, ""]
     body += ["## DATA", "```", data_block, "```", ""]
