@@ -10532,37 +10532,74 @@ first: `~/backups/cron/crontab.bak-20260830-090553-pre-revive-batch`.
    state file (`last_id=9285`) matches `crew_dissent_log`'s real max Q-dissent
    id exactly, zero rows since 2026-07-18, script exits 0 silently.
 
-### `scripts/recall_refresh_run.sh` — ENABLED, catch-up BLOCKED (Ollie Max down)
+### `scripts/recall_refresh_run.sh` — ENABLED, repointed off decommissioned olliemax, live-verified
 
 7. Raw `curl` replaced with `engine.alert_channels.send_alert` (via the main
-   `.venv`, not `.venv-recall` — the migration only needs `alert_channels`,
-   not `sqlite_vec`). **Catch-up characterization (2026-08-30 evening):**
-   1,343 of 1,595 qualifying closed trades were un-embedded in `recall_corpus`
-   (last embed 2026-07-16; most recent qualifying closed trade 2026-08-27).
-   `recall_refresh.py` processes the newest `N_CORPUS=500` closed trades per
-   run, newest-first — bounded, self-resolving ~3-run catch-up once it can
-   actually run. **Admiral approved enabling; crontab line uncommented
-   2026-08-30.**
+   `.venv`, not `.venv-recall`). **Admiral approved enabling; crontab line
+   uncommented 2026-08-30.**
 
-   **Attempted the catch-up same night to verify the ~3-run bound directly
-   rather than wait on the weekday schedule — blocked.** The embedding
-   backend (`OLLAMA_EMBED_URL`, Ollie Max at `192.168.1.168:11434`,
-   `engine/setup_similarity_signal.py:56`) is unreachable: `ping` returns
-   "Host is down" (not a bigmac-side network issue — the LAN gateway
-   `192.168.1.1` responds fine). Ran the real wrapper multiple times to
-   confirm this wasn't a fluke — every attempt failed identically
-   (`urllib.error.URLError: <urlopen error [Errno 65] No route to host>`),
-   and the ntfy migration itself is now proven correct on a **real** failure,
-   not just the earlier isolated test: 3 `HM-DEJAVU recall_refresh FAILED
-   (rc=1)` warnings landed in `notifications` (17:48:07–17:48:43 UTC),
-   correctly routed through the hardened sender. **`recall_corpus` count is
-   unchanged at 252 — zero rows embedded, zero progress on the 1,343-row
-   gap.** Left the crontab line enabled regardless (per approval) — the
-   catch-up will resume automatically, no further crontab action needed,
-   the moment Ollie Max is reachable again, whether via its own next
-   scheduled 15:00 MST weekday run or a manual re-run. This is an
-   infrastructure outage, not a defect in the migration or the enable
-   decision.
+   **CORRECTION (same night, superseding the entry below):** the first
+   attempt to run the catch-up failed with `[Errno 65] No route to host`
+   against the embedding backend, `OLLAMA_EMBED_URL` = Ollie Max
+   (`192.168.1.168:11434`, `engine/setup_similarity_signal.py:56`) —
+   initially read as "Ollie Max is down, will resume when it's back." **That
+   was wrong.** Ollie Max was decommissioned 2026-07 (`e7c3e7d`,
+   2026-08-29, "consolidate routing to local com.ollama.serve, retire
+   olliemax") — it is never coming back. `setup_similarity_signal.py:56`
+   (and, found in the same sweep, `scripts/recall_bakeoff.py:10`, the
+   one-time bake-off script, not in the live call chain but fixed for
+   consistency) simply **evaded that consolidation's grep** and kept the old
+   hardcoded default. Both repointed to `http://127.0.0.1:11434`, matching
+   the same `OLLAMA_URL`-env-var-with-127.0.0.1-default convention e7c3e7d
+   already established everywhere else.
+
+   `bge-m3` (the embedding model, 1024-dim, matching `EMBED_DIM`) was not
+   yet pulled locally — pulled (`ollama pull bge-m3`, ~1.2GB). Confirmed
+   embedding-only (`family: bert`, `capabilities: ["embedding"]`) — cannot
+   load as a second chat model alongside the qwen3:8b alias set, satisfying
+   the "mind the 16GB box" constraint.
+
+   **Live-verified, 3 runs:** run 1: `new=3, embedded=3` (252→255). Runs 2
+   and 3: `new=0, embedded=0`, stable. **Final embedded count: 255, not the
+   full 1,595.** The ~3-run full-catch-up estimate from the original
+   characterization was wrong in a different way than the outage error was:
+   `recall_refresh.py` always considers the **500 most-recent-by-date**
+   closed trades (`N_CORPUS=500`, newest-first), not "the next 500 unembedded
+   ones" — so once the handful of genuinely-recent-and-uncovered trades (3,
+   as it turned out) are embedded, the run stabilizes at zero new,
+   permanently, because the remaining ~1,340-row gap consists of trades
+   *older* than the 500-most-recent-by-date window and are structurally
+   unreachable by this script's normal incremental operation, not a bug or a
+   remaining backlog to wait out. Closing that gap (if wanted) would need a
+   deliberate one-time wider sweep (e.g. a temporary `RECALL_N_CORPUS`
+   override) — not attempted here, out of scope of "confirm the count moves
+   past 252," flagged as a separate future decision.
+
+   **Widened stale-ref sweep, as ordered:** checked the config/env layer
+   (not just script text) of all 6 other scripts revived tonight
+   (`uhura_agent.py`, `regime_refresh_runner.py`, `eod_report.py`,
+   `origin_healthcheck.sh`, `q_dissent_watch.py`,
+   `fleet_realism_sweep_clean_window.py`) and every module they import
+   (`engine.halt_gate`, `engine.market_calendar`, `engine.regime_ma`,
+   `engine.trades_filter`, `config`, `engine.crew.audition_tracking`,
+   `engine.alert_channels`, `engine.backtester`) — zero olliemax/dead-host
+   references anywhere. `origin_healthcheck.sh` specifically: its full host
+   list (bridge :8080, signal-center :9000, swingdesk :8889, status_page
+   :8090, tour-api :8088) is 100% localhost, no olliemax entry to alert on
+   forever. `.env` also clean — `OLLAMA_BASE_URL`/`OLLAMA_URL`/
+   `ADVISORY_OLLAMA_URL`/`OLLIE_URL` all already `127.0.0.1:11434`.
+
+   **Fleet LLM backend claim, verified rather than repeated:** built the
+   real provider list via `engine.agent_routing.build_all_providers()` (the
+   exact function `main.py` calls at startup) against the live DB. All 5
+   currently-active LLM-routed seats (`ollama-plutus`, `ollama-qwen3`,
+   `options-sosnoff`, `qwen3-4b-audition`, `qwen3-8b-flash`) resolve to
+   `http://localhost:11434/api/generate`. The other 5 active seats
+   (`capitol-trades`, `desk-manual`, `enterprise-computer`, `m5-allocator`,
+   `trade-desk`) correctly build no Ollama provider at all (non-LLM/manual/
+   data-feed). **The earlier "Ollie Max down = fleet LLM backend at risk"
+   flag was an overclaim, not a verified fact — retracted.** The live fleet
+   was never on olliemax; nothing to check before Monday open on this front.
 
 ### RETIRED (Admiral-approved, permanent, crontab comment updated)
 

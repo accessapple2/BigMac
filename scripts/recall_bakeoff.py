@@ -7,7 +7,11 @@ import sqlite3, json, urllib.request, sys, time
 import sqlite_vec
 
 DB = "/Users/bigmac/autonomous-trader/data/trader.db"
-OLLAMA = "http://192.168.1.168:11434/api/embed"
+# HM-OLLIEMAX-DECOMM-MISS-2026-08-30: was pointed at the decommissioned Ollie
+# Box (.168, decommissioned 2026-07); this one-time bake-off script isn't in
+# recall_refresh_run.sh's live call chain, but repointed anyway for
+# consistency -- same evaded-the-e7c3e7d-sweep class of bug.
+OLLAMA = "http://127.0.0.1:11434/api/embed"
 N_CORPUS = 500   # most-recent closed trades (manageable embed time; plenty for similarity)
 MODELS = [  # (label, ollama_model, dim, table)
     ("bge",   "bge-m3",              1024, "vec_trades_bge"),

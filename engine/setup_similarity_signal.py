@@ -51,9 +51,16 @@ except Exception:  # pragma: no cover
 
 _DB_PATH = str(Path(__file__).resolve().parent.parent / "data" / "trader.db")
 
-# bge-m3 won the HM-RECALL 4-way bake-off (scripts/recall_bakeoff.py). Embeds run on the
-# Ollie Box (.168) — same host the war room / refresh use. Keyless, free, local.
-OLLAMA_EMBED_URL = os.environ.get("RECALL_OLLAMA_URL", "http://192.168.1.168:11434/api/embed")
+# bge-m3 won the HM-RECALL 4-way bake-off (scripts/recall_bakeoff.py).
+# HM-OLLIEMAX-DECOMM-MISS-2026-08-30: was still pointed at the Ollie Box
+# (.168), decommissioned 2026-07 -- this constant evaded the e7c3e7d
+# consolidation sweep (2026-08-29). Repointed to local com.ollama.serve,
+# same convention as config.py/engine/reveille.py etc (OLLAMA_URL env var,
+# default 127.0.0.1). bge-m3 pulled locally (family "bert",
+# capabilities=["embedding"] only -- cannot load as a second chat model
+# alongside the qwen3:8b alias set; 566M params / ~1.2GB, small per
+# OLLAMA_MAX_LOADED_MODELS=1 already rotating chat models on this box).
+OLLAMA_EMBED_URL = os.environ.get("RECALL_OLLAMA_URL", "http://127.0.0.1:11434/api/embed")
 EMBED_MODEL = "bge-m3"
 EMBED_DIM = 1024
 
