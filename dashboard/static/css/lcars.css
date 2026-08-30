@@ -26,6 +26,15 @@
   --lc-font-data:  'Share Tech Mono', 'DM Mono', monospace;
 }
 
+/* HM-BRIDGE-AUDIT-2026-08-30: the icon-rail breakpoint (index.html's own
+   @media(max-width:1024px) and (min-width:769px) block) collapses .sidebar
+   to 60px, but --lc-sidebar-w never followed -- .main's margin-left and the
+   nav's calc(var(--lc-sidebar-w) + 16px) padding stayed locked to the full
+   220px, leaving a 160px dead band between the rail and the content. */
+@media (max-width: 1024px) and (min-width: 769px) {
+  :root { --lc-sidebar-w: 60px; }
+}
+
 /* ── 2. BASE OVERRIDES ───────────────────────────────────────────── */
 html, body {
   background: var(--lc-black) !important;

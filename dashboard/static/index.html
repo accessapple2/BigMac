@@ -35991,6 +35991,14 @@ setTimeout(function() {
 @media(max-width:1024px) and (min-width:769px){
   .sidebar{width:60px!important;}
   .sidebar .sidebar-item span:not(.icon){display:none!important;}
+  /* HM-BRIDGE-AUDIT-2026-08-30: .sidebar-item's label is a bare text node
+     (not a span), and .zone-header's label ("MARKET OPEN" etc.) is a bare
+     text node too -- neither is caught by the span:not(.icon) rule above,
+     so both overflowed the 60px rail. font-size:0 collapses any text
+     content regardless of markup shape; .icon gets its size back. */
+  .sidebar .sidebar-item,.sidebar .zone-header{font-size:0!important;justify-content:center!important;padding-left:0!important;padding-right:0!important;gap:0!important;}
+  .sidebar .sidebar-item .icon,.sidebar .zone-header .icon{font-size:16px!important;}
+  .sidebar .zone-header .zone-arrow{display:none!important;}
   .layout{grid-template-columns:60px 1fr!important;margin-left:0!important;}
   #tac-grid{grid-template-columns:1fr 1fr!important;}
 }
