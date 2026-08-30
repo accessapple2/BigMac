@@ -27,6 +27,7 @@ import math
 import os
 import sqlite3
 import sys
+import time
 from datetime import date, datetime, timezone
 
 import requests
@@ -79,25 +80,79 @@ def _key() -> str | None:
 
 
 # ── Chain snapshot (paginated) ─────────────────────────────────────────────
+# HM-GEX-THROTTLE (2026-08-30): Polygon is on the FREE tier (5 calls/min,
+# permanent -- see XO_BACKLOG). A full SPY chain is ~40 pages at 250/page, so an
+# unpaced fetch_chain burns the minute budget in seconds and every later page
+# returns 429. The old `if r.status_code != 200: break` treated that 429 as
+# end-of-chain and returned a TRUNCATED chain, which compute_gex then scored as
+# if complete -- silently wrong gamma, the same failure class as the
+# HM-GEX-SANITY 6-page-cap bug. Now: pace every call, retry 429 with backoff,
+# and DISCARD a partial page walk rather than score incomplete gamma.
+# Honest-alpha: abstain beats a fabricated number.
+POLYGON_MIN_INTERVAL_S = float(os.getenv("POLYGON_MIN_INTERVAL_S", "13"))
+POLYGON_MAX_RETRIES = int(os.getenv("POLYGON_MAX_RETRIES", "4"))
+_last_polygon_call = 0.0
+
+
+def _polygon_pace() -> None:
+    """Block until POLYGON_MIN_INTERVAL_S has elapsed since the last Polygon call."""
+    global _last_polygon_call
+    wait = POLYGON_MIN_INTERVAL_S - (time.monotonic() - _last_polygon_call)
+    if wait > 0:
+        time.sleep(wait)
+    _last_polygon_call = time.monotonic()
+
+
+def _polygon_get(url: str, params: dict, timeout: int = 20):
+    """Paced GET with explicit 429 handling. Returns a Response, or None if all
+    retries were exhausted. A None return means 'could not complete', NEVER
+    'no more data' -- callers must not treat it as end-of-chain."""
+    for attempt in range(POLYGON_MAX_RETRIES):
+        _polygon_pace()
+        try:
+            r = requests.get(url, params=params, timeout=timeout)
+        except Exception as e:
+            print(f"[options_flow_gex] request error ({e}) -- retry "
+                  f"{attempt + 1}/{POLYGON_MAX_RETRIES}", file=sys.stderr)
+            time.sleep(2 ** attempt)
+            continue
+        if r.status_code == 429:
+            backoff = POLYGON_MIN_INTERVAL_S * (2 ** attempt)
+            print(f"[options_flow_gex] HTTP 429 throttled -- backing off "
+                  f"{backoff:.0f}s (retry {attempt + 1}/{POLYGON_MAX_RETRIES})",
+                  file=sys.stderr)
+            time.sleep(backoff)
+            continue
+        return r
+    return None
+
+
 def fetch_chain(underlying: str, max_pages: int = 60) -> list:
     """FULL option chain snapshot via /v3/snapshot/options/{u} + next_url.
     Default 60 pages x 250 = up to 15k contracts (SPY full chain ~10k). The old
     6-page (1500) cap was the HM-GEX-SANITY bug — it truncated the chain."""
     key = _key()
     if not key:
+        print("[options_flow_gex] no Polygon key -- chain unavailable", file=sys.stderr)
         return []
     out = []
     url = f"{POLYGON_BASE}/v3/snapshot/options/{underlying}"
     params = {"apiKey": key, "limit": 250}
     pages = 0
     while url and pages < max_pages:
+        r = _polygon_get(url, params)
+        if r is None or r.status_code != 200:
+            why = "throttled/unreachable" if r is None else f"HTTP {r.status_code}"
+            print(f"[options_flow_gex] {underlying}: chain TRUNCATED at page "
+                  f"{pages} ({len(out)} contracts, {why}) -- discarding partial "
+                  f"chain rather than scoring incomplete gamma", file=sys.stderr)
+            return []
         try:
-            r = requests.get(url, params=params, timeout=20)
-            if r.status_code != 200:
-                break
             j = r.json()
-        except Exception:
-            break
+        except Exception as e:
+            print(f"[options_flow_gex] {underlying}: unparseable page {pages} "
+                  f"({e}) -- discarding partial chain", file=sys.stderr)
+            return []
         out.extend(j.get("results", []) or [])
         nxt = j.get("next_url")
         if nxt:
@@ -106,6 +161,13 @@ def fetch_chain(underlying: str, max_pages: int = 60) -> list:
         else:
             url = None
         pages += 1
+    if url is not None:
+        print(f"[options_flow_gex] {underlying}: hit max_pages={max_pages} with "
+              f"pages remaining -- discarding partial chain (raise max_pages)",
+              file=sys.stderr)
+        return []
+    print(f"[options_flow_gex] {underlying}: chain complete -- {len(out)} "
+          f"contracts in {pages} pages", file=sys.stderr)
     return out
 
 
@@ -113,9 +175,14 @@ def fetch_spot(underlying: str) -> float | None:
     key = _key()
     if not key:
         return None
+    r = _polygon_get(f"{POLYGON_BASE}/v2/aggs/ticker/{underlying}/prev",
+                     {"apiKey": key, "adjusted": "true"}, timeout=15)
+    if r is None or r.status_code != 200:
+        why = "throttled/unreachable" if r is None else f"HTTP {r.status_code}"
+        print(f"[options_flow_gex] {underlying}: spot fetch failed ({why})",
+              file=sys.stderr)
+        return None
     try:
-        r = requests.get(f"{POLYGON_BASE}/v2/aggs/ticker/{underlying}/prev",
-                         params={"apiKey": key, "adjusted": "true"}, timeout=15)
         res = (r.json().get("results") or [])
         return float(res[0]["c"]) if res else None
     except Exception:
