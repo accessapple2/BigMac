@@ -10176,3 +10176,18 @@ Executed baseline (BUY signals that went live): n=0/0/0 (1d/3d/5d with bars avai
 
 | Gate | Blocked (deduped) | Bars avail | mean/median fwd_1d | mean/median fwd_3d | mean/median fwd_5d | Structural? |
 |---|---|---|---|---|---|---|
+
+## HM-LIFECYCLE-CRON-GAP (2026-08-29)
+check_fleet_lifecycle_drift covers launchd jobs + ai_players only.
+Crontab entries have no ledger coverage: 16 quietdown-disabled scripts
+were restored and re-armed on 2026-08-29 with job_drift=[] reported.
+check_cron_missing_scripts catches entry->dead-path; nothing catches
+a quietdowned script coming back. Doctrine says manual edits become a
+sentinel finding — not true for cron.
+
+## HM-FALSE-RED-ALERT (2026-08-29)
+A RED ALERT was received describing a Season 2 rotation abort
+(31 rows vs 1 active, margin=10). No rotation ran: fleet is Season 7,
+trigger is Sunday-only, zero rotation lines in trader.log, and no
+working Pushover path exists. Text reproduces engine/season_manager.py:176
+verbatim including margin=10. Source unidentified.
