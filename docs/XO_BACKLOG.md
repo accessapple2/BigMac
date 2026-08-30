@@ -10398,14 +10398,45 @@ DAY_30=2026-07-24 instead of "today":
   2026-07-10 dry run.
 - **KEEP-eligible on G1+G2+G3: TRUE.**
 
-**Consequence — PENDING RE-ARGUMENT (Admiral order, 2026-08-30, supersedes
-the "NOT applied" wording above).** KEEP is closed and stays KEEP — G1-G3
-passed on the original 07-24 window, no re-score of G1-G4, not reopened.
-The KEEP branch's own consequence ("scale CSP book, halt all other
-strategies permanently... hardware stays") is neither applied nor waived
-pending a one-page case memo, due before Tuesday 2026-09-01 open:
-`docs/HM-DOOR1-KEEP-CONSEQUENCE-MEMO-2026-08-30.md`. Do not waive in this
-ledger until the case exists; do not apply a fleet halt before it either.
+**Consequence (fleet-wide halt of other strategies on KEEP) WAIVED
+2026-08-30 after re-argument.** Grounds: (1) pre-commitment text is the
+crowd-out reading, but the present-reason test fails — fleet dark
+07-22→08-29, 4/6 candidate seats zero trades since 07-15, remaining two
+immaterial (-$116.89 / +$17.49), and Door1's own CSP book dormant since
+06-29: no active edge exists to protect from no active competition; (2)
+the adjacent 06-19 precedent never enforced crowd-out in practice.
+Verdict KEEP unaffected. This waiver retires THIS consequence instance
+only — any future gate wanting crowd-out semantics must state it
+explicitly with a data-freshness condition (consequence expires if not
+rendered within N days of window close), so no standing order can fire
+stale again. Case memo: `docs/HM-DOOR1-KEEP-CONSEQUENCE-MEMO-2026-08-30.md`.
+
+**Systemic check, same session:** audited the rest of `docs/XO_BACKLOG.md`
+for other pending pre-committed consequences that could fire stale the
+same way. Found three, none need a patch:
+- **`options-sosnoff`/`qwen3-8b-flash` incumbent-audition gate** (Aug
+  15/16 verdict date, `engine.crew.audition_tracking`, and the earlier
+  2026-07-05 "6 weeks, no 20 trades → halt proposal" clause under
+  `HM-ROSTER-RECONCILE-8` — same two agents, same mechanism). **Already
+  safe by construction, not by luck:** the suspension
+  (`"suspended": True` in `audition_tracking.py`) is a hardcoded
+  code-level flag gated on `HM-ROUTE-TO-BROKER` shipping, not a
+  wall-clock check — confirmed `HM-ROUTE-TO-BROKER` is still 🔴
+  unstarted, so any gate-day script would correctly report "suspended,
+  not evaluable" today regardless of how stale its last run was. No
+  expiry condition needed; it can't fire on a date at all.
+- **Sniper Mode / `ollie-auto` proving-ground Day-60 `kill_warning`**
+  (2026-06-09 boundary, `main.py::run_proving_ground_evaluator`).
+  Different architecture — a live daily in-process evaluator with its
+  own state machine, not a static standing order in a doc. `ollie-auto`
+  is currently `halt_mode='shadow'`, not one of the evaluator's own
+  terminal states (`shipped`/`killed`), so its fate was resolved through
+  general fleet reclassification rather than the evaluator's CLI — worth
+  a look in its own session, but not the same bug class; adding a
+  doc-level expiry condition to live code would be the "new architecture"
+  this memo was told to avoid.
+- No other "if not checked by \[date\], consequence \[X\]" pattern found
+  in a search across the rest of the file.
 
 **Would the intervening 5 weeks change this verdict?** No — the CSP book
 made zero trades of any kind after 2026-06-29 (last entry) and has zero
