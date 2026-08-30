@@ -10654,3 +10654,139 @@ its next real cron fire (05:30 AZ tomorrow; tonight's manual verification ran
 outside the crontab's own log redirect). `gex_collector.log` remains the
 pre-existing, separately-tracked unverified item (first real post-fix cron
 firing also Monday).
+
+---
+## 🟢 HM-SENTINEL-BANNER-REGRESSION-INVESTIGATED — 2026-08-30, evidence-based correction
+
+Admiral flagged "3 of today's revives fail under cron despite passing
+manual verification," hypothesis: the ntfy migration's `engine.alert_channels`
+import works interactively but not under cron's env (PYTHONPATH/venv/cwd).
+Per sentinel doctrine, read each log's actual last lines before assuming
+the cause — the evidence did not support the hypothesis.
+
+### Item 1 — origin_healthcheck_cron.log / q_dissent_watch.log / uhura_cron.log
+
+**Not a cron-env import bug — verified, not assumed:**
+- All three logs' last-write mtimes predate tonight's revival work entirely
+  (`origin_healthcheck_cron.log` 08-29 21:40, `q_dissent_watch.log` 08-28
+  13:40, `uhura_cron.log` 08-29 05:30) — the stale content is pre-existing,
+  not a new post-revival failure.
+- **`origin_healthcheck.sh` is not failing — it's running fine, every 5
+  minutes, silently.** Cross-checked `trader.log`'s `/api/status` access
+  log: hits land every 5 minutes matching the cron schedule exactly
+  (11:35:01, 11:40:00/01, 11:45:02, ...), all fast (<1s), confirming real
+  healthchecks succeeding. The script is silent-on-success by design (no
+  restart needed = no log line at all), which is the SAME blind spot
+  already documented earlier tonight, not a regression.
+- `q_dissent_watch.py`'s schedule (weekdays 6-13 AZ) has had **zero**
+  scheduled opportunities since revival — today is Sunday. `uhura_agent.py`
+  (daily 05:30 AZ) also had zero — today's 05:30 slot passed hours before
+  the file was revived. Neither has failed; neither has been asked to run
+  yet.
+- **Directly tested the PYTHONPATH/venv/cwd hypothesis anyway**, since it's
+  a real class of bug worth ruling out explicitly rather than just
+  asserting: ran both scripts' exact crontab invocation strings under a
+  fully stripped environment (`env -i PATH=/usr/bin:/bin:/opt/homebrew/bin
+  HOME=/Users/bigmac`, matching real cron's minimal env) — both the
+  `engine.alert_channels` import and the full script logic succeed cleanly.
+  No PYTHONPATH/venv/cwd issue exists; both scripts insert the repo root
+  into `sys.path` themselves.
+
+**Fixed anyway — the real, adjacent problem: the sentinel can't tell
+"silently healthy" from "still broken."** Added an unconditional one-line
+heartbeat to both `origin_healthcheck.sh` (stdout, after all checks,
+captured by the crontab's own redirect) and `q_dissent_watch.py` (the two
+`return 0` no-op paths) so every real tick — success, no-op, or failure —
+leaves fresh, distinguishable log content. **Verified with a real cron
+tick, not a manual run** (per the Admiral's standing instruction going
+forward): polled `origin_healthcheck_cron.log`'s mtime, caught the real
+11:55:01 tick firing live, confirmed the new heartbeat line landed as the
+last line, re-ran the sentinel — `origin_healthcheck_cron.log` cleared from
+`broken`. `q_dissent_watch.py`'s next real tick is tomorrow (Monday,
+weekday-gated) — cannot be verified by a real tick tonight; not faked with
+another manual run. `uhura_agent.py` doesn't need this fix (never
+silent — always logs full scan output) — just needs its 05:30 AZ tick
+tomorrow.
+
+### Item 2 — gex_collector.log
+
+Same pattern, read directly: log's last write (08-28 13:05) predates the
+script's 08-29 06:50 restoration (a separate, earlier session's fix, not
+part of tonight's 16-script batch — correcting the "it was in the dropped
+batch" framing). Crontab schedule is weekday-only 06:05 AZ; today is
+Sunday. No code defect found — nothing to repoint. Resolves at Monday's
+real tick, same as items above.
+
+### Item 3 — the 11 stale launchd entries
+
+Checked each individually (StandardOutPath/ErrorPath vs the sentinel's
+`LAUNCHD_JOB_REGISTRY`, actual file mtimes, and each plist's real
+`StartCalendarInterval`) rather than accepting the "self-adapting" claim
+at face value a second time:
+
+- **`hm-wr-dur-monday-check` — genuinely dead, retired.** Its
+  `StartCalendarInterval` is a **one-shot hardcoded date, `{Year: 2026,
+  Month: 7, Day: 20, Hour: 9, Minute: 0}`**, `RunAtLoad=false` — confirmed
+  via direct plist read. Never fires again regardless of enabled state.
+  Same dead-one-shot pattern as `hm-signals-v2-monday-check`/`-verify`
+  (retired earlier tonight, `8bed0fc`) — missed in that pass, caught now.
+  Retired via `fleet_lifecycle.py` (ledger confirms `retire` superseding
+  the 08-29 `revive`; `launchctl print-disabled` confirms `disabled`) and
+  removed from `LAUNCHD_JOB_REGISTRY` — the ledger-skip alone would have
+  been sufficient going forward, removed from the dict too since it's no
+  longer part of the 08-29-reactivated set the registry's own docstring
+  describes.
+- **`archer-briefing` — real log-path bug, repointed.** Registry pointed
+  at `logs/archer_briefing.log` (the plist's `StandardOutPath`), which is
+  **permanently 0 bytes** — `engine/archer_morning_synthesis.py`'s real
+  output goes through Python's `logging` module, which defaults to
+  **stderr**, not stdout. `archer_briefing_err.log` had today's real 06:25
+  briefing content the whole time. Repointed the registry entry.
+  **Found and fixed a real bug along the way**: the same stderr routing
+  meant `from engine.alert_channels import _send_ntfy` (no `sys.path`
+  setup in the file — launchd invokes it by direct script path, which
+  puts `engine/` on `sys.path[0]`, not the repo root) was failing with
+  `No module named 'engine'` on **every single run**, silently caught by a
+  broad `except`, logged as a mere warning — the briefing itself always
+  saved fine, but ntfy delivery never actually fired, ever. Added the same
+  `sys.path.insert(0, repo_root)` pattern used elsewhere; verified the
+  import succeeds under a simulated direct-invocation + stripped-env test
+  matching launchd's real behavior, and confirmed `py_compile` clean under
+  the actual runtime this job uses (`venv/bin/python3`, Python 3.9 — not
+  `.venv`).
+- **`uhura-watch` — is NOT the same thing as tonight's `uhura_agent.py`
+  cron revival; correcting that premise.** `scripts/uhura_watch.py`
+  ("Uhura-Watch — Fleet Health Monitor," launchd) and
+  `agents/uhura_agent.py` (SEC EDGAR 13F/insider intel, cron, revived
+  tonight) are two unrelated scripts that happen to share a name — same
+  name-collision trap flagged in the original classification report.
+  Left `uhura-watch` in the registry unchanged — it's correctly scheduled
+  (weekdays 6:30 AM–1 PM AZ), just hasn't had a real tick since the 08-29
+  22:02 revive (today's Sunday). Not dropped, not repointed — there was
+  nothing wrong with it.
+- **The other 8** (`universe-refresh`, `iv-backfill`, `danelfin-update`,
+  `enrichment-poller`, `scotty`, `daily-watch`, `morning-an2-observation`,
+  `stale-trim-obs`) — checked every plist's real `StandardOutPath` against
+  the registry: all match exactly. Checked every real `StartCalendarInterval`:
+  all are legitimate recurring weekly/weekday/daily schedules, none yet
+  due since the 08-29 22:02 revive. 4 fire later **today** (`universe-refresh`
+  14:00, `daily-watch` 13:30 daily, `danelfin-update` 20:00, `enrichment-poller`
+  23:00 — all Sunday-inclusive schedules); the rest are weekday-only, next
+  real tick Monday. No registry changes needed — these will self-clear on
+  their own normal schedule, which is correct behavior, not a bug.
+
+### Verification
+
+`hm_ops_sentinel.py --dry-run` after all fixes: `launchd` stale count
+**11 → 9** (both real fixes confirmed: `hm-wr-dur-monday-check` no longer
+checked at all, `archer-briefing` cleared). `cron` broken count **6 → 3**
+(origin_healthcheck cleared via a real verified tick; the remaining 3 have
+no real tick available until Monday, not fixable tonight without faking
+verification). `lifecycle_drift` stays `{[], [], []}` throughout — no
+new drift introduced.
+
+**Not achieved tonight, and not fakeable per the new standard:** `banner 2`
+(cron) at true zero and the 9 remaining launchd entries all require ticks
+that are hours-to-a-day away on their own real schedules. Recommend a
+follow-up check Monday afternoon once weekday schedules have had a full
+cycle, rather than treating tonight's 9/3 remainder as unresolved.

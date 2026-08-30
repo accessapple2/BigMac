@@ -17,10 +17,24 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import sys
 from datetime import datetime
 from pathlib import Path
 
 import requests
+
+# HM-ARCHER-NTFY-IMPORT-FIX-2026-08-30: launchd invokes this by direct script
+# path (ProgramArguments), which puts engine/ (this file's own directory) on
+# sys.path[0], not the repo root -- WorkingDirectory does NOT add cwd to
+# sys.path for a `python3 script.py` invocation, only for `-c`/interactive.
+# `from engine.alert_channels import _send_ntfy` below has been silently
+# failing every single run ("No module named 'engine'"), caught by the
+# broad except and logged as a mere warning -- the briefing itself always
+# saved fine, but ntfy delivery never actually fired. Confirmed live in
+# archer_briefing_err.log, 06:25 today.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 logging.basicConfig(
     level=logging.INFO,

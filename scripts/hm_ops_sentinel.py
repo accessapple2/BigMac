@@ -636,13 +636,26 @@ LAUNCHD_JOB_REGISTRY: dict[str, tuple[str, float]] = {
     "nightly-backtest":                  ("logs/nightly_backtest.log", 30.0),  # lives under ~/ollietrades/logs, checked via absolute fallback below
     "nightly-regression":                ("logs/nightly_regression_launchd.log", 30.0),
     "daily-watch":                       ("logs/daily_watch_stdout.log", 30.0),
-    "hm-wr-dur-monday-check":            ("logs/hm_wr_dur_monday_check_stdout.log", 192.0),
     "morning-an2-observation":           ("logs/morning_an2_observation_stdout.log", 48.0),
     "stale-trim-obs":                    ("logs/stale_trim.out.log", 48.0),
     "finetune-reminder":                 ("logs/finetune_reminder.log", 30.0),
     "hm-signals-v2-monday-check":        ("logs/hm_signals_v2_monday_check_stdout.log", 192.0),
     "hm-signals-v2-monday-check-verify": ("logs/hm_signals_v2_monday_check_verify_stdout.log", 192.0),
-    "archer-briefing":                   ("logs/archer_briefing.log", 30.0),  # lives under ~/ollietrades/logs, checked via absolute fallback below
+    # HM-SENTINEL-REGISTRY-FIX-2026-08-30: was "logs/archer_briefing.log" (the
+    # plist's StandardOutPath) -- that file is permanently 0 bytes because
+    # engine/archer_morning_synthesis.py's real output goes through Python's
+    # `logging` module, which defaults to stderr, not stdout. Confirmed live:
+    # archer_briefing.log empty, archer_briefing_err.log has today's real
+    # 06:25 briefing content. Repointed to the file that's actually written.
+    # hm-wr-dur-monday-check REMOVED (not just repointed): confirmed via
+    # plist read to be a one-shot StartCalendarInterval hardcoded to
+    # 2026-07-20 (RunAtLoad=false) -- never fires again regardless of
+    # enabled state. Retired via fleet_lifecycle.py 2026-08-30 (same
+    # dead-one-shot pattern as hm-signals-v2-monday-check/-verify, missed in
+    # that earlier pass). Ledger-skip already excludes it from `stale`
+    # going forward; removed here too since the registry's own docstring
+    # says it tracks the 08-29-reactivated set, which this no longer is.
+    "archer-briefing":                   ("logs/archer_briefing_err.log", 30.0),
 }
 # Three of the registry's logs live under the ~/ollietrades/ tree (a
 # sibling project dir), not this repo's own logs/ -- rather than a second

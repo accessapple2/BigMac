@@ -60,6 +60,7 @@ def main() -> int:
         if not conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='crew_dissent_log'"
         ).fetchone():
+            print("[q-dissent-watch] no-op: crew_dissent_log table absent")
             return 0
         rows = conn.execute(
             "SELECT id, symbol, dissenter_call, consensus_call, dissent_magnitude, "
@@ -71,6 +72,11 @@ def main() -> int:
         conn.close()
 
     if not rows:
+        # HM-SENTINEL-HEARTBEAT-2026-08-30: was a silent `return 0` -- the
+        # common case (no new dissents) left the log completely untouched,
+        # so hm_ops_sentinel's last-line-of-log check couldn't distinguish
+        # "checked, nothing new" from "still broken with stale content."
+        print(f"[q-dissent-watch] no-op: no new Q dissents since id={last}")
         return 0
 
     max_id = last

@@ -45,3 +45,12 @@ check_and_restart "status_page"      "http://localhost:8090/"           "scripts
 # status check). tour_api_restart.sh handles its self-respawn-loop
 # architecture correctly (kills the wrapper too, not just the process).
 check_and_restart "tour-api"         "http://localhost:8088/api/tour/health" "scripts/tour_api_restart.sh"
+
+# HM-SENTINEL-HEARTBEAT-2026-08-30: silent-on-success meant a healthy run
+# left the crontab-redirect log (origin_healthcheck_cron.log) completely
+# untouched -- hm_ops_sentinel's check_cron_missing_scripts reads that
+# file's last line and had no way to tell "silently fine" from "still
+# broken with stale pre-fix error content." Unconditional one-line
+# heartbeat to stdout (captured by the crontab's own >> redirect, not the
+# internal $LOG) so every real tick leaves fresh, unambiguous evidence.
+echo "$(date '+%Y-%m-%dT%H:%M:%S%z') origin_healthcheck tick OK"
