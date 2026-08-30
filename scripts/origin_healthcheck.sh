@@ -14,9 +14,25 @@ check_and_restart() {
   if ! curl -sf --max-time 8 "$url" >/dev/null 2>&1; then
     echo "$(date): $name failed healthcheck ($url) — restarting" >> "$LOG"
     bash "$restart_script" >> "$LOG" 2>&1
-    curl -s -m 10 -H "Title: $name restarted (failed healthcheck)" \
-      -d "Healthcheck to $url failed. Restart script $restart_script fired at $(date)." \
-      "https://ntfy.sh/$NTFY_TOPIC" >/dev/null 2>&1
+    # HM-NTFY-MIGRATE-2026-08-30: was a raw curl straight to ntfy.sh, bypassing
+    # the hardened engine.alert_channels sender (DECOM-SILENCE guard, Pushover
+    # RED_ALERT lane, per-alert-type rate limit, 429 backoff) -- pre-dates the
+    # 2026-08-28 429-remediation pass. Shells out to the real sender instead.
+    ORIGIN_HC_NAME="$name" ORIGIN_HC_URL="$url" ORIGIN_HC_SCRIPT="$restart_script" \
+      .venv/bin/python3 -c "
+import os, sys
+sys.path.insert(0, '.')
+from engine.alert_channels import send_alert, AlertLevel
+name = os.environ['ORIGIN_HC_NAME']
+url = os.environ['ORIGIN_HC_URL']
+script = os.environ['ORIGIN_HC_SCRIPT']
+send_alert(
+    f'Healthcheck to {url} failed. Restart script {script} fired.',
+    AlertLevel.WARNING,
+    'origin_healthcheck_restart',
+    title=f'{name} restarted (failed healthcheck)',
+)
+" >> "$LOG" 2>&1
   fi
 }
 

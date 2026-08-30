@@ -15,9 +15,20 @@ rc=$?
 echo "[$(date '+%Y-%m-%dT%H:%M:%S%z')] recall_refresh exit=$rc" >> "$LOG"
 
 if [ $rc -ne 0 ]; then
-    /usr/bin/curl -s -m 10 \
-        -H "Title: HM-DEJAVU recall_refresh FAILED (rc=$rc)" \
-        -d "$(/usr/bin/tail -n 8 "$LOG" 2>/dev/null)" \
-        https://ntfy.sh/ollietrades-admin >/dev/null 2>&1
+    # HM-NTFY-MIGRATE-2026-08-30: was a raw curl straight to ntfy.sh, bypassing
+    # the hardened engine.alert_channels sender (DECOM-SILENCE guard, Pushover
+    # RED_ALERT lane, per-alert-type rate limit, 429 backoff) -- pre-dates the
+    # 2026-08-28 429-remediation pass. Uses the main .venv (not .venv-recall --
+    # engine.alert_channels needs no sqlite_vec) purely for the notification.
+    RECALL_RC="$rc" RECALL_TAIL="$(/usr/bin/tail -n 8 "$LOG" 2>/dev/null)" \
+        "$ROOT/.venv/bin/python3" -c "
+import os, sys
+sys.path.insert(0, '.')
+from engine.alert_channels import send_alert, AlertLevel
+rc = os.environ['RECALL_RC']
+tail = os.environ.get('RECALL_TAIL', '')
+send_alert(tail, AlertLevel.WARNING, 'recall_refresh_failed',
+           title=f'HM-DEJAVU recall_refresh FAILED (rc={rc})')
+" >> "$LOG" 2>&1
 fi
 exit $rc
