@@ -7940,15 +7940,33 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
       ]).then(([gex, regime, h]) => {
         const $ = id => document.getElementById(id);
 
-        // Status badge — green when GEX data is live, grey otherwise
+        // Status badge — green ONLY when GEX data is both present AND current.
+        // HM-GEX-STALE-ARM (2026-08-30): `armed` used to check presence only, so a
+        // 2026-07-21 snapshot (Polygon options went 403 NOT_AUTHORIZED on the free
+        // tier) kept this panel badged '🟢 LIVE — RULES ACTIVE' and asserting a
+        // NEGATIVE GAMMA regime off six-week-old levels. Levels still render, dated,
+        // because they aren't wrong -- they're old. But a rules engine must never arm
+        // on them. Age is checked even once a live source is wired: CBOE delayed
+        // quotes are yesterday's close, which is fine to show and not fine to arm on.
         const badge = $('bs0dteStatus');
-        const armed = !!(gex && gex.spot && gex.put_wall && gex.call_wall && gex.gamma_flip);
+        const _gexAgeDays = (function() {
+          if (!gex || !gex.timestamp) return null;
+          const t = new Date(String(gex.timestamp).replace(' ', 'T'));
+          if (isNaN(t)) return null;
+          return Math.floor((Date.now() - t.getTime()) / 86400000);
+        })();
+        const _hasLevels = !!(gex && gex.spot && gex.put_wall && gex.call_wall && gex.gamma_flip);
+        const _isFresh = _gexAgeDays !== null && _gexAgeDays < 1;
+        const armed = _hasLevels && _isFresh;
         if (armed) {
           badge.style.background = 'rgba(13,115,55,0.2)'; badge.style.color = '#0d7337';
           badge.textContent = '🟢 LIVE — RULES ACTIVE';
         } else {
           badge.style.background = '#6b728022'; badge.style.color = '#6b7280';
-          badge.textContent = 'OFFLINE — ' + (_mktIsOpen() ? 'No scan data' : 'Market closed');
+          badge.textContent = 'OFFLINE — ' + (
+            (_hasLevels && !_isFresh)
+              ? ('GEX STALE (' + (_gexAgeDays === null ? 'undated' : _gexAgeDays + 'd old') + ')')
+              : (_mktIsOpen() ? 'No scan data' : 'Market closed'));
         }
 
         // Levels — sourced from /api/gex/SPY
@@ -7970,7 +7988,12 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
 
         // Regime note
         const regimeEl = $('bs0dte-regime');
-        if (regimeEl && gex && gex.spot && gex.gamma_flip) {
+        if (regimeEl && _hasLevels && !_isFresh) {
+          regimeEl.textContent = '⚪ GAMMA REGIME UNAVAILABLE — snapshot '
+            + (_gexAgeDays === null ? 'undated' : _gexAgeDays + ' days old')
+            + ' (levels shown are historical, not current)';
+          regimeEl.className = 'bs0dte-regime-note';
+        } else if (regimeEl && gex && gex.spot && gex.gamma_flip) {
           if (gex.spot > gex.gamma_flip) {
             regimeEl.textContent = '🟢 POSITIVE GAMMA — dealers dampen moves, range-bound favored';
             regimeEl.className = 'bs0dte-regime-note pos-gamma';
