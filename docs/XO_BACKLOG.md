@@ -10292,3 +10292,71 @@ A RED ALERT was received describing a Season 2 rotation abort
 trigger is Sunday-only, zero rotation lines in trader.log, and no
 working Pushover path exists. Text reproduces engine/season_manager.py:176
 verbatim including margin=10. Source unidentified.
+
+---
+## 🟡 HM-QUIETDOWN-STALE-JOBS-CLASSIFICATION — 2026-08-30 (report-only, no revives executed)
+
+Requested: classify the 16 cron-scheduled scripts still sitting as
+`*.quietdown-disabled-2026-07-22` (renamed away during the fleet
+stand-down, never reversed — see [[project_ollietrades_final_quietdown_2026-07-22]]
+and `HM-LIFECYCLE-CRON-GAP` above, which is the same population: these
+scripts sit entirely outside `fleet_lifecycle_ledger` coverage — only
+`job` [launchd] and `agent` [ai_players] target types exist there, no
+`cron` type, confirmed by a full 2026-08-29 ledger scan turning up zero
+rows for any of these 16 names). Two required columns per job:
+**current-writer** (is something else already producing this output
+today?) and **stale-ref screen** (olliemax / direct-Polygon / per-run
+ntfy-curl, all pre-dating the 2026-08-28 429-remediation pass —
+`relay_2026-08-28_429-remediation-A-and-D.md`). **No revives executed
+this pass** — report only, Admiral picks.
+
+**Worked examples that seeded the method** (both confirmed live,
+neither is one of the 16 — they're separate `job`-type launchd entries
+that already went through a proper fleet_lifecycle revive 2026-08-29
+22:02:55/56 UTC): `uhura-watch` (`scripts/uhura_watch.py`, a *fleet
+health monitor*, unrelated to `agents/uhura_agent.py` despite the name)
+hasn't fired since revival (next trigger Mon 08-31, weekday-only
+schedule) — but the "uhura signal" a viewer actually sees today comes
+from a third, fully independent system: `/api/uhura/signal`
+(`dashboard/app.py:18511`, backed by `engine.uhura`'s live GEX/IV/skew/
+congress/arena confluence compute, cached 120s) — real-time, dashboard-
+poll-driven, no relation to either disabled Uhura job. `archer-briefing`
+(`engine/archer_morning_synthesis.py`) fired clean at its 06:25 AZ slot
+this very morning — `archer_briefings` id 114, `created_at 2026-08-30
+13:25:03` (UTC) confirms it live.
+
+### Classification table
+
+| # | Script | Historical output | Current-writer check | Stale-ref screen | Verdict |
+|---|--------|-------------------|----------------------|-------------------|---------|
+| 1 | `agents/uhura_agent.py` | SEC EDGAR 13F/Form-4 intel officer → `institutional_holdings`/`institutional_signals`/`insider_trades` | **No.** Both `institutional_signals` and `insider_trades` last wrote 2026-07-22 (12:46:49 / 12:30:39), nothing since. **Not** the same "Uhura" as the live `/api/uhura/signal` endpoint above — different data, different code, name collision only. Genuinely dead pipeline, no substitute. | Clean — no ntfy, olliemax, or Polygon calls at all. | **Revive candidate** |
+| 2 | `scripts/q_dissent_watch.py` | NTFY on Q's (Grok War Room voice) first live crew dissent | No current watcher, but also no fresh event to watch: `crew_dissent_log` last Q dissent 2026-07-18 — pre-dates even the quietdown. | **Fails** — direct `urllib.request.urlopen()` straight to `ntfy.sh`, own ad hoc IPv4 lock; bypasses the hardened `engine.alert_channels._send_ntfy()` (DECOM-SILENCE guard + 429 backoff). | Needs ntfy migration before revival |
+| 3 | `scripts/kimi_cut_watch.py` | NTFY when `ollama-kimi` crosses cut threshold (Sharpe<0, ≥25 closed) | **Moot.** `ollama-kimi` is `halt_mode='full'` — cut already executed 2026-06-19 ("door1-cut: -$1368 realized, negative-expectancy bleeder", backfilled into `fleet_lifecycle_ledger` 2026-08-29). The decision this script exists to trigger happened two months ago. | Fails — same direct-`urlopen` pattern as #2. | **Do not revive** — purpose already fulfilled |
+| 4 | `engine/fleet_auditor.py` | `data/health_manifest.json` + ntfy on UP/DOWN transitions | **Ambiguous, leaning no.** The manifest file shows `generated_at: 2026-08-30T02:30:01Z` (genuinely fresh) but `from engine.fleet_auditor import run_audit` fails live right now (`ModuleNotFoundError` — confirmed by direct import test), no commit touched the file today, and the dashboard's own `/api/health-manifest` lazy-refresh path (triggers `run_audit()` when the manifest is >20min stale) is silently broken by the same missing import. Most likely explanation: a one-off manual audit run during tonight's earlier ops-triage, not a standing substitute. | Fails — direct `urlopen()` `_push_ntfy`. | Needs ntfy migration; note the dashboard's silent self-heal breakage regardless of revive decision |
+| 5 | `engine/riker_synthesis.py` | Riker XO narrative synthesis | **N/A — already decided, not a candidate.** CLAUDE.md documents code-level retirement 2026-06-24 (`main.py` scheduler removed, not paused); the `riker-synthesis` **job** was formally `retire`d again in `fleet_lifecycle_ledger` 2026-08-29 22:03:04 ("code-retired 06-24, tombstoned"). Bridge live intel layer is the documented substitute. | Was already clean (routed through `alert_channels._send_ntfy()`), moot either way. | **Off this list** — only the file-rename bookkeeping is left, not a revive decision |
+| 6 | `scripts/origin_healthcheck.sh` | Actual HTTP-response checks (not just process liveness) for bridge/signal-center/swingdesk/status_page/tour_api, auto-restart + ntfy | **No.** `hm_ops_sentinel.py` (live, `*/5`) checks heartbeat files and launchd status, not live HTTP responses — doesn't replicate the "wedged-but-alive, passes pgrep, fails HTTP" case this script exists for. `watchdog.py` covers process liveness only. Real, uncovered gap while this stays dark. | Fails — direct curl to `ntfy.sh`. | Needs ntfy migration; genuine monitoring gap in the meantime |
+| 7 | `scripts/situation_report.py` | Twice-daily 3-line fleet status via ntfy | **Partial overlap, not a strict substitute.** `kirk_briefing.py` (revived, 4x/day: premarket/open/power-hour/after-close) covers similar territory but is a different persona/format. | **Clean** — already routes through `engine.ntfy._fire()` → hardened `alert_channels._send_ntfy()`. | Clean screen; flag possible redundancy with `kirk_briefing` for Admiral's call |
+| 8 | `scripts/ollama_prewarm.sh` | Cron pre-warm before ~06:51 AZ market-open cold-start (bridge-wedge fix) | **Likely moot, not confirmed.** `com.ollama.serve`'s `OLLAMA_KEEP_ALIVE=-1` (set 2026-08-27) means the shared model no longer unloads — the cold-start failure mode this script exists to prevent may no longer occur at all. No live cold-start test run to confirm. | Fails — direct curl to `ntfy.sh`. Also targets a specific model/host that predates the 2026-08-25/27 Ollama alias situation — needs re-verification against the current model roster before any revival regardless of the KEEP_ALIVE question. | Low priority either way |
+| 9 | `scripts/regime_refresh_runner.py` | Decoupled intraday regime refresh (fixes in-trader scheduler starvation after 06:30 open) | **No — and the bug it fixes is confirmed still live.** `regime_history` gets exactly one row per date (~06:55–06:59 AZ, at/near open) and zero updates the rest of the session, every day checked 2026-08-27 through 08-30. Matches the original failure description exactly. | **Clean** — no ntfy, olliemax, or Polygon calls. | **Strongest revive candidate on the list** |
+| 10 | `scripts/recall_refresh_run.sh` | Incremental recall-corpus embed refresh (`.venv-recall` only) | **Not fully characterized.** `recall_corpus` holds 252 rows; didn't verify whether that's caught up to closed-trade volume or badly behind — needs a 5-minute check before deciding, not resolved here. | Fails — direct curl to `ntfy.sh`. | Needs ntfy migration regardless; current-writer status inconclusive |
+| 11 | `scripts/daily_report.py` | `drafts/DAILY_REPORT_<date>.md` + `drafts/daily_ledger.csv`, 22:00 UTC | **No** — nothing has produced these files since 07-21. | Clean — no ntfy at all. | **Collides with #13** — see note below |
+| 12 | `fleet_realism_sweep_clean_window.py` | Weekly Sunday clean-window backtest sweep → `reports/fleet_realism_sweep_clean_*.json` | **No.** No report newer than 2026-07-05; nothing else runs this backtest. | **Clean** — no ntfy, olliemax, or Polygon calls. | **Revive candidate** |
+| 13 | `scripts/eod_report.py` | Same `drafts/DAILY_REPORT_<date>.md` + `daily_ledger.csv`, 14:00 UTC | **No** — same as #11. | Clean — already uses `engine.alert_channels.send_alert`/`AlertLevel` (hardened). Note: its own header claims "no ntfy push" while the code imports `send_alert` — minor doc/behavior mismatch, not a blocker. | **Collides with #11** — see note below |
+| 14 | `scripts/iren_flip_watch.py` | IREN ticker flip-watch, "self-removing" | **No.** | Fails — direct `urlopen` to `ntfy.sh`. Also independently re-flagged 2026-08-28 (HM-429-REMEDIATION-D) as an active error source, with a crontab comment incorrectly claiming the file "no longer exists on disk (deleted, not renamed)" — it's present, just renamed; that comment was never actually checked. | Lowest-priority candidate — needs the ntfy fix and a look at the pre-existing error before reviving |
+| 15 | `scripts/door1_kill_gate_check.py` | Fleet-wide Door-1 G1-G4 kill-gate, compute-and-push only, never acts | **No, and the decision date it served may have been silently missed.** The G1-G4 verdict was dated **2026-07-24**, but the quietdown disabled this script on **2026-07-22** — two days before it could fire even once at the decision date. Nothing in this file records a verdict ever being rendered. Last live dry-run (2026-07-10): G1/G2/G3 PASS, G4 N/A. | Fails — `subprocess.run(["curl", ...])` direct to `ntfy.sh`. | Needs ntfy migration; **the missed 07-24 verdict is a separate, bigger question than routine revival** — flagging for its own Admiral call |
+| 16 | `scripts/ollie_machine_kill_gate_check.py` | Single-agent `ollie-machine` kill gate, same compute-and-push pattern, dated **2026-07-24** | **Same gap as #15.** `ollie-machine`'s only ledger entry (`active`, 2026-08-29) is an unrelated backfilled baseline, not a 07-24 ruling. Verdict never computed. | Fails — identical direct-curl pattern to #15. | Same as #15 |
+
+**Notes:**
+- **#11/#13 file collision** is a real structural bug pre-dating the
+  quietdown (different cron times, same output path) — reviving both
+  would recreate it. Pick one, not both.
+- **#4's dashboard self-heal breakage** (`/api/health-manifest` silently
+  no-ops on a missing import) exists independent of whether
+  `fleet_auditor.py` gets revived — worth its own look either way.
+- **#15/#16's missed 07-24 verdict dates** are the one finding here that
+  isn't really a "revive y/n" question — the Admiral may want either
+  gate computed retroactively against current data before deciding
+  anything about the cron line.
+- Full per-script investigation (DB queries, live import tests, launchd
+  plist reads, ledger scans) in the session transcript if more detail
+  than this table is ever needed.
