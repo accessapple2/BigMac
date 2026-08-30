@@ -5913,14 +5913,12 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
       <span class="tac-bar-label">Bear/CS</span>
       <div class="tac-bar-wrap"><div class="tac-bar seg-bear" id="tgt-bear" style="width:15%"></div></div>
       <span class="tac-bar-pct" id="tgt-bear-pct">15%</span>
-      <div class="tac-bar-wrap tac-bar-wrap-act"><div class="tac-bar seg-bear-act" id="act-bear" style="width:0%"></div></div>
-      <span class="tac-bar-pct tac-act-pct" id="act-bear-pct">—</span>
+      <span class="tac-bar-pct tac-act-pct" style="opacity:0.4;grid-column:span 2;" title="Actual bear-call-spread exposure isn't separable from other option structures in the positions data — not tracked, not a live zero.">n/a</span>
 
       <span class="tac-bar-label">IC</span>
       <div class="tac-bar-wrap"><div class="tac-bar seg-ic" id="tgt-ic" style="width:10%"></div></div>
       <span class="tac-bar-pct" id="tgt-ic-pct">10%</span>
-      <div class="tac-bar-wrap tac-bar-wrap-act"><div class="tac-bar seg-ic-act" id="act-ic" style="width:0%"></div></div>
-      <span class="tac-bar-pct tac-act-pct" id="act-ic-pct">—</span>
+      <span class="tac-bar-pct tac-act-pct" style="opacity:0.4;grid-column:span 2;" title="Actual iron-condor exposure isn't separable from other option structures in the positions data — not tracked, not a live zero.">n/a</span>
 
       <span class="tac-bar-label">Short</span>
       <div class="tac-bar-wrap"><div class="tac-bar seg-short" id="tgt-short" style="width:5%"></div></div>
@@ -6283,9 +6281,9 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
         if(bar)bar.style.width=Math.min(val,100)+'%';
         if(pctEl){pctEl.textContent=val.toFixed(1)+'%';pctEl.style.color=Math.abs(val-tgt)>5?'#ea580c':'#2563eb';}
       }
+      // Bear/CS and IC have no actual-side element -- positions data can't
+      // separate their notional from other option structures (see HTML).
       _setAct('long', actual.long_equity,   (alloc.long_equity||0)*100);
-      _setAct('bear', null,                 bearT);
-      _setAct('ic',   null,                 icT);
       _setAct('short',actual.short_equity,  shortT);
       _setAct('cash', actual.cash,          (alloc.cash||0)*100);
     } catch(e) {
@@ -8450,8 +8448,6 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
     </div>
     <div id="wb-recent-trades" style="padding:0 0 8px;font-size:12px;"></div>
   </div>
-</div>
-
 <!-- ═══════════════════════════════════════════════════════════════════
      PRODUCTION TRUTH SECTION
 ════════════════════════════════════════════════════════════════════ -->
@@ -11680,9 +11676,6 @@ document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') closeTickerPopup();
 });
 </script>
-
-<!-- SCREENER PRO SECTION -->
-</div>
 
 <!-- HM-OLLIE-AI-WORKSPACE 2026-05-23 Step 2 (v4.3): Concept 5 — Workspace sub-view.
      North-star spec: docs/design/USS-Trademinds-Dashboard-Redesigns-v4.3-FINAL.html L310-374.

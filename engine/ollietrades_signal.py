@@ -973,7 +973,10 @@ def _resolve_fleet_average(window_days: int) -> dict:
             r = calculate_rating(pid, period)
             r["display_name"] = dname
             rows.append(r)
-    with_trades = [r for r in rows if (r.get("total_trades") or 0) > 0]
+    # calculate_rating() returns an early N/A dict (total_trades set, but no
+    # win_rate/total_pnl keys) for agents with <2 clean trades -- filtering on
+    # total_trades alone let a 1-clean-trade agent through and KeyError'd below.
+    with_trades = [r for r in rows if (r.get("total_trades") or 0) > 0 and "win_rate" in r]
     if not with_trades:
         return {"wr": None, "n": 0, "total_pnl": None}
     avg_wr = sum(r["win_rate"] for r in with_trades) / len(with_trades) / 100.0  # -> fraction, matches other series

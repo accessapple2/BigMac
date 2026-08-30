@@ -836,6 +836,24 @@ def test_resolve_fleet_average_no_trades_returns_none_not_crash(temp_db):
     assert result["n"] == 0
 
 
+def test_resolve_fleet_average_skips_na_rating_with_one_clean_trade(temp_db):
+    """Live 500 reproduced 2026-08-30 (Bridge audit): calculate_rating()
+    returns an early {"rating": "N/A", "total_trades": N, ...} dict with no
+    win_rate/total_pnl key for any agent with <2 clean trades. Filtering
+    only on total_trades>0 let a 1-clean-trade agent through and KeyError'd
+    on r["win_rate"]. This exact shape -- total_trades=1, no win_rate key --
+    must be excluded, not counted."""
+    ratings = [
+        {"player_id": "a", "display_name": "A", "win_rate": 60.0, "total_pnl": 100.0, "total_trades": 10},
+        {"player_id": "solo", "display_name": "Solo", "rating": "N/A", "rating_score": 0.0,
+         "reason": "Not enough clean trades (total=1, excluded=0)", "total_trades": 1},
+    ]
+    with patch("engine.agent_ratings.fleet_report_card", return_value=ratings):
+        result = ots._resolve_fleet_average(window_days=365)  # -> alltime bucket
+    assert result["wr"] == pytest.approx(0.60)
+    assert result["n"] == 10  # the N/A-rated 1-trade agent excluded, not counted
+
+
 def _make_strategy_signals_table(db_path):
     conn = sqlite3.connect(db_path)
     conn.execute("""CREATE TABLE strategy_signals (
