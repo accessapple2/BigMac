@@ -404,6 +404,9 @@ def check_status_page_heartbeat(alerts: list[AlertTuple]) -> dict:
 SOURCE_HEALTH_HEARTBEAT_PATH = ROOT / "data" / "source_health_watcher_heartbeat.json"
 SOURCE_HEALTH_STALE_MIN = 35.0  # matches main.py's own _SOURCE_HEALTH_HB_STALE_S
 
+MLX_QWEN3_HEARTBEAT_PATH = ROOT / "data" / "mlx_qwen3_heartbeat.json"
+MLX_QWEN3_STALE_MIN = 20.0  # probe runs every 5 min (StartInterval) -- 4 missed ticks
+
 
 def check_source_health_watcher_heartbeat(alerts: list[AlertTuple]) -> dict:
     """OPS TRIAGE item 2 (2026-08-29): scripts/source_health_watcher.py died
@@ -463,6 +466,65 @@ def check_source_health_watcher_heartbeat(alerts: list[AlertTuple]) -> dict:
     except Exception as e:
         print(f"[sentinel] source_health_watcher heartbeat check error: {type(e).__name__}: {e}", file=sys.stderr)
         return {"source_health_heartbeat_age_min": None}
+
+
+def check_mlx_qwen3_heartbeat(alerts: list[AlertTuple]) -> dict:
+    """HM-MLX-QWEN3-REVIVAL-2026-08-29: mlx-qwen3's local MLX server (port
+    8899) died 2026-07-18 with ZERO supervision -- no launchd, no cron,
+    nothing watching it -- and stayed dead six weeks until this fix.
+    Revived under com.ollietrades.mlx-qwen3.plist (KeepAlive=true); this
+    check watches scripts/mlx_qwen3_probe.py's heartbeat (written every 5
+    min via com.ollietrades.mlx-qwen3-probe.plist), on a different
+    mechanism than the server itself per the "alarm must not share a
+    failure mode with what it watches" doctrine.
+
+    Two distinct findings, different severity:
+      - Heartbeat file stale/missing -> RED_ALERT. The PROBE itself has
+        stopped running (bypasses DECOM-SILENCE, same reasoning as
+        check_source_health_watcher_heartbeat).
+      - Heartbeat fresh but last probe reported unhealthy -> WARNING. The
+        probe is fine; the actual mlx_lm.server is unreachable. KeepAlive
+        should self-heal a crash within seconds, so a WARNING (not
+        RED_ALERT) is proportionate unless it persists.
+    """
+    try:
+        raw = json.loads(MLX_QWEN3_HEARTBEAT_PATH.read_text())
+        last_run = raw.get("last_run")
+        if last_run is None:
+            return {"mlx_qwen3_heartbeat_age_min": None}
+        age_min = (datetime.now(timezone.utc).timestamp() - float(last_run)) / 60.0
+        if age_min > MLX_QWEN3_STALE_MIN:
+            alerts.append((
+                "red_alert", "sentinel_mlx_qwen3_heartbeat_stale",
+                f"HM-OPS-SENTINEL: mlx-qwen3's probe heartbeat is {age_min:.1f} min "
+                f"stale (last run {raw.get('last_run_iso', '?')}, > "
+                f"{MLX_QWEN3_STALE_MIN:.0f}min threshold) -- the probe itself has "
+                f"stopped running. Check `launchctl print gui/501/"
+                f"com.ollietrades.mlx-qwen3-probe` and logs/mlx_qwen3_probe.err.log.",
+                age_min,
+            ))
+        elif raw.get("healthy") is False:
+            alerts.append((
+                "warning", "sentinel_mlx_qwen3_unhealthy",
+                f"HM-OPS-SENTINEL: mlx-qwen3 server unreachable as of the last probe "
+                f"({raw.get('last_run_iso', '?')}): {raw.get('detail')}. "
+                f"KeepAlive should self-heal a crash quickly -- check "
+                f"`launchctl print gui/501/com.ollietrades.mlx-qwen3` if this persists.",
+                0.0,
+            ))
+        return {"mlx_qwen3_heartbeat_age_min": round(age_min, 1), "healthy": raw.get("healthy")}
+    except FileNotFoundError:
+        alerts.append((
+            "warning", "sentinel_mlx_qwen3_heartbeat_missing",
+            f"HM-OPS-SENTINEL: mlx-qwen3 probe heartbeat file "
+            f"({MLX_QWEN3_HEARTBEAT_PATH}) doesn't exist yet -- normal for the "
+            "first 5 min after a fresh install, otherwise the probe never ran.",
+            None,
+        ))
+        return {"mlx_qwen3_heartbeat_age_min": None}
+    except Exception as e:
+        print(f"[sentinel] mlx_qwen3 heartbeat check error: {type(e).__name__}: {e}", file=sys.stderr)
+        return {"mlx_qwen3_heartbeat_age_min": None}
 
 
 _CRON_MISSING_FILE_SIGNATURES = (
@@ -903,6 +965,7 @@ def main() -> int:
         collector_status = check_collector_freshness(alerts)
         status_page_status = check_status_page_heartbeat(alerts)
         source_health_status = check_source_health_watcher_heartbeat(alerts)
+        mlx_qwen3_status = check_mlx_qwen3_heartbeat(alerts)
         cron_status = check_cron_missing_scripts(alerts)
         launchd_status = check_launchd_jobs_health(alerts)
         lifecycle_drift_status = check_fleet_lifecycle_drift(alerts)
@@ -912,7 +975,7 @@ def main() -> int:
 
     print(f"[sentinel] fd={fd_status} lock={lock_status} queue={queue_status} "
           f"collectors={collector_status} status_page={status_page_status} "
-          f"source_health={source_health_status} cron={cron_status} "
+          f"source_health={source_health_status} mlx_qwen3={mlx_qwen3_status} cron={cron_status} "
           f"launchd={launchd_status} lifecycle_drift={lifecycle_drift_status}")
 
     acks = _load_acks()
