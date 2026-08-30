@@ -10483,3 +10483,117 @@ The corrected comment cites the last commit that touched the file at its
 original path (`92a24d9`, unrelated content — an ntfy-hardening sweep)
 plus the memory doc as the actual source for the rename event, since a
 rename-commit genuinely doesn't exist to cite.
+
+---
+## 🟢 HM-QUIETDOWN-FINAL-DISPOSITIONS — 2026-08-30, Admiral decisions executed
+
+Final disposition for all 16 items in `HM-QUIETDOWN-STALE-JOBS-CLASSIFICATION`
+above, executed one at a time in the Admiral-specified order, each with a
+manual clean-tick verification before moving to the next. Crontab backed up
+first: `~/backups/cron/crontab.bak-20260830-090553-pre-revive-batch`.
+
+### REVIVED (files restored, crontab line uncommented)
+
+1. **`regime_refresh_runner.py`** — FIRST, per order. Manual tick: correctly
+   no-ops on a non-trading day (exit 0, `skip: not a trading day`). Real
+   verification (intraday `regime_history` rows during RTH) due Monday 08-31.
+2. **`agents/uhura_agent.py`** — manual tick ran the full real scan (6 min,
+   live EDGAR): 19,676 holdings across 7 funds, 227 insider transactions
+   across 26 tickers, 10 signals generated, confirmed landed in
+   `institutional_signals`/`insider_trades` with fresh 2026-08-30 timestamps.
+3. **`fleet_realism_sweep_clean_window.py`** — launched per its own
+   documented `nohup ... &` pattern; ran to completion clean, ~10 minutes,
+   all 22 agents, incremental crash-safe saves throughout, no errors beyond
+   expected/harmless per-symbol Yahoo delisting misses (APLS, MASI).
+   `reports/fleet_realism_sweep_clean_20260830_091015.json` — valid, 22/22
+   agents present.
+4. **`scripts/eod_report.py`** — "wins the collision" per directive, but the
+   collision itself was re-checked and doesn't exist: `eod_report.py` writes
+   `eod_report_log` (DB) + ntfy only, never `drafts/DAILY_REPORT_*.md` or
+   `daily_ledger.csv` — that path belongs entirely to `daily_report.py`, only
+   mentioned in `eod_report.py`'s own header as a comparison aside. No doc
+   mismatch to fix either (the "no ntfy push" phrase in that header describes
+   `daily_report.py`, correctly). Revived anyway per explicit directive.
+   Manual `--dry-run` tick: real Alpaca equity read ($98,704.61), guarded P&L,
+   both incumbent auditions correctly reported SUSPENDED, "Genuine errors: 0."
+
+### NTFY-MIGRATED THEN REVIVED
+
+5. **`scripts/origin_healthcheck.sh`** — first, per order (monitoring gap).
+   Raw `curl` to `ntfy.sh` replaced with a shellout to
+   `engine.alert_channels.send_alert` (DECOM-SILENCE/Pushover/rate-limit
+   aware). Real run: all 4 services + tour-api passed, no restart triggered.
+   Isolated failure-path test: `send_alert` returned
+   `{'ntfy': False, 'browser': True}` — correctly suppressed by DECOM-SILENCE
+   rather than firing a raw, unfiltered POST.
+6. **`scripts/q_dissent_watch.py`** — raw `urllib` + IPv4-monkeypatch replaced
+   with `engine.alert_channels.send_alert` (which already carries the same
+   IPv4 fix, HM-NTFY-IPV6-NOROUTE-ENGINE-NTFY-FIX). Clean no-op verified:
+   state file (`last_id=9285`) matches `crew_dissent_log`'s real max Q-dissent
+   id exactly, zero rows since 2026-07-18, script exits 0 silently.
+
+### NTFY-MIGRATED, NOT YET ENABLED (pending this report)
+
+7. **`scripts/recall_refresh_run.sh`** — raw `curl` replaced the same way
+   (via the main `.venv`, not `.venv-recall` — the migration only needs
+   `engine.alert_channels`, not `sqlite_vec`). **Catch-up characterization:**
+   1,343 of 1,595 qualifying closed trades are un-embedded in `recall_corpus`
+   (last embed 2026-07-16; most recent qualifying closed trade 2026-08-27).
+   `recall_refresh.py` processes the newest `N_CORPUS=500` closed trades per
+   run, newest-first — so once enabled, catch-up is bounded and
+   self-resolving in ~3 daily runs, not indefinite. Crontab line left
+   commented pending Admiral go-ahead on enabling.
+
+### RETIRED (Admiral-approved, permanent, crontab comment updated)
+
+- **`scripts/kimi_cut_watch.py`** — purpose fulfilled: `ollama-kimi` was
+  already cut 2026-06-19 (confirmed via `fleet_lifecycle_ledger` backfill).
+- **`scripts/daily_report.py`** — **correction on record**: retired per
+  explicit Admiral directive, but the stated "superseded by eod_report"
+  reason doesn't hold (see item 4 above — no actual collision). Retired on
+  consolidation grounds instead (one daily archival mechanism). Revive
+  candidate if the markdown-archive/CSV-ledger output is wanted back
+  specifically — its own functionality was never actually broken or
+  duplicated.
+- **`scripts/iren_flip_watch.py`** — Admiral dropped IREN alerts; not fixing
+  the pre-existing 429-era error, retiring outright.
+- **`engine/fleet_auditor.py`** — STAYS retired, v2 direction decided. No
+  file/crontab change (already dark); crontab comment updated to reflect the
+  permanent decision instead of the generic stand-down text.
+
+### STAYS DARK, no ledger action (crontab comment refreshed for accuracy only)
+
+- **`scripts/situation_report.py`** — revisit ~2026-09-06 against
+  `kirk_briefing.py`'s live coverage before deciding if it's redundant.
+- **`scripts/ollama_prewarm.sh`** — revisit after the 2026-09-04 qwen3:8b
+  un-aliasing; `OLLAMA_KEEP_ALIVE=-1` (set 08-27) may have already mooted the
+  cold-start failure mode it exists to prevent.
+
+### AFTER: hm_ops_sentinel repoint check
+
+**No code change needed — already correct.** `check_launchd_jobs_health()`
+(the launchd-side registry check) already skips any ledger-retired/halted
+target live; confirmed zero drift (`lifecycle_drift={'job_drift': [],
+'agent_drift': [], 'overdue': []}`). The cron-side check
+(`check_cron_missing_scripts()`) has no hardcoded per-script registry at all
+— it re-reads live crontab every run — so retiring a script by leaving its
+crontab line commented is automatically sufficient, no repointing needed.
+
+**Verified the "broken" cron list shrank as intended**, with one honest
+caveat found along the way: before tonight's fixes, 6 entries were flagged
+broken (`eod_report_cron.log`, `gex_collector.log`,
+`origin_healthcheck_cron.log`, `q_dissent_watch.log`,
+`regime_refresh_cron.log`, `uhura_cron.log`). After: down to 4
+(`q_dissent_watch.log`, `origin_healthcheck_cron.log`, `uhura_cron.log`,
+`gex_collector.log`). `eod_report.py` and `regime_refresh_runner.py` cleared
+immediately because they always log visible content. **`origin_healthcheck.sh`
+and `q_dissent_watch.py` will NOT clear from a healthy/no-op run** — both are
+silent-on-success by design, so the sentinel's last-line-of-log check keeps
+seeing their old pre-fix error content until either a real alert-worthy event
+occurs or someone adds an explicit success heartbeat line. Not a regression,
+not fixed here (would be new architecture) — flagging as a known limitation
+of the generic check for silent scripts. `uhura_cron.log` will self-clear at
+its next real cron fire (05:30 AZ tomorrow; tonight's manual verification ran
+outside the crontab's own log redirect). `gex_collector.log` remains the
+pre-existing, separately-tracked unverified item (first real post-fix cron
+firing also Monday).
