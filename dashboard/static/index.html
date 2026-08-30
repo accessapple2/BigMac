@@ -3894,12 +3894,27 @@ async function fetchReadyRoomBriefing() {
     var col = d.session_color || '#818cf8';
     var html = '';
     html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px;">';
-    html += _rrLevelCard('Call Wall', '$' + (d.call_wall||0).toFixed(2), 'Resistance', '#ef4444');
-    html += _rrLevelCard('Max Pain', '$' + (d.max_pain||0).toFixed(2), 'Pin target', '#f59e0b');
-    html += _rrLevelCard('Put Wall', '$' + (d.put_wall||0).toFixed(2), 'Support', '#22c55e');
-    html += _rrLevelCard('Gamma Flip', '$' + (d.gamma_flip||0).toFixed(2), d.spot_price > d.gamma_flip ? '↑ Above' : '↓ Below', '#818cf8');
-    html += _rrLevelCard('P/C Ratio', (d.pc_ratio||0).toFixed(2), d.pc_ratio>1.1?'Bearish lean':d.pc_ratio<0.8?'Bullish lean':'Neutral', '#94a3b8');
-    html += _rrLevelCard('VIX', (d.vix||0).toFixed(1), d.vix>25?'Elevated':d.vix>18?'Normal':'Low', d.vix>25?'#f97316':'#64748b');
+    // HM-GEX-RETIRED (2026-08-30): options-chain GEX is UNAVAILABLE on the free
+    // Polygon/Massive tier (/v3/snapshot/options -> 403 NOT_AUTHORIZED). The old
+    // `(d.x||0).toFixed(2)` rendered a missing value as $0.00, and the Gamma Flip
+    // card then compared spot against that phantom zero and printed a confident
+    // '↓ Below' regime call built from nothing. Absent data now reads n/a --
+    // same rule the engine already applies to print-level flow: never faked.
+    var _lvl = function(v, dp, pre) {
+      return (v === null || v === undefined || isNaN(v)) ? null
+             : (pre || '') + Number(v).toFixed(dp);
+    };
+    var _cw = _lvl(d.call_wall, 2, '$'), _mp = _lvl(d.max_pain, 2, '$');
+    var _pw = _lvl(d.put_wall, 2, '$'), _gf = _lvl(d.gamma_flip, 2, '$');
+    var _pc = _lvl(d.pc_ratio, 2), _vx = _lvl(d.vix, 1);
+    var _flipSub = (_gf === null || d.spot_price === null || d.spot_price === undefined)
+                   ? 'unavailable' : (d.spot_price > d.gamma_flip ? '↑ Above' : '↓ Below');
+    html += _rrLevelCard('Call Wall', _cw || 'n/a', _cw ? 'Resistance' : 'unavailable', '#ef4444');
+    html += _rrLevelCard('Max Pain', _mp || 'n/a', _mp ? 'Pin target' : 'unavailable', '#f59e0b');
+    html += _rrLevelCard('Put Wall', _pw || 'n/a', _pw ? 'Support' : 'unavailable', '#22c55e');
+    html += _rrLevelCard('Gamma Flip', _gf || 'n/a', _flipSub, '#818cf8');
+    html += _rrLevelCard('P/C Ratio', _pc || 'n/a', _pc === null ? 'unavailable' : (d.pc_ratio>1.1?'Bearish lean':d.pc_ratio<0.8?'Bullish lean':'Neutral'), '#94a3b8');
+    html += _rrLevelCard('VIX', _vx || 'n/a', _vx === null ? 'unavailable' : (d.vix>25?'Elevated':d.vix>18?'Normal':'Low'), d.vix>25?'#f97316':'#64748b');
     html += '</div>';
 
     // Spot + GEX summary
