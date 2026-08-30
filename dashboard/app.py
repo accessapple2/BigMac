@@ -4166,7 +4166,18 @@ def season_info():
 
 @app.get("/api/health-manifest")
 def health_manifest():
-    """Fleet Auditor manifest — latest health snapshot (reads cached JSON, triggers refresh if stale)."""
+    """Fleet Auditor manifest — latest health snapshot (reads cached JSON, triggers refresh if stale).
+
+    HM-HEALTH-MANIFEST-SELF-HEAL-2026-08-30: both refresh paths below used to
+    catch a bare Exception, so the 2026-07-22 quietdown renaming
+    engine/fleet_auditor.py away turned every stale-manifest poll into a
+    silent no-op -- the endpoint kept serving an ever-staler cached file with
+    no indication self-heal was broken. ImportError is now caught
+    specifically and surfaced in the payload instead of swallowed. This does
+    NOT point either import at the renamed module -- fleet_auditor.py stays
+    retired until someone deliberately revives it; reviving it is what makes
+    this import succeed again, not a code change here.
+    """
     import time as _time
     manifest_path = os.path.join(os.path.dirname(__file__), "..", "data", "health_manifest.json")
     try:
@@ -4185,17 +4196,26 @@ def health_manifest():
                         try:
                             from engine.fleet_auditor import run_audit
                             run_audit(send_alerts=False)
+                            health_manifest._self_heal_error = None
+                        except ImportError:
+                            health_manifest._self_heal_error = "self-heal unavailable (fleet_auditor retired)"
                         except Exception:
                             pass
                     threading.Thread(target=_refresh, daemon=True).start()
             except Exception:
                 pass
+        self_heal_error = getattr(health_manifest, "_self_heal_error", None)
+        if self_heal_error:
+            data = {**data, "self_heal": self_heal_error}
         return data
     except FileNotFoundError:
         # No manifest yet — run synchronously and return result
         try:
             from engine.fleet_auditor import run_audit
             return run_audit(send_alerts=False)
+        except ImportError:
+            return {"error": "self-heal unavailable (fleet_auditor retired)",
+                    "generated_at": datetime.utcnow().isoformat()}
         except Exception as e:
             return {"error": f"Fleet Auditor unavailable: {e}", "generated_at": datetime.utcnow().isoformat()}
 
