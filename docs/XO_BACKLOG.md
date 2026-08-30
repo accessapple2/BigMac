@@ -66,6 +66,74 @@ any specific number in this card; the card describes what was true as of
 2026-07-06 ~22:20 MST, not a live view.
 
 ---
+## 🟡 HM-TRADED-TODAY-UTC-BOUNDARY — filed 2026-08-29 (fleet-lifecycle / P0-emission session), QUEUED FOR NEXT SESSION, NOT YET FIXED
+
+**Found by:** `tests/test_m5_allocator.py` failed tonight
+(`test_traded_today_true_when_trade_exists`,
+`test_run_m5_rebalance_skips_if_already_traded_today`) — not caused by
+anything touched this session, just exposed by the wall-clock moment
+the suite happened to run in.
+
+**Root cause:** `engine/m5_allocator.py::_traded_today()` (line ~148)
+compares `date.today()` — Python's local-system-timezone date (this box
+is AZ, UTC-7, no DST) — against `date(executed_at)` on `trades` rows,
+where `executed_at` defaults to SQLite's `CURRENT_TIMESTAMP` (UTC). AZ
+local midnight is 07:00 UTC, so **every single day, from 00:00–07:00
+UTC (16:00–23:00 the *previous* local evening in AZ), local date and UTC
+date disagree by one calendar day.** During that ~7-hour window every
+night, a trade that executed in the local evening gets a UTC timestamp
+already stamped with *tomorrow's* UTC date — `_traded_today()` looks it
+up under *today's* local date, finds nothing, and returns `False` even
+though a trade already happened.
+
+**This is a production-function bug, not a test bug.** Fix
+`_traded_today()` itself; the failing tests are just the symptom.
+
+**Failure-mode audit — what a wrong answer does (start here, may find
+more):**
+- **Only current caller:** `engine/m5_allocator.py::run_m5_rebalance()`
+  (line ~205) — `if _traded_today(): _done_today=True; return` (skip)
+  else fire `_execute_rebalance()`. The in-process `_done_today` flag is
+  a *separate*, redundant guard that only protects against re-firing
+  within the same running process — it resets on every `main.py`
+  restart (which happens routinely per this session's other findings).
+  **Concrete risk:** if a restart lands during the 00:00–07:00 UTC
+  window on a day M5 already traded, `_traded_today()` false-negatives
+  and `run_m5_rebalance()` fires a **duplicate same-day rebalance**.
+  Direction confirmed: false-negative (says "no trade yet" when one
+  happened), not false-positive — so the risk is duplicate execution,
+  not a missed rebalance.
+- Only one caller exists today, but audit for any NEW callers added
+  since 2026-08-29 before assuming this scope is still accurate.
+
+**Broader pattern, not just this one function:** a repo-wide grep the
+night this was found shows `date.today()` used the same
+naive-local-timezone way in `engine/alpaca_options.py`,
+`engine/battle_station.py`, `engine/alpha_signals.py`, and likely
+others — not confirmed whether any of those have a caller where the
+UTC-boundary mismatch actually matters (most `date.today()` uses are for
+labeling/lookback-window math, not a same-day dedup gate like this one),
+but worth a scan while in this code, not just a single-function patch.
+
+**Fix direction (as specified):**
+1. Pin `_traded_today()` to a single canonical timezone — the codebase
+   already has one: `engine.market_calendar.ET` /
+   `engine.market_calendar._to_et()` (`America/New_York`, matches the
+   actual trading-calendar clock everything else in this project uses).
+   Compare `executed_at` and "today" both converted to ET, not local
+   AZ system time vs. UTC-defaulted DB rows.
+2. Audit every caller (currently just the one) for what a wrong answer
+   near the boundary does before/after the fix — confirm the duplicate-
+   execution risk above is fully closed, not just relocated to a
+   different boundary.
+3. Make the test deterministic: freeze the clock (e.g. `unittest.mock.
+   patch` on `date.today`/`datetime.now`, or `freezegun` if already a
+   dependency — check first) so the test suite can never again fail
+   based on what hour it happens to run in. Add a dedicated boundary-
+   case test (a trade executed at, say, 23:30 ET the previous day should
+   read as "yesterday," not silently disappear or double-count).
+
+---
 ## 🔵 HM-WORKTREE-DRIFT-TRIAGE — filed 2026-07-21 (Red Alert Yankee Echo Sierra / OllieTrades Lite session), LOW PRIORITY, POST-TRIP, NOT INVESTIGATED
 
 During the Lite-build session, `git status` on `autonomous-trader` showed a
