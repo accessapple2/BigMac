@@ -881,6 +881,107 @@ oldest-slot opportunities/day, comfortably clearing 1,127 within 1-2
 trading days) — not force-cleared today, left to the mechanism this ticket
 just shipped rather than a second manual sweep.
 
+### 🟡 HM-SIGNALS-V2-FIFO-STARVATION — post-fix review, 2026-08-29 evening (scoping only, no code changes)
+
+Requested after tonight's ops-sentinel triage (`relay_2026-08-29_ops-sentinel-triage.md`)
+surfaced the still-1,127-pending queue and, on my first pass, was
+misreported as evidence the structural fix above was "never built." **That
+was wrong** — commit `61126bb` (today, 13:33, six hours before I checked)
+already built, tested, and shipped it; the section immediately above this
+one documents it as RESOLVED. Correcting the record here rather than
+quietly fixing my own report. This entry is the requested review of that
+already-shipped design against three specific questions, plus a same-night
+interim-mitigation decision — not a new design proposal.
+
+**1. Root cause of the recurrence — throughput or ordering?**
+Ordering/deprioritization, confirmed three times over (2026-07-06, -09,
+-29): pure `ORDER BY created_at DESC` can permanently outrank any batch
+that isn't the newest arrival, regardless of aggregate daily drain
+capacity — a queue with plenty of throughput headroom can still starve
+its tail forever under sustained fresh-signal volume. It was never a
+burst-arrival-vs-throughput problem; `max_batch=10`/minute during market
+hours is not the bottleneck (see the ~780/day reserved-slot capacity
+above against a 1,127-row queue).
+
+**2. Design review + fairness/attribution concern.**
+The shipped fix (`_OLDEST_RESERVE = min(2, max_batch)`,
+`engine/events_bus_consumer.py:89-107`) reserves 2 of 10 slots per tick
+for the single absolute-oldest pending row(s), `ORDER BY created_at ASC`,
+with no source weighting, before filling the rest newest-first as before.
+This guarantees forward progress (confirmed by the pinned test
+`test_oldest_row_reached_despite_heavy_newer_volume`) without reverting to
+strict FIFO (confirmed by `test_newest_rows_still_prioritized_for_remaining_slots`).
+
+There's no "Honest Harness" doctrine by that name anywhere in this repo
+(checked) — the closest real, load-bearing analog is the Backtest Rule
+("always run ALL agents... never cite in-sample without matching OOS") and
+`ollietrades_signal.py`'s own "verdict is computed, never prescribed"
+posture — both about not letting selection/reporting mechanics quietly
+bias what a number appears to say about an agent's skill. Read that way,
+there is a real, currently-unaddressed version of that concern here: the
+oldest-reserve selects by absolute age only, with **no per-source
+fairness**. Right now 1,101 of the 1,127 pending rows (97.7%) belong to
+one agent (`ollama-plutus`/McCoy), so nearly every reserved-oldest slot
+for the next 1-2 trading days will be a McCoy signal generated **2026-07-10
+through 07-11** — up to 7 weeks stale relative to current market
+conditions and McCoy's current strategy state — executing under today's
+date with no distinguishing tag. If those trades land in the same win-rate
+/ P&L rollups used to compare agents or judge McCoy's *current* behavior
+(`engine/agent_ratings.py`, the fleet report card, `/api/signals/compare`),
+they will misrepresent what McCoy's live signal quality looks like right
+now, purely as a side effect of queue mechanics, not trading skill. This
+was true the moment the fix shipped and isn't new tonight, but no one
+has flagged it before this doc. **Not fixed here** (out of scope: "no code
+changes" was explicit) — options for the follow-up session below: (a) tag
+signals executed from the reserved-oldest slot (e.g. a
+`dispatch_reason='oldest_reserve'` column or reuse of existing metadata)
+so performance rollups can exclude or footnote them, or (b) accept the
+distortion as bounded and small enough not to matter (1-2 days of
+anomalous fills against months of live trading) and just document it.
+No recommendation forced here, per the same "report the numbers, don't
+force a verdict" convention the comparison endpoint itself uses.
+
+**3. Test plan + rollback.**
+Already covered by the shipped commit, not something to newly design:
+`tests/test_events_bus_consumer_starvation_fix.py` (4 tests, reran tonight,
+all pass) pins oldest-row-reached-despite-volume, no-double-count on small
+queues, newest-still-dominates-remaining-slots, and empty-queue-no-crash.
+Rollback is a plain `git revert 61126bb` — the change is isolated to one
+function's row-selection SQL plus the one-time archive script (already
+executed, its own effect is separately reversible via the
+`data/backups/hm_signals_v2_expire_dead_letter_20260829_133052.ids`
+snapshot per the archive-not-delete convention). No schema changes, no
+migration to unwind.
+
+**Interim mitigation — evaluated, NOT run, skipping deliberately:**
+considered manually invoking `consume_pending_signals()` tonight
+(Saturday, market closed) to force-drain from id 67352 forward. Traced the
+actual call path before touching anything: `_get_current_price()` typically
+resolves a last-known price even off-hours (not a hard no-price skip), so
+execution would proceed to `paper_trader.buy()` — which correctly refuses
+to act on a closed market (`market_calendar.market_closed_reason()` gate,
+`paper_trader.py:707-710`, checked first, before any side effect) and
+returns `None`. The problem is what happens *after* that `None`:
+`consume_pending_signals()` (`events_bus_consumer.py:192-198`) marks any
+`buy()` rejection as `status='failed'` — permanently, indistinguishable
+from a real trading-logic rejection. Running this manually tonight would
+not "drain" these rows at all; it would falsely fail perfectly legitimate,
+still-live active-source signals for the sole reason that it's Saturday,
+denying them the genuine shot at real execution the already-shipped fix
+guarantees them Monday. That's a real, provable side effect on the
+harness's own trade/signal record (a corrupted `status='failed'` history,
+not a live position), not a hypothetical one — skipping the manual drain
+entirely. No action taken; the shipped mechanism runs on its own Monday.
+
+**Proposed follow-up session:** not 2026-09-04 (told that date's taken).
+Proposing **Wednesday 2026-09-03** instead — by then Monday 08-31 and
+Tuesday 09-01 will have given the already-shipped fix two live trading
+days against the real 1,127-row queue, so the fairness/attribution
+question above can be scoped (or dropped) against actual drain data
+instead of the zero-data guess available tonight. Small session: review
+whether McCoy's reserved-oldest fills actually landed in any rollup in a
+way that mattered, decide (a) vs (b) above, done.
+
 ---
 ## 🔴 HM-RIKER-SYNTHESIS-LOCK-CONTENTION — filed 2026-07-06 (HM-MONDAY-OPEN-WATCH), propose-first
 

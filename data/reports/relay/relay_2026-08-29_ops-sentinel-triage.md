@@ -1,5 +1,23 @@
 # Relay — HM-OPS-SENTINEL 3-banner triage, 2026-08-29 (evening)
 
+**CORRECTION appended 2026-08-30 (same session, later that night):** the
+"signals_v2 FIFO starvation" section below claims Recommendation #2
+(priority-lane/age-ordering) "was never built" and "deserves its own
+scoped session." That was wrong — I hadn't checked `git log` on
+`engine/events_bus_consumer.py` before writing it. Commit `61126bb`
+(2026-08-29, 13:33 — six hours before this relay was written) already
+built, tested (4 pinned tests), and shipped exactly that fix;
+`docs/XO_BACKLOG.md`'s `HM-SIGNALS-V2-STARVATION-RECURRENCE` entry already
+marked it RESOLVED the same afternoon. The 1,127-pending figure quoted
+below is that fix's own deliberate, documented remainder, not a fresh
+recurrence. Full corrected review, the fairness/attribution question this
+surfaced, and the interim-mitigation decision are in
+`docs/XO_BACKLOG.md` under the new
+"HM-SIGNALS-V2-FIFO-STARVATION — post-fix review, 2026-08-29 evening"
+entry, appended right after the RESOLVED section it corrects. Leaving the
+rest of this file's section 3 unedited below rather than rewriting
+history — read it as superseded by that entry, not as current fact.
+
 Triage of tonight's three TradeMinds Warning banners (14 failing cron entries,
 17 stale launchd jobs, signals_v2 FIFO starvation), prompted by the
 Admiral's own cross-referencing of the deleted-file working tree against
@@ -77,6 +95,15 @@ sentinel's own registry (`scripts/hm_ops_sentinel.py:643-644`) gives both
 a 192h staleness ceiling they can now never satisfy — they'll read as
 permanently stale from here forward unless retired out of that registry.
 
+**Done, same session, Admiral-approved:** both retired via
+`scripts/fleet_lifecycle.py retire` (reason: "superseded — recurring
+HM-OPS-SENTINEL queue-age monitoring now covers what these one-shots
+watched; retiring reverses the earlier revive entry deliberately,
+Admiral-approved"). Confirmed via `launchctl list` — both fully unloaded.
+Order docs: `docs/orders/ORDER_2026-08-29_retire_job_hm-signals-v2-monday-check.md`
+and the `-verify` twin. No other ledger row touched (verified via
+`fleet_lifecycle.py list --type job` before/after).
+
 **Correcting the premise under this one:** the real, general watchdog for
 signals_v2 queue health was never these two — it's
 `check_signals_v2_queue()` inside `hm_ops_sentinel.py` itself, running
@@ -129,5 +156,5 @@ three banners still genuinely open and actionable.
 | 14 dead-cron entries | Fixed live tonight (crontab edited, backed up) |
 | 17 stale launchd jobs | Already fixed this afternoon (commit `7e3a42c`); expected to self-clear by tomorrow AM |
 | archer-briefing | Correctly revived; my first-pass doubt was a wrong-file error, retracted above |
-| 2 signals-v2 "monday-check" one-shots | Confirmed non-functional as watchdogs going forward; recommend retire, not done — needs Admiral confirmation |
-| signals_v2 FIFO starvation | Still open, root cause fully understood, fix not started |
+| 2 signals-v2 "monday-check" one-shots | Retired (Admiral-approved), same session — see correction above |
+| signals_v2 FIFO starvation | **Already fixed** at 13:33 today (commit `61126bb`), before this relay was written — see the 2026-08-30 correction at the top of this file and the review entry in `docs/XO_BACKLOG.md`. My original claim below that it was "still open... fix not started" is wrong; left unedited for the record. |
