@@ -5,7 +5,7 @@
 # */5; if watchdog.py is absent, (re)launch it detached. Cron — always alive —
 # is the supervisor-of-the-supervisor, so this survives watchdog's own crash.
 # Idempotent: pgrep-guarded, so the every-5-min cron is a no-op while up.
-PY=/Users/bigmac/autonomous-trader/venv/bin/python3
+PY=/Users/bigmac/autonomous-trader/.venv/bin/python3
 WD=/Users/bigmac/autonomous-trader/watchdog.py
 LOG=/Users/bigmac/autonomous-trader/logs/watchdog_cron.log
 # Guard on the SCRIPT PATH, not "python3 ..." — venv/bin/python3 is a symlink to
