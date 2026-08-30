@@ -53,10 +53,29 @@ CATALYST_LOOKAHEAD_DAYS = 10
 
 def _ollama(prompt: str, system: str = "", model: str | None = None, timeout: int = 120) -> str:
     """Call Ollama /api/generate and return text. Empty string on failure (caller
-    treats empty synthesis as a hard fail — never fabricates a fallback)."""
-    payload = {"model": model or REVEILLE_MODEL, "prompt": prompt, "stream": False}
+    treats empty synthesis as a hard fail — never fabricates a fallback).
+
+    HM-REVEILLE-THINK-GAP-2026-08-30: this is a standalone requests.post, not
+    routed through engine.providers.ollama_provider.OllamaProvider, so it
+    never got that module's think:False suppression for qwen3-aliased tags.
+    REVEILLE_MODEL defaults to "plutus-v1", currently an alias of qwen3:8b
+    (project_ollama_model_aliases_2026-08-25) -- default thinking mode was
+    producing empty synthesis (data/reveille_brief.json degraded
+    "synthesis failed (LLM returned empty)", 2026-08-28). Reusing the same
+    _QWEN3_ALIAS_MODEL_IDS set ollama_provider.py already maintains, not
+    duplicating or modifying it -- this does not touch the alias mapping
+    itself, only reacts to it. Shrinks back down automatically once
+    un-aliasing lands (target 2026-09-04, see that module's own note)."""
+    resolved_model = model or REVEILLE_MODEL
+    payload = {"model": resolved_model, "prompt": prompt, "stream": False}
     if system:
         payload["system"] = system
+    try:
+        from engine.providers.ollama_provider import _QWEN3_ALIAS_MODEL_IDS
+        if resolved_model.startswith("qwen3") or resolved_model in _QWEN3_ALIAS_MODEL_IDS:
+            payload["think"] = False
+    except Exception as e:
+        logger.warning("reveille think:False guard unavailable: %s: %r", type(e).__name__, e)
     try:
         r = requests.post(f"{OLLAMA_URL}/api/generate", json=payload, timeout=timeout)
         if r.ok:
