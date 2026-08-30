@@ -10360,3 +10360,72 @@ this very morning — `archer_briefings` id 114, `created_at 2026-08-30
 - Full per-script investigation (DB queries, live import tests, launchd
   plist reads, ledger scans) in the session transcript if more detail
   than this table is ever needed.
+
+---
+## 🟢 HM-DOOR1-OLLIE-MACHINE-KILLGATE-VERDICT — verdicts rendered 2026-08-30 for the 2026-07-24 window (5-week overrun)
+
+Both `door1_kill_gate_check.py` and `ollie_machine_kill_gate_check.py`
+were disabled by the 2026-07-22 quietdown two days before their
+pre-committed **2026-07-24** verdict date, so neither ever fired — see
+`HM-QUIETDOWN-STALE-JOBS-CLASSIFICATION` above. Rendered both verdicts
+tonight against the same historical data the scripts would have used,
+scoped to the original window, not today's live state. **Rendered
+2026-08-30 for the 2026-07-24 window; delayed by the 07-22 stand-down.**
+
+### Door-1 G1-G4 (fleet-wide, `OLLIETRADES_KILL_GATE.md`) — KEEP-eligible, all gates PASS
+
+Replicated `compute_g1`/`g2`/`g3` from `door1_kill_gate_check.py` directly
+(live DB + read-only Alpaca `GET`s), scoping each to DAY_0=2026-06-24 →
+DAY_30=2026-07-24 instead of "today":
+
+- **G1 Money — PASS.** Realized CSP P&L (era-filtered per the same
+  `TROI_REAL_QUOTES_ERA_START=2026-07-07` standard `/api/strategy/pnl`
+  already applied by 07-24) = **+$3,154.73** (3 trades, `shadow-qwen35-csp`).
+  Open-position MTM = **$0** — confirmed zero CSP positions were open on
+  2026-07-24 (all 13 window trades had already closed, last exit
+  2026-07-20). Total **$3,154.73 ≥ $500 floor.** (Unfiltered across all 13
+  window trades, ignoring the era standard: +$14,161.38 — also a PASS;
+  the era-filter choice isn't load-bearing here either way.)
+- **G2 Risk — PASS.** Account max drawdown over the window = **2.29%**
+  vs. SPY max drawdown 2.24% (SPY return +0.76%, flat by the doc's own
+  <±1% definition → 3.0% threshold applies). 2.29% < 3.0%.
+- **G3 Tail — PASS.** 13 closed CSP trades in-window, $33,720 premium
+  collected, worst single row was **+$643.34 — a profit, not a loss** (no
+  realized losses occurred in the window at all). Ratio 1.9% ≪ 20%
+  threshold.
+- **G4 vs Paid — N/A**, unchanged: no JEPI/JEPQ/NANC/KRUZ parallel-
+  benchmark tracking exists anywhere in the codebase, same finding as the
+  2026-07-10 dry run.
+- **KEEP-eligible on G1+G2+G3: TRUE.**
+
+**Consequence — NOT applied.** The doc's KEEP branch ("scale CSP book,
+halt all other strategies permanently... hardware stays") is a
+fleet-wide, largely irreversible action far beyond what "apply the
+gate's own consequence on failure" authorizes — this gate did not fail.
+Flagging the PASS for the Admiral to act on (or not) as its own decision;
+not executed here.
+
+**Would the intervening 5 weeks change this verdict?** No — the CSP book
+made zero trades of any kind after 2026-06-29 (last entry) and has zero
+open positions today, same as on 07-24. The window's data hasn't changed
+since the day the verdict was due; today's re-check is numerically
+identical to what a same-day run on 07-24 would have shown.
+
+### ollie-machine single-agent gate — FAIL, gate consequence applied
+
+Zero rows in `trades` (player_id) and `options_trades` (agent_id) as of
+2026-07-24 (creation 2026-06-01) — the pre-committed 2026-07-05 trigger
+("if ollie-machine has recorded zero trades... by this date, halt
+proposal goes to the Admiral," `HM-OLLIE-MACHINE-KILLGATE`) fires.
+
+**Consequence applied 2026-08-30 per direct Admiral authorization:**
+`scripts/fleet_lifecycle.py halt ollie-machine --type agent` —
+`ai_players.halt_mode` → `full`, `fleet_lifecycle_ledger` id 114, order
+doc `docs/orders/ORDER_2026-08-30_halt_agent_ollie-machine.md`,
+review-by `2026-09-29`. Reversible via `fleet_lifecycle.py revive
+ollie-machine --reason "..."` if the Admiral revisits.
+
+**Would the intervening 5 weeks change this verdict?** No — still zero
+trades in either table as of 2026-08-30, over 3 months after creation.
+The 5-week gap added no new information; the agent never traded before
+or after the missed gate date.
