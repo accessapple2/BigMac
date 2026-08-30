@@ -10532,17 +10532,37 @@ first: `~/backups/cron/crontab.bak-20260830-090553-pre-revive-batch`.
    state file (`last_id=9285`) matches `crew_dissent_log`'s real max Q-dissent
    id exactly, zero rows since 2026-07-18, script exits 0 silently.
 
-### NTFY-MIGRATED, NOT YET ENABLED (pending this report)
+### `scripts/recall_refresh_run.sh` — ENABLED, catch-up BLOCKED (Ollie Max down)
 
-7. **`scripts/recall_refresh_run.sh`** — raw `curl` replaced the same way
-   (via the main `.venv`, not `.venv-recall` — the migration only needs
-   `engine.alert_channels`, not `sqlite_vec`). **Catch-up characterization:**
-   1,343 of 1,595 qualifying closed trades are un-embedded in `recall_corpus`
+7. Raw `curl` replaced with `engine.alert_channels.send_alert` (via the main
+   `.venv`, not `.venv-recall` — the migration only needs `alert_channels`,
+   not `sqlite_vec`). **Catch-up characterization (2026-08-30 evening):**
+   1,343 of 1,595 qualifying closed trades were un-embedded in `recall_corpus`
    (last embed 2026-07-16; most recent qualifying closed trade 2026-08-27).
    `recall_refresh.py` processes the newest `N_CORPUS=500` closed trades per
-   run, newest-first — so once enabled, catch-up is bounded and
-   self-resolving in ~3 daily runs, not indefinite. Crontab line left
-   commented pending Admiral go-ahead on enabling.
+   run, newest-first — bounded, self-resolving ~3-run catch-up once it can
+   actually run. **Admiral approved enabling; crontab line uncommented
+   2026-08-30.**
+
+   **Attempted the catch-up same night to verify the ~3-run bound directly
+   rather than wait on the weekday schedule — blocked.** The embedding
+   backend (`OLLAMA_EMBED_URL`, Ollie Max at `192.168.1.168:11434`,
+   `engine/setup_similarity_signal.py:56`) is unreachable: `ping` returns
+   "Host is down" (not a bigmac-side network issue — the LAN gateway
+   `192.168.1.1` responds fine). Ran the real wrapper multiple times to
+   confirm this wasn't a fluke — every attempt failed identically
+   (`urllib.error.URLError: <urlopen error [Errno 65] No route to host>`),
+   and the ntfy migration itself is now proven correct on a **real** failure,
+   not just the earlier isolated test: 3 `HM-DEJAVU recall_refresh FAILED
+   (rc=1)` warnings landed in `notifications` (17:48:07–17:48:43 UTC),
+   correctly routed through the hardened sender. **`recall_corpus` count is
+   unchanged at 252 — zero rows embedded, zero progress on the 1,343-row
+   gap.** Left the crontab line enabled regardless (per approval) — the
+   catch-up will resume automatically, no further crontab action needed,
+   the moment Ollie Max is reachable again, whether via its own next
+   scheduled 15:00 MST weekday run or a manual re-run. This is an
+   infrastructure outage, not a defect in the migration or the enable
+   decision.
 
 ### RETIRED (Admiral-approved, permanent, crontab comment updated)
 
