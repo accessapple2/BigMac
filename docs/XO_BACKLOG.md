@@ -10398,12 +10398,14 @@ DAY_30=2026-07-24 instead of "today":
   2026-07-10 dry run.
 - **KEEP-eligible on G1+G2+G3: TRUE.**
 
-**Consequence — NOT applied.** The doc's KEEP branch ("scale CSP book,
-halt all other strategies permanently... hardware stays") is a
-fleet-wide, largely irreversible action far beyond what "apply the
-gate's own consequence on failure" authorizes — this gate did not fail.
-Flagging the PASS for the Admiral to act on (or not) as its own decision;
-not executed here.
+**Consequence — PENDING RE-ARGUMENT (Admiral order, 2026-08-30, supersedes
+the "NOT applied" wording above).** KEEP is closed and stays KEEP — G1-G3
+passed on the original 07-24 window, no re-score of G1-G4, not reopened.
+The KEEP branch's own consequence ("scale CSP book, halt all other
+strategies permanently... hardware stays") is neither applied nor waived
+pending a one-page case memo, due before Tuesday 2026-09-01 open:
+`docs/HM-DOOR1-KEEP-CONSEQUENCE-MEMO-2026-08-30.md`. Do not waive in this
+ledger until the case exists; do not apply a fleet halt before it either.
 
 **Would the intervening 5 weeks change this verdict?** No — the CSP book
 made zero trades of any kind after 2026-06-29 (last entry) and has zero
