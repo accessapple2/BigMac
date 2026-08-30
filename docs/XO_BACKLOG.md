@@ -10429,3 +10429,24 @@ ollie-machine --reason "..."` if the Admiral revisits.
 trades in either table as of 2026-08-30, over 3 months after creation.
 The 5-week gap added no new information; the agent never traded before
 or after the missed gate date.
+
+---
+## 🟢 HM-IREN-WATCH-CRONTAB-COMMENT-FIX — 2026-08-30
+
+The 2026-08-28 HM-429-REMEDIATION-D crontab comment for
+`iren_flip_watch.py` claimed the file "no longer exists on disk (deleted,
+not renamed)" — wrong, per `HM-QUIETDOWN-STALE-JOBS-CLASSIFICATION`
+above: it's present as
+`scripts/iren_flip_watch.py.quietdown-disabled-2026-07-22`, renamed not
+deleted, same as its 15 siblings. Corrected the comment in the live
+crontab (backed up first:
+`~/backups/cron/crontab.bak-20260830-071451-pre-iren-comment-fix`).
+
+**Note on "see commit `<sha>`":** no commit exists for the rename
+itself — the 2026-07-22 stand-down renamed all 23 scripts via a plain
+filesystem `mv`, not a git operation (crontab writes were EINTR-blocked
+that day too; see [[project_ollietrades_final_quietdown_2026-07-22]]).
+The corrected comment cites the last commit that touched the file at its
+original path (`92a24d9`, unrelated content — an ntfy-hardening sweep)
+plus the memory doc as the actual source for the rename event, since a
+rename-commit genuinely doesn't exist to cite.
