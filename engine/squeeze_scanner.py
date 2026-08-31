@@ -71,7 +71,42 @@ def _fetch_finviz_candidates() -> list[dict]:
         df = screener.screener_view()
         if df is None or df.empty:
             return []
-        return df.to_dict("records")
+        rows = df.to_dict("records")
+
+        # HM-SQUEEZE-TICKER 2026-08-31: Finviz renders a letter-avatar inside
+        # the ticker cell, and get_text() concatenates it onto the symbol --
+        # ABEO arrives as "AABEO", BYND as "BBYND", IREN as "IIREN". Every
+        # downstream price lookup then misses and the candidate is dropped, so
+        # the scanner returned zero regardless of market conditions.
+        # Guarded strip: only correct when EVERY row is doubled (verified 301
+        # of 301). A genuinely-doubled symbol arrives tripled under the avatar
+        # (AAPL -> AAAPL, AA -> AAA), so the uniform strip is right for those
+        # too -- but if Finviz ever drops the avatar, some row will not be
+        # doubled, the guard goes false, and this turns itself off rather than
+        # mangling AA/AAPL/MMM.
+        def _tk(r):
+            return str(r.get("Ticker", "")).strip()
+
+        tickers = [_tk(r) for r in rows]
+        all_doubled = bool(tickers) and all(
+            len(t) >= 2 and t[0] == t[1] for t in tickers
+        )
+        if all_doubled:
+            for r in rows:
+                t = _tk(r)
+                r["Ticker"] = t[1:]
+            console.log(
+                f"[cyan]Squeeze: stripped Finviz avatar char from "
+                f"{len(rows)} tickers (HM-SQUEEZE-TICKER)"
+            )
+        else:
+            bad = [t for t in tickers if not (len(t) >= 2 and t[0] == t[1])]
+            console.log(
+                f"[yellow]Squeeze: avatar-strip SKIPPED -- {len(bad)} of "
+                f"{len(tickers)} tickers not doubled (e.g. {bad[:5]}). "
+                f"Finviz markup may have changed; verify before trusting."
+            )
+        return rows
     except Exception as e:
         console.log(f"[yellow]Squeeze: Finviz fetch error: {e}")
         return []
@@ -277,6 +312,44 @@ def run_scan(force: bool = False) -> dict:
         candidates = _fetch_finviz_candidates()
         console.log(f"[cyan]Squeeze Scanner: {len(candidates)} candidates from Finviz")
 
+        # HM-SQUEEZE-ORDER 2026-08-31: Finviz returns rows in ALPHABETICAL order,
+        # so candidates[:40] was always the AAAA-block -- preferreds, warrants and
+        # OTC shells (AABEO, AABR, AACHC...). All 40 cleared the >=20% short-float
+        # gate (thin issues always show absurd short float) then died at the
+        # yfinance lookup, which has no history for them. Zero results every run
+        # since the scanner was written, regardless of market conditions.
+        # Fix is post-fetch only: the library's set_filter has no options
+        # introspection in finvizfinance 1.3.0 and a bad filter string would be
+        # swallowed by the except above and look identical to this bug.
+        def _shares(v):
+            """Parse '1.23M' / '850K' / 1234567 -> raw share count."""
+            s = str(v).replace(",", "").strip()
+            mult = 1.0
+            if s.endswith("B"):
+                mult, s = 1_000_000_000.0, s[:-1]
+            elif s.endswith("M"):
+                mult, s = 1_000_000.0, s[:-1]
+            elif s.endswith("K"):
+                mult, s = 1_000.0, s[:-1]
+            try:
+                return float(s) * mult
+            except ValueError:
+                return 0.0
+
+        _pre_filter = len(candidates)
+        candidates = [
+            r for r in candidates
+            if _shares(r.get("Price")) >= 5.0
+            and _shares(r.get("Avg Volume")) >= 500_000
+        ]
+        candidates.sort(
+            key=lambda r: _parse_float_val(r.get("Short Float", 0)), reverse=True
+        )
+        console.log(
+            f"[cyan]Squeeze Scanner: {len(candidates)} liquid candidates "
+            f"(from {_pre_filter}), sorted by short float desc"
+        )
+
         results = []
         for row in candidates[:40]:  # cap at 40 to avoid rate limits
             ticker = str(row.get("Ticker", "")).strip()
@@ -322,7 +395,7 @@ def run_scan(force: bool = False) -> dict:
 
             change_pct = 0.0
             try:
-                raw_change = row.get("Change", 0)
+                raw_change = row.get("Change %", row.get("Change", 0))
                 cv = float(str(raw_change).replace("%", ""))
                 # Finviz Ownership returns Change as decimal fraction (e.g. -0.0118 = -1.18%)
                 change_pct = cv * 100 if abs(cv) < 1.0 else cv
