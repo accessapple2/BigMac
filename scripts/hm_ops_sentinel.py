@@ -968,6 +968,48 @@ def _dispatch(alerts: list[AlertTuple], dry_run: bool = False) -> None:
         print(f"[sentinel] alert dispatch failed: {type(e).__name__}: {e}", file=sys.stderr)
 
 
+# HM-DISK-SENTINEL 2026-08-31 thresholds (percent used of the boot volume).
+DISK_WARN_PCT = 85.0
+DISK_CRIT_PCT = 92.0
+
+
+def check_disk_space(alerts: list[AlertTuple]) -> dict:
+    """HM-DISK-SENTINEL 2026-08-31: alarm before the boot volume fills.
+
+    2026-08-31: the volume hit 100% (~/.cache/uv had grown to 33GB
+    unnoticed). Nothing warned. Every downstream symptom followed --
+    "database is locked", "database or disk is full", failed /api/status
+    healthchecks, six service restarts, lost ticks. A full disk has no
+    grace period: SQLite simply stops writing. Warn at 85% (weeks of
+    notice at normal growth), red alert at 92% (days). Metric is percent
+    used, not bytes free, so an ack ceiling stays meaningful.
+    """
+    import shutil
+
+    total, used, free = shutil.disk_usage("/")
+    pct = used / total * 100.0
+    free_gb = free / (1024 ** 3)
+
+    if pct >= DISK_CRIT_PCT:
+        alerts.append((
+            "red_alert", "sentinel_disk_space_critical",
+            f"HM-OPS-SENTINEL: boot volume {pct:.1f}% full "
+            f"({free_gb:.1f} GiB free, >= {DISK_CRIT_PCT:.0f}%). SQLite "
+            f"writes fail outright at 100% -- free space now. Usual "
+            f"suspects: ~/.cache, ~/.ollama, data/backups, logs/.",
+            round(pct, 2),
+        ))
+    elif pct >= DISK_WARN_PCT:
+        alerts.append((
+            "warning", "sentinel_disk_space",
+            f"HM-OPS-SENTINEL: boot volume {pct:.1f}% full "
+            f"({free_gb:.1f} GiB free, >= {DISK_WARN_PCT:.0f}%). Check "
+            f"~/.cache, ~/.ollama, data/backups.",
+            round(pct, 2),
+        ))
+    return {"disk_pct": round(pct, 1), "disk_free_gb": round(free_gb, 1)}
+
+
 def main() -> int:
     dry_run = "--dry-run" in sys.argv
     alerts: list[AlertTuple] = []
@@ -982,6 +1024,7 @@ def main() -> int:
         cron_status = check_cron_missing_scripts(alerts)
         launchd_status = check_launchd_jobs_health(alerts)
         lifecycle_drift_status = check_fleet_lifecycle_drift(alerts)
+        disk_status = check_disk_space(alerts)
     except Exception as e:
         print(f"[sentinel] error running checks: {type(e).__name__}: {e}", file=sys.stderr)
         return 1
@@ -989,7 +1032,8 @@ def main() -> int:
     print(f"[sentinel] fd={fd_status} lock={lock_status} queue={queue_status} "
           f"collectors={collector_status} status_page={status_page_status} "
           f"source_health={source_health_status} mlx_qwen3={mlx_qwen3_status} cron={cron_status} "
-          f"launchd={launchd_status} lifecycle_drift={lifecycle_drift_status}")
+          f"launchd={launchd_status} lifecycle_drift={lifecycle_drift_status} "
+          f"disk={disk_status}")
 
     acks = _load_acks()
     fired = [a for a in alerts if not _is_suppressed(a[1], a[3], acks)]
