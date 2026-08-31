@@ -394,7 +394,7 @@ def build_gamma_block(ticker: str) -> str:
         f"- Call wall / resistance: ${ctx.call_wall}\n"
         f"- Put wall / support: ${ctx.put_wall}\n"
         f"- Highest-|GEX| strikes: "
-        f"{', '.join(f'${s['strike']}' for s in ctx.top_strikes)}\n"
+        f"{', '.join('$' + str(s['strike']) for s in ctx.top_strikes)}\n"
     )
 
 
