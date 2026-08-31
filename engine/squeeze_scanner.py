@@ -350,6 +350,7 @@ def run_scan(force: bool = False) -> dict:
             f"(from {_pre_filter}), sorted by short float desc"
         )
 
+        _yf_misses = []
         results = []
         for row in candidates[:40]:  # cap at 40 to avoid rate limits
             ticker = str(row.get("Ticker", "")).strip()
@@ -363,8 +364,15 @@ def run_scan(force: bool = False) -> dict:
             if short_pct < 20:
                 continue
 
+            # HM-SQUEEZE-THROTTLE 2026-08-31: 40 back-to-back Alpaca calls
+            # draw HTTP 429s (observed 2026-08-31 10:28), and a throttled
+            # lookup returns None -- indistinguishable at this gate from a
+            # symbol with no data. 0.5s spacing costs ~20s on a job with no
+            # deadline and removes the ambiguity.
+            time.sleep(0.5)
             yf_data = _get_yfinance_data(ticker)
             if yf_data is None:
+                _yf_misses.append(ticker)
                 continue
 
             # === HM-DASH.2 === enrich with Polygon canonical SI + DTC
@@ -440,6 +448,11 @@ def run_scan(force: bool = False) -> dict:
         }
         _last_scan_ts = time.time()
 
+        if _yf_misses:
+            console.log(
+                f"[yellow]Squeeze: {len(_yf_misses)} of 40 had no price data "
+                f"(e.g. {_yf_misses[:5]}) -- check logs for HTTP 429"
+            )
         console.log(f"[green]Squeeze Scanner: {len(results)} squeeze candidates found")
         return _last_result
 
