@@ -54,6 +54,62 @@ def finviz_login() -> bool:
 # Individual scan functions — each returns a list[dict]
 # ---------------------------------------------------------------------------
 
+# --- HM-FINVIZ-AVATAR 2026-09-01 -----------------------------------------
+# Finviz renders a letter-avatar inside the ticker cell and get_text()
+# concatenates it onto the symbol: ABEO arrives as "AABEO", AA as "AAA".
+# Verified 2026-08-31: Overview 50/50, Technical 50/50, Ownership 301/301
+# doubled, no exceptions. Found via engine/squeeze_scanner.py, which
+# returned zero candidates every run because every price lookup missed.
+#
+# engine/short_guard.py is deliberately NOT patched: it parses the authed
+# Elite export.ashx CSV, not scraped HTML, so it never sees the avatar.
+
+def _avatar_stripped(tickers):
+    # Strip the avatar char, but ONLY when every ticker is doubled.
+    # A genuinely-doubled symbol arrives tripled (AA -> AAA), so the
+    # uniform strip is right for those too. If Finviz drops the avatar,
+    # some row will not be doubled, the guard goes false, and this turns
+    # itself off rather than mangling AA/AAPL/MMM. Three outcomes:
+    # all doubled -> strip; none doubled -> silent no-op (Insider/News
+    # are not screener views); mixed -> no-op and WARN.
+    out = [str(t).strip() for t in tickers]
+    if not out:
+        return out
+    dbl = [len(t) >= 2 and t[0] == t[1] for t in out]
+    if all(dbl):
+        log.info("finviz avatar-strip: %d tickers (HM-FINVIZ-AVATAR)", len(out))
+        return [t[1:] for t in out]
+    if not any(dbl):
+        return out
+    bad = [t for t, d in zip(out, dbl) if not d]
+    log.warning(
+        "finviz avatar-strip SKIPPED -- %d of %d not doubled (e.g. %s); "
+        "markup may have changed, verify before trusting", len(bad), len(out), bad[:5])
+    return out
+
+
+def strip_finviz_avatar_df(df):
+    # In-place avatar strip on a screener DataFrame. Safe on None/empty.
+    try:
+        if df is None or len(df) == 0 or "Ticker" not in df.columns:
+            return df
+        df["Ticker"] = _avatar_stripped(df["Ticker"].tolist())
+    except Exception as e:
+        log.warning("strip_finviz_avatar_df failed: %s", e)
+    return df
+
+
+def strip_finviz_avatar_records(rows, key="Ticker"):
+    # In-place avatar strip on screener record dicts.
+    try:
+        if not rows or key not in rows[0]:
+            return rows
+        for r, t in zip(rows, _avatar_stripped([r.get(key, "") for r in rows])):
+            r[key] = t
+    except Exception as e:
+        log.warning("strip_finviz_avatar_records failed: %s", e)
+    return rows
+
 def _safe_df_to_records(df, cols: list[str]) -> list[dict]:
     """Select available columns and convert DataFrame to JSON-safe records."""
     import math
@@ -66,7 +122,7 @@ def _safe_df_to_records(df, cols: list[str]) -> list[dict]:
             k: (None if isinstance(v, float) and (math.isnan(v) or math.isinf(v)) else v)
             for k, v in row.items()
         })
-    return cleaned
+    return strip_finviz_avatar_records(cleaned)
 
 
 def finviz_gainers(limit: int = 20) -> list[dict]:
@@ -364,7 +420,9 @@ def finviz_quality_screen() -> list[str]:
         df = s.screener_view(limit=3000)
         tickers: list[str] = []
         if df is not None and len(df) > 0 and "Ticker" in df.columns:
-            tickers = [str(t) for t in df["Ticker"].tolist() if t]
+            tickers = _avatar_stripped(
+                [str(t) for t in df["Ticker"].tolist() if t]
+            )
         _quality_cache = {"tickers": tickers, "updated": now}
         log.info(f"Quality screen refreshed: {len(tickers)} tickers")
         return tickers

@@ -553,6 +553,7 @@ def run_finviz_watchlist_scan() -> dict:
     """
     try:
         from finvizfinance.screener.overview import Overview
+        from shared.finviz_scanner import strip_finviz_avatar_df
     except ImportError:
         console.log("[red]finvizfinance not installed — skipping Finviz scan")
         return {"error": "finvizfinance not installed", "symbols": list(FIXED_WATCHLIST)}
@@ -582,6 +583,10 @@ def run_finviz_watchlist_scan() -> dict:
             df = foverview.screener_view()
             if df is None or df.empty:
                 continue
+            # HM-FINVIZ-AVATAR 2026-09-01 -- Overview carries the avatar too
+            # (verified 50 of 50); without this the watchlist takes corrupted
+            # symbols straight into the premarket_scan table.
+            strip_finviz_avatar_df(df)
 
             for _, row in df.iterrows():
                 if len(variable_picks) >= 10:

@@ -127,6 +127,13 @@ def event_study() -> list[dict]:
             "Float Short": "Over 10%",  # cast a wide net for the event study
         })
         own_df = ownership.screener_view()
+        # HM-FINVIZ-AVATAR 2026-09-01 -- same Ownership-view avatar that
+        # blanked engine/squeeze_scanner.py. Guarded import: manual-run script.
+        try:
+            from shared.finviz_scanner import strip_finviz_avatar_df
+            strip_finviz_avatar_df(own_df)
+        except Exception as _ae:
+            print("[scotty_backtest] avatar strip unavailable: %s" % _ae)
         if "Ticker" in own_df.columns:
             own_df = own_df.set_index("Ticker")
     except Exception as e:
@@ -255,6 +262,13 @@ def noise_floor() -> dict:
         ownership = Ownership()
         ownership.set_filter(filters_dict={"Float Short": f"Over 15%"})
         own_df = ownership.screener_view()
+        # HM-FINVIZ-AVATAR 2026-09-01 -- same Ownership-view avatar that
+        # blanked engine/squeeze_scanner.py. Guarded import: manual-run script.
+        try:
+            from shared.finviz_scanner import strip_finviz_avatar_df
+            strip_finviz_avatar_df(own_df)
+        except Exception as _ae:
+            print("[scotty_backtest] avatar strip unavailable: %s" % _ae)
     except Exception as e:
         print(f"  ERROR: Finviz pull failed: {e}")
         return {}
