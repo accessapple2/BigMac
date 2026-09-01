@@ -113,6 +113,57 @@ class BenchBlockReasonTests(unittest.TestCase):
         self._insert_rating("chekov", "E", 15.0, period="weekly")
         self.assertIsNone(self._call("chekov"))
 
+    def test_fresh_bench_rating_still_blocks(self) -> None:
+        """HM-BENCH-STALE-RATING-DEADLOCK-2026-09-01: a BENCH rating inside
+        the staleness window must still block -- this fix only changes
+        behavior for OLD snapshots, not the normal case."""
+        self.conn.execute(
+            "INSERT INTO agent_ratings (player_id, period, rating, rating_score, timestamp) "
+            "VALUES ('picard', 'alltime', 'D', 40.0, datetime('now', '-1 day'))"
+        )
+        self.conn.commit()
+        reason = self._call("picard")
+        self.assertIsNotNone(reason)
+        self.assertIn("D", reason)
+
+    def test_stale_bench_rating_fails_open(self) -> None:
+        """HM-BENCH-STALE-RATING-DEADLOCK-2026-09-01: a BENCH snapshot older
+        than _BENCH_STALE_DAYS must fail open, not block forever. Live case:
+        an agent blocked from buy() can never close new trades, so
+        calculate_rating() can never accumulate enough current-season
+        history to overwrite the old snapshot -- a closed loop with no
+        exit. ollama-plutus's D/39.9 snapshot from 2026-07-13 survived the
+        season 6->7 rollover and blocked every BUY through 2026-09-01
+        despite having 0 season-7 trades to be judged on."""
+        self.conn.execute(
+            "INSERT INTO agent_ratings (player_id, period, rating, rating_score, timestamp) "
+            "VALUES ('mccoy', 'alltime', 'D', 39.9, datetime('now', '-50 days'))"
+        )
+        self.conn.commit()
+        self.assertIsNone(self._call("mccoy"))
+
+    def test_bench_staleness_boundary(self) -> None:
+        """Exactly at the boundary: _BENCH_STALE_DAYS old still blocks (not
+        yet expired), one day past it does not."""
+        self.conn.execute(
+            "INSERT INTO agent_ratings (player_id, period, rating, rating_score, timestamp) "
+            "VALUES ('scotty', 'alltime', 'E', 10.0, "
+            "datetime('now', ? || ' days'))",
+            (f"-{paper_trader._BENCH_STALE_DAYS - 1}",),
+        )
+        self.conn.commit()
+        self.assertIsNotNone(self._call("scotty"))
+
+        self.conn.execute("DELETE FROM agent_ratings WHERE player_id='scotty'")
+        self.conn.execute(
+            "INSERT INTO agent_ratings (player_id, period, rating, rating_score, timestamp) "
+            "VALUES ('scotty', 'alltime', 'E', 10.0, "
+            "datetime('now', ? || ' days'))",
+            (f"-{paper_trader._BENCH_STALE_DAYS + 1}",),
+        )
+        self.conn.commit()
+        self.assertIsNone(self._call("scotty"))
+
 
 class ExitPathsNeverGatedTests(unittest.TestCase):
     """Source-inspection guard: the BENCH gate must exist only in the

@@ -617,10 +617,27 @@ def _is_human_player(player_id: str) -> bool:
 # reads agent_ratings, never writes ai_players.halt_mode).
 _BENCH_RATINGS = frozenset({"D", "E"})
 
+# HM-BENCH-STALE-RATING-DEADLOCK-2026-09-01: a BENCH (D/E) snapshot can
+# never self-correct once the season rolls over. calculate_rating() scopes
+# stock trades to `season = _CURRENT_SEASON`; an agent blocked from buy()
+# can't close new trades, so it can never accumulate current-season
+# history, so calculate_rating() keeps returning "N/A" (<2 clean rows)
+# and never INSERTs a fresh row. The old D/E snapshot is retrieved
+# forever (ORDER BY timestamp DESC LIMIT 1 doesn't check its age) —
+# a closed loop with no exit. Live case found 2026-09-01: ollama-plutus's
+# D/39.9 snapshot from 2026-07-13 (season 6) survived the season 6->7
+# rollover and blocked every BUY through today despite 0 season-7 trades
+# to judge him on -- 49 days of a stale verdict with structurally zero
+# path to ever refreshing. A snapshot older than _BENCH_STALE_DAYS is no
+# longer trusted as current truth -- fail open, same posture as
+# "never rated."
+_BENCH_STALE_DAYS = 30
+
 
 def _bench_block_reason(player_id: str) -> str | None:
     """Return the blocking reason string if player_id's most recent
-    alltime rating is BENCH-grade (D/E), else None.
+    alltime rating is BENCH-grade (D/E) AND that snapshot is still fresh,
+    else None.
 
     Reads the last-saved snapshot from agent_ratings rather than calling
     calculate_rating() fresh -- that function does a full trade-history
@@ -629,12 +646,17 @@ def _bench_block_reason(player_id: str) -> str | None:
     this session's other fixes (HM-EVENT-TAPE-WAL-CONTENTION, HM-RIKER-
     LOCK-RETRY) were about reducing, not growing. Never-rated players
     (no agent_ratings row yet) fail open -- not found is not BENCH.
+    Age is computed in SQL (julianday) rather than parsed in Python --
+    see HM-DB-MAX-LEXICAL-FORMAT-FRESHNESS: mixed timestamp text formats
+    have broken naive string-based freshness checks before.
     """
     try:
         conn = _conn()
         try:
             row = conn.execute(
-                "SELECT rating, rating_score FROM agent_ratings "
+                "SELECT rating, rating_score, "
+                "       (julianday('now') - julianday(timestamp)) AS age_days "
+                "FROM agent_ratings "
                 "WHERE player_id=? AND period='alltime' "
                 "ORDER BY timestamp DESC LIMIT 1",
                 (player_id,),
@@ -642,6 +664,15 @@ def _bench_block_reason(player_id: str) -> str | None:
         finally:
             conn.close()
         if row and row[0] in _BENCH_RATINGS:
+            age_days = row[2]
+            if age_days is not None and age_days > _BENCH_STALE_DAYS:
+                console.log(
+                    f"[yellow][BENCH-STALE] {player_id} rating {row[0]} "
+                    f"({row[1]:.0f}/100) is {age_days:.0f}d old "
+                    f"(> {_BENCH_STALE_DAYS}d) — treating as expired, "
+                    f"not blocking entries"
+                )
+                return None
             return f"BENCH: rating {row[0]} ({row[1]:.0f}/100)"
         return None
     except Exception:
