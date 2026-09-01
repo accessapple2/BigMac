@@ -78,12 +78,47 @@ imports `engine.riker_synthesis`, a module retired per CLAUDE.md's
 "Riker XO synthesis job — STOOD DOWN", test file appears orphaned): 47/47
 pass, no regressions.
 
+## Deploy status: HELD (Captain directive, 2026-09-01)
+
+Fix is committed (`0730aec`) and pushed — safe on disk, not live. Trader
+process is still running pre-fix bytecode.
+
+**If deploying tonight:** `launchctl kickstart -k
+gui/$(id -u)/com.trademinds.trader` **after the 13:00 MST close**, then the
+smoke-verify per CLAUDE.md's Restart-then-verify doctrine. Doing this after
+close means the fix lands with no live market window left today —
+**first trading day the unblock actually applies is expected to be
+tomorrow (2026-09-02)**, not today.
+
+## Residual risk from the staleness fail-open (Captain-requested note)
+
+Asked: could the 30-day fail-open unblock anything else unexpectedly at
+restart? Re-verified against the live DB — no immediate effect: of the 8
+`is_active=1` agents with a D/E most-recent alltime rating, only 2 are
+`halt_mode='active'` today (`ollama-plutus`, now unblocked; `capitol-trades`,
+still correctly gated on a fresh rating). The other **6** are already
+`halt_mode` full/exit_only — this change doesn't touch them today:
+`super-agent`, `ollama-llama`, `deepseek-7b-grok4`, `guardian-of-forever`,
+`navigator`, `ollama-qwen3`.
+
+The residual risk is later, not now: those 6 all carry a stale D/E snapshot
+that the staleness fail-open has already neutered as a gate. If any of them
+gets un-halted in the future (`scripts/fleet_lifecycle.py revive`) without a
+fresh rating being computed first, it goes straight back to unrestricted
+entries — no rating-based check at all until it accumulates ≥2 new closed
+trades, because the only rating on file for it is already past the 30-day
+mark. Before this fix, an old D/E snapshot would have kept blocking it as a
+second, independent check even after `halt_mode` was lifted; that check is
+now gone for anyone whose rating is already stale. Fleet Lifecycle Doctrine
+already expects a deliberate reason + record for any revive, so this
+probably doesn't bite in practice — but it's a real coverage gap, not a
+hypothetical one, and worth a beat of manual judgment (or a rating recompute)
+at revive time rather than assuming BENCH will catch a bad-rated agent that
+comes back online.
+
 ## Not done / open
 
-- Not restarted/deployed — this session made the code change and verified
-  it against the live DB read-only; `launchctl kickstart` not run. Per
-  CLAUDE.md's Restart-then-verify doctrine, this needs a smoke-restart in
-  a verify window before it's "shipped," not just committed.
+- Not restarted/deployed — see "Deploy status" above.
 - `season_config` table's latest row is still season 6 (never got a
   season-7 row) — separate metadata drift from the same rollover, not
   fixed here; flagged for whoever owns season-config hygiene.
