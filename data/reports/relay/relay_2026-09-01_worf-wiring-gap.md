@@ -1,5 +1,9 @@
 # Worf wiring gap — traced 2026-09-01
 
+**STATUS: Worf's gap is closed/traced — root cause identified below, do not
+re-trace it.** The live open thread is the Aug 27 gate-rejection pattern
+(`BENCH: rating D (40/100)` against `ollama-plutus`) — pick up there, not here.
+
 **Branch:** exec-pipeline, HEAD 8431548 (unchanged — investigation only, no code edits)
 
 ## Question posed
