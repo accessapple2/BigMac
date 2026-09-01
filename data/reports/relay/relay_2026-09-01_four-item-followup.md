@@ -712,3 +712,265 @@ weights, different tag names.
 3. Is the first `20:15` retention run clean — zero `[ARCHIVED]` lines is
    the *correct* result tonight (count will be 1 against `KEEP=14`), not a
    failure to flag.
+
+---
+
+## 9. Polygon 429 characterization — REPORT ONLY, shadow mode confirmed still OFF
+
+Nothing enabled, nothing restarted. `GET /api/polygon-limiter-shadow-report`
+re-checked live: no report file on disk, `POLYGON_LIMITER_MODE` unset/off.
+Verified via the same isolated method as section 5, not by touching the
+live process's mode.
+
+### How many, which endpoints, what times, burst or sustained
+
+Pulled every dated line in `trader.log` from `2026-09-01 00:00:00` through
+now (~13:00) and grouped by source, carrying the last-seen timestamp
+forward across the many lines Rich's console renderer leaves blank when
+several events land in the same second (confirmed real, not
+double-counted — see the raw excerpt below).
+
+| source | endpoint / code path | total today | pattern |
+|---|---|---|---|
+| `engine/market_data.py:893` (`get_intraday_candles`, `HM-CB` block) | `/v2/aggs/ticker/{sym}/range/{mult}/{span}/...` (candles) | **37,174** | **sustained all day** — every hour 00:00–13:00 has 558–4,701 events; even the quietest overnight hour (13:00, partial) had 558. Roughly doubles during 07:00–12:00 vs. overnight but never drops near zero. |
+| `engine/bk_orb_scanner.py` (`_fetch_minutes_polygon`, direct) | `/v2/aggs/ticker/{sym}/range/1/minute/...` (1-min bars, 40d) | **2,471** | **pure burst, exactly 2 hours** — 978 at 07:00, 1,493 at 08:00, **zero at every other hour**. Matches its own `09:46–12:00 ET` self-gate precisely (that window is 06:46–09:00 on this box's fixed-MST clock). |
+| `strategies/polygon_client.py` (`_get`, no rate-limit delay on `fetch_daily_bars`) | `/v2/aggs/ticker/{sym}/prev` and daily-bars endpoints | 53 | Scattered thin across the whole day (1–10/hour) — this client already has a partial `_rate_limited_get` helper with a `time.sleep`, which is very likely why its count is two orders of magnitude below the other two. |
+
+**Total measured Polygon 429s today: ~39,700.** Overwhelmingly dominated
+by one code path (`get_intraday_candles`'s Polygon leg) that isn't
+bk_orb_scanner at all — it's a shared utility called from **15+ separate
+modules** (`ollietrades_signal.py`, `benchmark.py`, `impulse_detector.py`,
+`imbalance_detector.py`, `gap_scanner.py`, `volatility_breakout.py`,
+`theta_scanner.py`, `chekov_autotrade.py`, `crew/ensemble.py`,
+`dashboard/app.py`, and more), each independently walking its own ticker
+universe through the same unmanaged, un-cached, un-coordinated function.
+**This is sustained fan-out overload, not a single scanner's burst** — the
+37,174-event figure is the correct headline number for "how bad is it,"
+not bk_orb_scanner's slice of it.
+
+Sample raw excerpt proving the same-second lines are real distinct events,
+not a wrapping artifact (each names a different symbol):
+```
+[2026-09-01 00:09:15] HM-CB Polygon candles fallback to  Alpaca for GOOGL: RuntimeError('Polygon HTTP 429')
+[2026-09-01 00:09:16] HM-CB Polygon candles fallback to  Alpaca for V: RuntimeError('Polygon HTTP 429')
+                       HM-CB Polygon candles fallback to  Alpaca for ASML: RuntimeError('Polygon HTTP 429')
+                       HM-CB Polygon candles fallback to  Alpaca for MA: RuntimeError('Polygon HTTP 429')
+```
+
+### Alpaca 429s — corrected count, and the fallback-doubling question answered
+
+**Correction:** the "58 today" figure doesn't match what's in the log.
+Direct count, same methodology, same day: **777** Alpaca 429s —
+`get_alpaca_bars HTTP 429 for {sym}` (525), `_alpaca_bulk_bars_chunk HTTP
+429` (236), `get_alpaca_bars batch HTTP 429` (16). Verified not a
+duplication artifact the same way as the Polygon figure (raw sample
+above the fold: each line names a distinct symbol). Not sure where "58"
+came from — flagging rather than reconciling a source I can't find, same
+posture as the "1,373" correction in section 7.
+
+**Yes — the fallback path doubles requests per ticker, confirmed by
+reading the code, not just inferring it from timing:**
+`get_intraday_candles()` (`engine/market_data.py:808`) tries Polygon
+first; on ANY failure (429 included) it falls straight through to a
+second, full Alpaca request for the identical symbol/interval — no
+memoization, no "Polygon is currently rate-limited, skip it for the next
+N seconds" state of any kind. The very next ticker in the same caller's
+loop tries Polygon again, fails again, doubles again. Every one of the
+37,174 `HM-CB` events this section counted is, by construction, paired
+with a second live request to Alpaca for the same symbol. The hours with
+the heaviest `HM-CB` volume (07:00, 08:00) are also elevated for two of
+the three Alpaca 429 patterns — consistent with the cascade (Polygon
+overload pushes more traffic onto Alpaca, which then also saturates), not
+proof of it on its own; the code-level mechanism is the solid part of
+this claim, the timing correlation is supporting, not conclusive.
+
+`bk_orb_scanner.py` specifically does **not** double onto Alpaca on a
+Polygon 429 — its fallback to the shared `get_intraday_candles` cascade is
+gated on `POLYGON_API_KEY` being *unset*, and it's set, so that branch is
+dead in production. bk_orb's 2,471 failures each cost exactly one wasted
+Polygon call, not two.
+
+### bk_orb_scanner.py — theoretical rate vs. Polygon's real limit
+
+`UNIVERSE_SIZE = 150` (env-overridable, default 150 — confirmed live
+value, no override present). `run_scan()` loops all 150 sequentially,
+**zero throttling, zero sleep between calls** — one `requests.get(...,
+timeout=8)` per ticker, back to back. Scheduled `schedule.every(3)
+.minutes.do(run_bk_orb_scan)`, self-gated to the `09:46–12:00 ET` window
+(134 minutes → up to ~44 scan cycles/day) and to
+`ORB_CONFIRMATORY_VOTE_ENABLED` — **checked and confirmed `True`
+in `config.py`** (a hardcoded Python bool, not env-configurable despite
+its name; `main.py`'s own inline comment calling it "default-OFF" is
+stale — the scan is live today, which the 2,471-failure burst above
+directly confirms).
+
+**Answer: a single scan cycle is ~30x over Polygon's real free-tier
+limit** — 150 tickers requested against a stated 5 calls/minute cap is a
+150:5 ratio. That's the clean per-cycle multiple. It's not a one-time
+30x either: with zero backoff between cycles, this repeats up to ~44
+times across the window, each cycle re-attempting the same 150-ticker
+burst against a quota that was already exhausted 5 requests in. Whether
+the realized instantaneous rate is higher than 30x depends on how fast
+the failing requests return (429 rejections are typically much faster
+than a real 200 OK, so a 150-request loop plausibly completes its burst
+in under a minute of wall-clock time, which would push the effective
+peak rate well past 30x for that window) — not measured directly here,
+flagged as the reason "30x" is a floor, not a ceiling.
+
+### Shadow report — zero data, not "not enough," exactly as intended
+
+`POLYGON_LIMITER_MODE` has never been set today (confirmed both by the
+live `/api/polygon-limiter-shadow-report` endpoint returning
+`not_running` and by the report file's absence on disk). **There is no
+shadow data to read yet — zero, not partial.** This is the correct state
+per the Captain's explicit instruction (shadow stays held tonight,
+plutus off BENCH is already the one live variable for tomorrow). Nothing
+to report on "what the limiter would have done" because it hasn't run at
+all. Enabling shadow mode is a separate, later decision, not made here.
+
+---
+
+## 10. Ollama tag duplication — CONFIRMED HARD at the manifest/blob level. No tags touched.
+
+Section 7's finding (same `model_digest` in `ollama_model_swap_log`) was
+observed behavior from a poller. This section confirms it a completely
+independent way — reading Ollama's own local manifest and blob store
+directly, not inferring from `/api/ps` output.
+
+### Same underlying layers, confirmed byte-for-byte
+
+`ollama show plutus-v1:latest --modelfile` and `ollama show qwen3:8b
+--modelfile` both resolve to:
+
+```
+FROM /Users/bigmac/.ollama/models/blobs/sha256-a3de86cd1c132c822487ededd47a324c50491393e6565cd14bafa40d0b8e686f
+```
+
+— the identical blob path, not just the identical digest string reported
+by a poller. Went one level deeper: the raw manifest JSON on disk for
+`library/plutus-v1/latest`, `library/qwen3/8b`, and `library/ministral-3/3b`
+are **byte-identical**, every layer digest matching exactly (model,
+template, license, params — all four):
+
+```
+{"schemaVersion":2, ... "layers":[
+  {"mediaType":"...image.model","digest":"sha256:a3de86cd...","size":5225374496},
+  {"mediaType":"...image.template","digest":"sha256:ae370d88...","size":1723},
+  {"mediaType":"...image.license","digest":"sha256:d18a5cc7...","size":11338},
+  {"mediaType":"...image.params","digest":"sha256:cff3f395...","size":120}
+]}
+```
+
+Not "similar" or "same family" — the same four content-addressed blobs,
+referenced by three different tag names. `ollama list`'s own `ID` column
+(a separate, independently-derived identifier) agrees: `plutus-v1`,
+`qwen3:8b`, `ministral-3:3b`, `qwen2.5-coder:7b`, `qwen3:4b` all show
+`500a1f067a9f`, all `5.2 GB`.
+
+### What created the tags: `ollama cp` (or equivalent local copy), not a pull or a Modelfile build
+
+Filesystem timestamps settle this directly:
+
+| file | mtime |
+|---|---|
+| the shared weights blob (`sha256-a3de86...`, 5.2 GB) | **2026-08-24 21:02:40** |
+| `qwen3/8b` manifest | 2026-08-24 21:02:48 (8s after the blob — consistent with a real `ollama pull`: blob downloads, then the manifest is written) |
+| `plutus-v1/latest` manifest | **2026-08-25 20:09:01** — almost 23 hours *later*, with **no corresponding change to the blob's mtime** |
+
+A fresh `ollama pull plutus-v1` or a Modelfile `FROM <upstream>` build
+would have written new blob data at the time of that pull/build — it
+didn't; the blob is untouched since the original `qwen3:8b` pull. The
+only thing that changed 23 hours later was a new manifest file pointing
+at the *existing* blob set. That's the exact signature of `ollama cp
+qwen3:8b plutus-v1` (or the local API equivalent) — matches the precedent
+CLAUDE.md already documents for this exact family (`ollama cp qwen3:8b
+qwen2.5-coder:7b`, done 2026-08-27 per that doctrine).
+
+### Bare alias, confirmed twice — no system prompt, no distinct parameters, nothing to lose
+
+Two independent checks, same answer:
+- **Ollama-model level:** the manifest has exactly four layers — model,
+  template, license, params. **No `system` layer** (Ollama's own
+  mediaType for a baked-in system prompt, `application/vnd.ollama.image.
+  system`, is simply absent). `PARAMETER` values in both rendered
+  Modelfiles are identical (`temperature 0.6`, `top_k 20`, `top_p 0.95`,
+  `repeat_penalty 1`, same stop tokens) — only the *display order* differs,
+  not the values. `plutus-v1` carries zero Ollama-level customization
+  over bare `qwen3:8b`.
+- **Application level:** McCoy's persona (`"You are Dr. McCoy (Bones),
+  Chief Medical Officer..."`) lives entirely in
+  `engine/providers/base.py`, keyed by `player_id="ollama-plutus"` — sent
+  as part of the prompt at inference time, from application code,
+  **completely independent of which Ollama tag the request routes
+  through.** Consolidating the tag `ollama-plutus` calls would not touch
+  McCoy's persona at all; the persona was never coupled to the tag name in
+  the first place.
+
+**Nothing would be lost by deduping.** Both checks the Captain asked for
+came back the same way: bare alias, not a distinct build.
+
+### Not touched today — the test in flight would be destroyed
+
+No tag copied, cp'd, or deleted. No `ai_players.model_id` changed. The
+War Room filter deployed an hour before this investigation started
+(section 8) — tomorrow's read on whether `qwen3:8b` swap activity drops
+to near-zero (section 7's falsifiable prediction) requires the current
+tag layout to stay exactly as it is until that read happens. Touching
+`plutus-v1` or `qwen3:8b` today would conflate two independent variables
+in the same measurement window.
+
+### Conditional dedupe plan — write-up only, not executed, contingent on tomorrow's read
+
+**If tomorrow's `qwen3:8b` swap count does NOT drop toward zero**
+(falsifying the War Room theory, or revealing a second live caller this
+investigation missed), the next candidate fix is consolidating the tag
+layout so `ollama-plutus` and any other alias-family agent call the
+*same* tag name Ollama already has resident, instead of a differently-
+named tag pointing at identical bytes.
+
+**The fix:** change `ai_players.model_id` for `ollama-plutus` from
+`plutus-v1` to `qwen3:8b` (a single-row `UPDATE`, no `ollama rm`/`ollama
+cp` needed — the alias tags themselves can stay on disk, unused, rather
+than being deleted). Confirmed above this changes nothing behaviorally:
+same weights, same template, same params, no system-prompt coupling.
+Ollama would then see repeated requests for the literal same tag from
+both McCoy and Worf's calls and serve them without an evict/reload cycle
+between them, the way `qwen3-8b-flash` and `options-sosnoff` already do
+today (same tag, confirmed no mutual eviction, section 7).
+
+**What it risks:**
+- **Attribution, not behavior.** `ai_players.model_id` is read in places
+  beyond inference routing — anywhere that logs, reports, or filters by
+  model name (e.g. `engine/agent_routing.py`'s routing table, any
+  dashboard panel that groups/labels agents by `model_id`, the
+  `_QWEN3_ALIAS_MODEL_IDS` thinking-mode-suppression set in
+  `engine/providers/ollama_provider.py` which already has to know about
+  this alias family) would need to keep working with McCoy now reporting
+  as `qwen3:8b` instead of `plutus-v1` — not confirmed broken, not audited
+  here, a real "check every consumer of `ai_players.model_id`" pass would
+  be needed before flipping it, same rigor as the `season_config` consumer
+  sweep in section 6.
+- **Losing the per-agent VRAM-thrash signal.** Right now, distinct tag
+  names are incidentally useful as a debugging aid — `ollama_model_swap_
+  log.model_name` currently tells you *which alias* (hence which agent)
+  drove a given load/evict event, the exact thing this investigation used
+  to attribute today's swap activity to Worf specifically. Consolidating
+  the tag removes that signal — a future thrash investigation would only
+  see "qwen3:8b" swapping, with no free way to tell which agent's calls
+  caused it, unless something else (a per-call log) is added first.
+- **Re-alias risk if the roster changes.** `HM-SEAT-CONSOLIDATION`
+  (2026-08-31) already touched this family once; a second consolidation
+  pass on top of a still-recent one raises the chance of losing track of
+  which agent maps to which tag, especially if it's done piecemeal rather
+  than as one deliberate, documented pass across the whole alias family
+  (`plutus-v1`, `ministral-3:3b`, `qwen2.5-coder:7b`, `qwen3:4b` all share
+  this same underlying blob, not just `plutus-v1` — a real consolidation
+  decision should look at all four at once, not just McCoy's).
+
+**Recommendation if the condition triggers:** don't do this as a quick
+single-row patch. Scope it as its own small ticket — audit every
+`ai_players.model_id` consumer first, decide whether the swap-log
+attribution signal needs replacing before it's removed, and decide
+whether to consolidate the whole alias family in one pass rather than
+one row at a time. Not needed unless tomorrow's read falsifies the
+current prediction.
