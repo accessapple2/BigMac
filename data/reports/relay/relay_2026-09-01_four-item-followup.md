@@ -381,3 +381,188 @@ Two distinct things are gated on the Captain, not done here:
   raise `BudgetExhausted`, skip a cycle) is not being considered until
   after a full day of shadow data has been reviewed, per the Captain's own
   sequencing. Nothing in this commit moves toward that on its own.
+
+---
+
+## 6. season_config, round two — same root cause, much stronger evidence, still NOT WRITTEN
+
+Section 1 above stands, but the Captain asked for a more rigorous consumer
+sweep and a harder look at "manual step vs. missed migration vs. silently-
+failing job." Redid both. **No table write happened — still holding for
+approval, still not before 13:00.**
+
+**Why the row was never written, re-verified three ways:**
+- No `INSERT`/`INSERT OR REPLACE INTO season_config` exists anywhere in the
+  repo (already established).
+- **Checked for a missed migration specifically:** this repo has a real
+  `migrations/` + `scripts/migrations/` mechanism (11 dated migration
+  files). None of them touch `season_config` — the one file that matches a
+  bare grep for "season" (`scripts/migrations/hm_clean_stale_archive_not_
+  delete.sql`) only references the unrelated `settings.current_season`
+  key. Nothing was ever authored to migrate this and failed; nothing was
+  ever authored, period.
+- **Checked for a silently-failing job:** grepped the live crontab and
+  `backups/crontab.bak.20260831_111719` for "season" — zero hits. Grepped
+  every `/Library/LaunchDaemons` and `~/Library/LaunchAgents` plist —
+  zero hits. There is no scheduled job anywhere with "season" in scope
+  that could have failed silently, because none was ever built. Confirms:
+  **manual step, never repeated, never automated** — not a migration, not
+  a failed job.
+
+**Full consumer sweep, this time across every file type, not just `.py`:**
+unfiltered `grep -rl "season_config"` across the whole repo (excluding
+venvs/git) turns up exactly the same two live files as before —
+`setup_db.py` (the `CREATE TABLE`) and `dashboard/app.py`'s `/api/season`
+— plus only archived `.bak` snapshots and today's own relay docs. Nothing
+missed.
+
+**New, sharper finding: this gap was already flagged, six weeks ago, and
+tied to a much bigger incident.** `data/reports/relay/relay_2026-07-18_
+full-audit-2026q3.md` (a prior, independent audit — not mine) already
+carries `[AMBER] C7.2`:
+
+> Season 6 `end_date=2026-07-10` (8 days before this audit), no Season 7
+> row exists in `season_config` — plausible but **unconfirmed** trigger for
+> the mass reactivation.
+
+That audit's Executive Summary ties the missing row to a much larger,
+still-unexplained event at the time: active-agent count jumped from a
+documented 15 to **75** (a ~9x breach of `config.py`'s `MAX_ACTIVE_AGENTS=8`
+ceiling), which it links onward to real scheduler saturation (war-room
+cycle p95=777.7s) and two confirmed silent full-day misses. **That specific
+fleet-size anomaly is not live today** — checked `ai_players` right now:
+8 active, 3 exit_only, 71 full (82 total), nowhere near the 75-active
+figure from 07-18. Per this repository's own memory of that period, a
+separate fix closed that specific incident the same day it was audited
+(census clean by end of 07-18). So the fleet-size crisis itself is
+historically resolved — but **the `season_config` gap that audit called
+"plausible but unconfirmed" as its trigger was never actually closed,
+just outlived the incident it may or may not have caused.** Whether it
+caused that July incident is still unconfirmed (same as it was six weeks
+ago) and not re-investigated here — out of scope for this pass. What's
+newly confirmed: it's the same unfixed gap, not a new one, and it's had a
+live blast radius before, not just a cosmetic one.
+
+**Live, current, low-severity symptom (unchanged from section 1):**
+`bridge-v2.html`'s season panel shows "Active: 1 agents" (wrong, not
+obviously blank) because `dashboard/app.py`'s `/api/season` returns
+`config: {}` for the missing row.
+
+Nothing written to `season_config`. Awaiting Captain approval + explicit
+timing (not before 13:00) if a one-time manual insert is the chosen path,
+or a separate decision if `engine/season_manager.py::rotate_season()`
+should be extended to write it automatically going forward.
+
+---
+
+## 7. Ollama seat measurement — MEASURED, NOT CHANGED. Correction to a number I gave you earlier.
+
+**Correction first, plainly stated:** earlier today I wrote "1,373
+evict/load events" (`bda14e5`'s commit message and the Polygon section
+above) as if it were a documented `HM-SEAT-CONSOLIDATION` figure. I cannot
+find that number anywhere — not in any log, not in any doc, not in the
+`ollama_model_swap_log` table. It does not exist as far as I can verify.
+I introduced it and it was wrong. The real numbers, measured directly from
+`ollama_model_swap_log` just now:
+
+| Day | loaded | evicted | total |
+|---|---|---|---|
+| 2026-08-31 (complete day) | 357 | 355 | **712** |
+| 2026-09-01 (partial — as of 18:29 UTC / 11:29 MST, market still open) | 257 | 260 | **517** |
+
+**Baseline for tomorrow's post-filter comparison: use 08-31's 712 as the
+last complete pre-filter day.** Today (09-01) is itself pre-filter too
+(the trader is still running pre-`337407c` bytecode until the 13:00
+kickstart), so today's own number, once complete, is a second pre-filter
+data point, not yet comparable to "after."
+
+**By model tag, 08-31 (complete day) and 09-01 (partial):**
+
+| model_name | digest | 08-31 total | 09-01 (partial) total |
+|---|---|---|---|
+| `plutus-v1:latest` | `500a1f...` | 270 | **214** |
+| `ministral-3:3b` | `500a1f...` | 170 | 22 |
+| `gemma3:4b` | `a2af6c...` | 102 | 101 |
+| `qwen3:8b` | `500a1f...` | 47 | **102** |
+| `qwen2.5-coder:7b` | `500a1f...` | 16 | 20 |
+| `0xroyce/plutus:latest` | `83f2e5...` (real Plutus, distinct weights) | 77 | 58 |
+| `phi3:mini` | `4f2222...` | 12 | 0 |
+| `qwen3:14b` | `bdbd18...` | 2 | 0 |
+| `qwen3:4b` | `500a1f...` | 16 | 0 |
+
+**Direct answer to "are Worf and Troi forcing evictions against each
+other": no — and it's moot today anyway.**
+`ai_players.model_id` for both: `options-sosnoff` = `qwen3:8b`,
+`qwen3-8b-flash` = `qwen3:8b` — the **literal same tag string**, not just
+the same underlying weights. Ollama's load/unload granularity is per exact
+model-name string; two callers requesting the identical name back-to-back
+is a cache hit on Ollama's side, never a reload. They structurally cannot
+evict each other. But it doesn't matter today regardless: **`options-
+sosnoff` is completely dormant** — checked `war_room`, `decision_audit`,
+`bridge_votes`, `signals` for it, all zero rows today; its last `war_room`
+entry anywhere is **2026-06-22**, over two months stale. It is
+`halt_mode='active'`/`is_active=1` in the DB but nothing is actually
+calling it. Whatever `HM-SEAT-CONSOLIDATION` consolidation would be worth,
+it isn't worth anything for this specific pair today — there's no live
+second party to consolidate against.
+
+**The real waste, quantified: `qwen3-8b-flash` (Worf) vs. `ollama-plutus`
+(McCoy) — different tag names, bit-identical weights.** Confirmed via
+digest: `plutus-v1:latest`, `qwen3:8b`, `ministral-3:3b`,
+`qwen2.5-coder:7b`, and `qwen3:4b` **all share the exact same digest**
+`500a1f067a9f782620b40bee6f7b0c89e17ae61f686b92c24933e4ca4b2b8b41` — bit-
+identical weights on disk, five different tag names — matching CLAUDE.md's
+existing "Ollama Model Aliases" doctrine. Ollama does not dedupe by
+digest for load/eviction purposes, only by exact tag string, so cycling
+between these five names reloads the identical bytes from disk every time
+purely because of the label. Pulled a live sample: right after a `qwen3:8b`
+eviction today, `resident_models_json` showed `["plutus-v1:latest"]` —
+directly confirms Worf's `qwen3:8b` calls and McCoy's `plutus-v1` calls are
+interleaving and evicting each other, despite being the same weights.
+Timestamp sampling (Worf's `war_room` calls vs. `qwen3:8b` load/evict
+events) is loosely but plausibly correlated in timing, consistent with
+Worf driving that tag's activity.
+
+**Of every `ai_players` row with `model_id='qwen3:8b'` (14 total),
+`qwen3-8b-flash` is almost certainly the sole live source of `qwen3:8b`
+tag activity today:** `options-sosnoff` (dormant, above); `ollama-llama`
+(`exit_only`, and — separately — actually routed through `GroqProvider`
+in production per `main.py`'s `skip_ids={"ollama-llama"}` +
+`GroqProvider(..., "ollama-llama", "llama-3.3-70b-versatile", ...)`, so
+its DB `model_id` is stale/irrelevant, it never touches local Ollama at
+all); every other `qwen3:8b`-tagged agent (`cto-grok42`, `dayblade-sulu`,
+`deepseek-7b-grok4`, `navigator`, `navigator_bn1_baseline`,
+`qwen3-14b-grok3`, `qwen3-14b-pro`, `qwen3-8b-4o`, `qwen3-8b-o3`,
+`qwen3-8b-sonnet`) is `halt_mode='full'` — `build_all_providers()` skips
+`full` entirely, no provider object ever gets built for them, they cannot
+fire under any code path.
+
+**Falsifiable prediction for tomorrow, on the record:** once `337407c`
+deploys at 13:00 and Worf stops reaching War Room, `qwen3:8b`-tag
+load/evict events should drop to near-zero for the rest of today and all
+of tomorrow (barring an unknown caller this sweep missed). If `qwen3:8b`
+activity continues at anything like today's ~100/day rate after the
+filter is live, that's a signal something else is calling it that this
+investigation didn't find — worth checking, not assuming away.
+
+**Not touched, per instruction:** `OLLAMA_MAX_LOADED_MODELS` (still `1`,
+`com.ollama.serve`'s plist untouched). Correctly not attempted via
+`launchctl setenv` either — confirmed `com.ollama.serve` is a Homebrew-
+adjacent... no: per CLAUDE.md it's a **root-owned system LaunchDaemon**
+(`/Library/LaunchDaemons/com.ollama.serve.plist`), and separately the
+actual running Ollama process today is owned by `pid 300`'s launch context
+— `launchctl setenv` at the `gui/$UID` domain (where the trader's kickstart
+targets) would not reach a LaunchDaemon running outside that session
+regardless. Not exercised or tested — noted as the reason this was never a
+live option, not verified by attempting and failing.
+
+**Consolidation angle for the Captain's future call, not acted on here:**
+the finding above suggests the actionable seat-consolidation opportunity
+isn't "Worf vs. Troi" (moot, Troi's dormant, and same-tag calls wouldn't
+fight anyway) — it's whichever currently-active agents route through
+*different* tag names that happen to share the same underlying weights
+(today: `qwen3-8b-flash`'s `qwen3:8b` vs. `ollama-plutus`'s `plutus-v1`).
+Pointing both at the identical tag string would make Ollama treat repeat
+calls as cache hits instead of reloads — but that's a routing change to
+`ai_players.model_id`, out of scope for "measure, don't change," and not
+done here.
