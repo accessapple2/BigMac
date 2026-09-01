@@ -117,6 +117,28 @@ _WAR_ROOM_SKIP: frozenset = frozenset({
     "grok-4",               # legacy alias for deepseek-r1:7b, no Ollie URL wiring
 })
 
+# HM-WAR-ROOM-TIER-AWARE-2026-09-01: this file's eligibility filter had no
+# awareness of main.py's scan tiers or crew_specialization.ADVISORY_CREW --
+# an agent excluded from every _SCAN_TIER1/2/3 (structurally unable to ever
+# reach save_signal()/decision_audit) still debated here every cycle. Live
+# case: Worf (qwen3-8b-flash, benched S6.1 since 2026-05-29) debated 389x
+# on 2026-09-01 despite zero possible path to a trade -- pure wasted GPU on
+# a 16GB box already fighting Ollama model-swap thrash (HM-SEAT-
+# CONSOLIDATION, 2026-08-31, 1,373 evict/load events). Importing the live
+# ADVISORY_CREW list rather than hand-duplicating names into
+# _WAR_ROOM_SKIP keeps the two exclusion mechanisms from drifting apart
+# the way they already had -- 9 of its 20 entries weren't in
+# _WAR_ROOM_SKIP at all (Worf among them); the other 11 were already
+# covered there for unrelated reasons (dedup/system-bot/specialist) and
+# are unaffected by this change.
+try:
+    from engine.crew_specialization import ADVISORY_CREW as _ADVISORY_CREW_LIST
+    _ADVISORY_CREW_IDS: frozenset = frozenset(_ADVISORY_CREW_LIST)
+except Exception as _adv_import_err:
+    _ADVISORY_CREW_IDS = frozenset()
+    console.log(f"[yellow][war_room] ADVISORY_CREW import failed, tier-aware "
+                f"filter inert this run: {_adv_import_err!r}")
+
 
 def _conn():
     c = sqlite3.connect(DB, check_same_thread=False, timeout=30)
@@ -1151,7 +1173,7 @@ def run_war_room(providers: dict, prices: dict):
     try:
         from engine.providers.ollama_provider import OllamaProvider as _OLP_pre
         for _pid, _prov in providers.items():
-            if _pid in _WAR_ROOM_SKIP or _pid in paused_ids or _pid in inactive_ids or _pid in halted_ids:
+            if _pid in _WAR_ROOM_SKIP or _pid in paused_ids or _pid in inactive_ids or _pid in halted_ids or _pid in _ADVISORY_CREW_IDS:
                 continue
             _is_ol_pre = isinstance(_prov, _OLP_pre)
             if not _is_ol_pre and not is_market:
@@ -1186,7 +1208,7 @@ def run_war_room(providers: dict, prices: dict):
 
     _eligible: list[tuple[str, object]] = []
     for pid, provider in providers.items():
-        if pid in _WAR_ROOM_SKIP or pid in paused_ids or pid in inactive_ids or pid in halted_ids:
+        if pid in _WAR_ROOM_SKIP or pid in paused_ids or pid in inactive_ids or pid in halted_ids or pid in _ADVISORY_CREW_IDS:
             continue
         _is_ollama_pre = (_OLP is not None) and isinstance(provider, _OLP)
         if not _is_ollama_pre and not is_market:
