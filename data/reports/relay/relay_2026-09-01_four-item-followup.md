@@ -1115,3 +1115,187 @@ limiter). All 5 pass. Full regression sweep across every touched area
   report, once eventually turned on, would be able to show.
 - Item 3 (tomorrow's three checks) and item 4 (conditional Ollama dedupe)
   are unchanged from sections 7/10 above — nothing here supersedes them.
+
+---
+
+## 12. Polygon limiter shadow mode — ENABLED LIVE, verified real data accumulating
+
+Captain-approved, executed after confirming shadow mode's exact behavior
+and restart safety first, per instruction.
+
+### What shadow mode actually does — confirmed from the live code before flipping it
+
+Read `engine/tiered_rate_limiter.py::gated_call()`'s SHADOW branch
+directly, not from memory:
+
+```python
+if mode == LimiterMode.SHADOW:
+    if not got_token:
+        self._shadow_stats["would_throttle"] += 1
+        ...
+    self._save_shadow_report()
+    result = fetch_fn()          # <-- ALWAYS runs, unconditionally
+    if result is not None:
+        self._cache[cache_key] = {"ts": time.time(), "data": result}
+        self._save_cache()
+    return result
+```
+
+`fetch_fn()` executes on **every single call**, regardless of whether a
+token was available (`got_token`) — there is no `if got_token: ... else:
+skip/wait` branch gating the real request. `_try_acquire()` (the token
+check) only mutates in-memory counters under a `threading.Lock` — no
+`time.sleep`, no queue, no async scheduling, no batching. Calls happen
+synchronously in the exact order callers invoke them — nothing reorders
+them. **Confirmed: shadow mode cannot delay, drop, or reorder a request.**
+The only side effects are (1) incrementing in-memory counters and (2) a
+disk write of the aggregate report — never touches the request itself.
+Did not need to stop and flag anything here; the code matches the design
+doc's claim exactly.
+
+### Restart requirement and safety — checked before restarting
+
+**Needs a restart, confirmed:** `TieredRateLimiter.mode` reads
+`os.environ.get(self.mode_env_var, "off")` fresh on every access, but
+`os.environ` is a per-process snapshot — `.env` is only loaded into it
+via `config.py`'s `load_dotenv(override=True)` at process import time.
+Editing the `.env` file on disk does not touch the already-running
+process's environment at all; only a fresh process picks up the new
+value. Verified this distinction concretely: a standalone check that
+didn't import `config` first (and thus never triggered `load_dotenv`)
+incorrectly showed `LimiterMode.OFF` even after the `.env` edit and the
+restart — a methodology bug on my end, not a real problem (caught by
+cross-checking against the live process's own HTTP endpoint, which is the
+actually-authoritative source and showed `shadow` correctly all along).
+
+**Restart safety, same checks as the 13:00 restart:** `is_market_hours()`
+returned `post_market` (confirmed live, not assumed). No stale restart
+lock at `/tmp/uss_trader_restart.lock`. `lsof` on `trader.log` showed
+exactly one writer (the running PID) before restarting — clean
+single-writer state, same gate `scripts/trader_restart.sh` itself
+enforces after relaunch. ~16:41 local, nowhere near the 20:15/20:30
+snapshot/offhost cron windows. Safe to proceed.
+
+### `.env` access — blocked, Captain made the edit
+
+Could not read or write `.env` myself — hard tool-permission denial, not
+worked around. Flagged the tradeoff explicitly rather than silently
+substituting a transient shell-export-before-restart (which would have
+worked for tonight only, then silently reverted to `off` on any *other*
+future restart — crash, watchdog, tomorrow's routine one — with no
+record anywhere that it had reverted; a real risk to a full-day shadow
+measurement, not just a cosmetic difference from "the .env way"). Captain
+added `POLYGON_LIMITER_MODE=shadow` directly (line 169, backup at
+`backups/.env.bak.*`).
+
+### Restart executed
+
+```
+[2026-09-01 16:44:44] restart lock acquired (pid 72144)
+[2026-09-01 16:44:44] killing trader instance(s): 56983
+[2026-09-01 16:44:44] all trader instances dead (zero trader.log writers)
+[2026-09-01 16:44:44] checkpointing WAL (zero-reader window)
+[2026-09-01 16:44:45] starting trader: .venv/bin/python3 main.py
+[2026-09-01 16:44:55] listener PID=72190 | trader.log writers=1
+[2026-09-01 16:44:55] RESTART OK — single trader pid=72190 bound :8080 (orphan-free)
+```
+
+`scripts/trader_restart.sh`, not `launchctl kickstart` — same reason as
+the 13:00 restart, `com.trademinds.trader` isn't bootstrapped in launchd
+on this box.
+
+### Smoke-verify: PASS
+
+- No tracebacks/`NameError`/`AttributeError`/`ImportError`/`TypeError`
+  anywhere in `trader.log` from the restart's `ALL SYSTEMS OPERATIONAL`
+  banner onward.
+- Process stable, single PID (72190), single `trader.log` writer.
+- Mode confirmed `shadow` (not `off`, not `enforce`) three independent
+  ways: a corrected local check (loading `config` first, so
+  `load_dotenv` actually runs), the raw shadow-report file on disk, and
+  the live `/api/polygon-limiter-shadow-report` HTTP endpoint via a
+  proper Python client (curl's own terminal rendering garbled the JSON
+  in a way that looked like a formatting anomaly on first glance — a
+  display quirk, re-verified against the raw file and a real HTTP client
+  before trusting it, not a real data problem).
+
+### Real data accumulating — the actual point of tonight's check
+
+Not an empty scaffold. Raw file
+(`data/polygon_limiter_cache_shadow_report.json`), read directly:
+
+```json
+{
+  "total": 8,
+  "would_throttle": 4,
+  "would_fail_loud": 0,
+  "would_serve_stale": 4,
+  "by_caller_fail_loud": {},
+  "mode": "shadow",
+  "name": "polygon",
+  "process_started_at": "2026-09-01T23:45:16.299444+00:00",
+  "updated_at": "2026-09-01T23:45:47.627455+00:00"
+}
+```
+
+Watched `total` go `0 → 1 → 8` across the first ~30 seconds post-restart,
+`updated_at` advancing past `process_started_at` — real, live accrual,
+not a static write-once file. `would_fail_loud=0` is expected right now
+(post-market, `is_market_hours()` gates that counter to market hours
+only) — the meaningful counters post-market are `would_throttle` and
+`would_serve_stale`, both already non-zero. Endpoint independently
+confirms the same numbers via a real HTTP round-trip, not just a file
+read.
+
+### The undercount caveat — repeating it here where the numbers actually are, not just where it was first found
+
+**`bk_orb_scanner.py`'s own direct Polygon path
+(`_fetch_minutes_polygon`) bypasses this wiring entirely** — it does not
+call `get_intraday_candles`, so its 150-tickers-per-cycle burst (2,471
+429s on 2026-09-01, confirmed in section 9) will not appear anywhere in
+this shadow report. **Whoever reads tomorrow's full-day shadow numbers
+needs to read them as a floor on total Polygon demand, not the total** —
+the real number, if bk_orb_scanner's burst were included, would be
+higher than whatever this report shows. Also matters for the interaction
+noted in section 11: the `HM-429-BACKOFF` cooldown (same commit) will
+suppress most of `get_intraday_candles`'s own repeat-storm behavior
+*before* the shadow counters ever see it — so tomorrow's shadow numbers
+undercount from *two* independent directions (bk_orb_scanner's coverage
+gap, and the cooldown fix's own suppression), not one. Both are expected
+and explained, not a sign the limiter is broken.
+
+### Enforcement — confirmed NOT enabled
+
+`.env`'s value is `shadow`, verified live via the running process three
+ways above. `enforce` was never set. No `BudgetExhausted` can be raised
+in shadow mode (confirmed from the code read above — that branch is only
+reachable under `LimiterMode.ENFORCE`). Nothing today changes real
+request behavior for any of the 15+ callers.
+
+### Failure contingency (not triggered — smoke-verify passed)
+
+Had smoke-verify failed, the plan was: ask the Captain to revert the
+`.env` line (same access constraint as setting it — cannot do this
+myself), restart via the same script, confirm the revert took, and stop
+there without further action. Not needed tonight.
+
+### Tomorrow's reads — now four, all in one place
+
+1. Did `ollama-plutus` actually fire a trade — first discretionary fire
+   since 2026-08-27, confirms the BENCH-deadlock diagnosis (section 2 of
+   `relay_2026-09-01_bench-stale-rating-deadlock.md`).
+2. Did `qwen3:8b` Ollama swap activity drop toward zero against the
+   corrected 712 (08-31) / 517 (09-01 partial) baseline (section 7),
+   confirming the War Room tier-aware filter's falsifiable prediction.
+3. Was the 20:15 MST `db_snapshot.sh` run clean — **zero `[ARCHIVED]`
+   lines is the correct result** (count will be 1 vs. `KEEP=14`), not a
+   miss. First real test of `337407c`'s `find`-based retention counting.
+4. **New:** what does a full day of shadow data say the limiter would
+   have done against today's 37,174 Polygon / 777 Alpaca 429s — read
+   `would_throttle` / `would_fail_loud` / `would_serve_stale` from
+   `GET /api/polygon-limiter-shadow-report` (or the raw file) once the
+   day's session has closed, remembering the undercount caveat above
+   before drawing conclusions from the absolute numbers.
+
+Item 4 (Ollama tag dedupe, section 10) stays conditional on read #2 above
+— not touched, no change either way until that read comes back.
