@@ -19,6 +19,49 @@ _yahoo_limited_until = 0
 _COOLDOWN_SECONDS = 60   # back off 60s on 429
 _cooldown_logged = False
 
+# HM-429-BACKOFF-2026-09-01: same pattern, for Polygon direct (HM-CB block in
+# get_intraday_candles). A 429 specifically means "the API said slow down,"
+# not "this one call failed" -- distinct from a generic failure (timeout,
+# malformed JSON, symbol not found). Only a 429 sets this cooldown; other
+# failures fall through per-call as before. get_intraday_candles has 15+
+# uncoordinated callers (bk_orb_scanner, benchmark, impulse/imbalance
+# detectors, gap_scanner, volatility_breakout, theta_scanner, ollietrades_
+# signal, chekov_autotrade, crew/ensemble, dashboard, more) each walking
+# their own ticker universe with no shared cache -- 37,174 Polygon 429s +
+# 777 Alpaca 429s in one day (2026-09-01) traced to every one of those
+# calls retrying Polygon fresh even while it was already rate-limited, then
+# falling through to Alpaca one at a time. This cooldown collapses that:
+# once ANY caller sees a 429, every OTHER caller (any symbol, any thread)
+# skips the doomed Polygon attempt entirely for the cooldown window and
+# goes straight to Alpaca -- Alpaca still gets called exactly as before,
+# only the wasted Polygon call is removed. Plain module global, no lock --
+# same soft-advisory pattern already used for Yahoo above; a missed race
+# (two threads both see "not limited" in the same instant) is an
+# acceptable imperfection under the GIL, not a correctness bug. The goal
+# is turning "every caller keeps hammering a 429'ing endpoint" into "one
+# caller discovers it, the rest skip for 60s," not a hard mutex.
+_polygon_limited_until = 0
+_POLYGON_COOLDOWN_SECONDS = 60
+_polygon_cooldown_logged = False
+
+
+def _is_polygon_limited():
+    return time.time() < _polygon_limited_until
+
+
+def _set_polygon_limited():
+    global _polygon_limited_until, _polygon_cooldown_logged
+    if not _is_polygon_limited():
+        _polygon_cooldown_logged = False
+    _polygon_limited_until = time.time() + _POLYGON_COOLDOWN_SECONDS
+    if not _polygon_cooldown_logged:
+        console.log(
+            f"[yellow]Polygon rate limited (429) — cooldown "
+            f"{_POLYGON_COOLDOWN_SECONDS}s, skipping Polygon for all "
+            f"get_intraday_candles callers until then (falling to Alpaca)[/yellow]"
+        )
+        _polygon_cooldown_logged = True
+
 # Price cache (symbol -> {data, ts}) — shared across all agents
 _price_cache = {}
 _PRICE_CACHE_TTL = 60    # 60s: multiple agents share one pull per symbol
@@ -819,7 +862,14 @@ def get_intraday_candles(symbol: str, interval: str = "5m", range_: str = "1d") 
     # Polygon primary — paid tier, no rate-limit surprises, consistent
     # ~400ms per call. Returns 5-min bars in {c,h,l,o,t,v} shape. We
     # adapt to the existing {time,open,high,low,close,volume} schema.
-    try:
+    #
+    # HM-429-BACKOFF-2026-09-01: if a recent call already got a 429, skip
+    # straight past Polygon for every caller/symbol until the cooldown
+    # clears -- no wasted HTTP round-trip, no per-call log line (the
+    # cooldown's own start was already logged once by _set_polygon_limited).
+    # Falls straight into the Alpaca block below exactly as if this attempt
+    # had failed normally.
+    def _do_polygon_fetch():
         import os as _os_p, requests as _req_p
         from datetime import datetime as _dt_p, timedelta as _td_p
         _key_p = _os_p.environ.get("POLYGON_API_KEY", "")
@@ -866,6 +916,13 @@ def get_intraday_candles(symbol: str, interval: str = "5m", range_: str = "1d") 
             f"?apiKey={_key_p}&limit=500&sort=desc"
         )
         _r = _req_p.get(_url, timeout=5)
+        if _r.status_code == 429:
+            # HM-429-BACKOFF-2026-09-01: a 429 means "slow down," not
+            # "this one call failed" -- set the shared cooldown so
+            # every OTHER caller skips Polygon too, then fall through
+            # to Alpaca for this call same as any other failure.
+            _set_polygon_limited()
+            raise RuntimeError("Polygon HTTP 429 (rate limited)")
         if _r.status_code != 200:
             raise RuntimeError(f"Polygon HTTP {_r.status_code}")
         _data_p = _r.json()
@@ -889,8 +946,42 @@ def get_intraday_candles(symbol: str, interval: str = "5m", range_: str = "1d") 
             })
         candles.reverse()  # sort=desc gave newest-first; callers expect ascending
         return candles
-    except Exception as _e_p:
-        console.log(f"[yellow]HM-CB Polygon candles fallback to Alpaca for {symbol}: {type(_e_p).__name__}: {_e_p!r}[/yellow]")
+
+    # HM-POLYGON-LIMITER-REWIRE-2026-09-01: routed through the tiered rate
+    # limiter (engine/polygon_rate_limiter.py) -- this is the real
+    # chokepoint (15+ callers, 37,174 Polygon 429s in one day), not
+    # gamma_context.py where the wiring first (wrongly) landed. Same
+    # off-by-default guarantee as before: POLYGON_LIMITER_MODE unset means
+    # gated_call() is `return fetch_fn()`, byte-for-byte identical to
+    # calling _do_polygon_fetch() directly -- this wiring alone changes
+    # zero live behavior. Shadow mode also runs fetch_fn for real every
+    # time; only "enforce" (not enabled) can change behavior. The
+    # cooldown check above still runs first regardless of limiter mode --
+    # a call already known to be doomed is never even offered to the
+    # limiter.
+    if not _is_polygon_limited():
+        try:
+            from engine.polygon_rate_limiter import gated_call, BudgetExhausted
+            try:
+                return gated_call(
+                    "get_intraday_candles",
+                    f"candles:{symbol.upper()}:{interval}:{range_}",
+                    _do_polygon_fetch,
+                )
+            except BudgetExhausted as _e_budget:
+                console.log(
+                    f"[yellow]HM-CB Polygon candles: rate limiter budget "
+                    f"exhausted for {symbol}, falling back to Alpaca: {_e_budget!r}[/yellow]"
+                )
+        except ImportError:
+            # Limiter module itself must never be why candle fetching
+            # breaks -- fall back to the direct, unmanaged call.
+            try:
+                return _do_polygon_fetch()
+            except Exception as _e_p:
+                console.log(f"[yellow]HM-CB Polygon candles fallback to Alpaca for {symbol}: {type(_e_p).__name__}: {_e_p!r}[/yellow]")
+        except Exception as _e_p:
+            console.log(f"[yellow]HM-CB Polygon candles fallback to Alpaca for {symbol}: {type(_e_p).__name__}: {_e_p!r}[/yellow]")
     # === /HM-CB ===
 
     # === HM-CA ===

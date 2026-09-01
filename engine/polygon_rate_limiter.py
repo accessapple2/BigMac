@@ -29,21 +29,47 @@ Live tier (can't tolerate stale GEX -- Admiral-approved list):
   gamma_context, options_pricing, paper_trader, bk_orb_scanner,
   squeeze_scanner, ollie_machine_universe
 
+HM-POLYGON-LIMITER-REWIRE-2026-09-01: first wiring (bda14e5) went into
+engine/gamma_context.py, which turned out to be the wrong chokepoint --
+its own Polygon footprint is small. The real overload is
+engine/market_data.py::get_intraday_candles (37,174 Polygon 429s in one
+day, 2026-09-01, traced across 15+ uncoordinated callers -- bk_orb_
+scanner, benchmark, impulse/imbalance detectors, gap_scanner,
+volatility_breakout, theta_scanner, ollietrades_signal, chekov_autotrade,
+crew/ensemble, dashboard, more). Rewired there instead (see that
+function's HM-CB block) and reverted the gamma_context.py wiring. Added
+"get_intraday_candles" to LIVE_CALLERS below as the shared caller_name
+for ALL of those callers -- this collapses per-caller attribution into
+one shared budget/shadow-count, matching "move the limiter to the shared
+chokepoint" rather than trying to thread each of the 15+ actual callers'
+identities through a function that doesn't currently know who's asking.
+NOTE: bk_orb_scanner.py has its OWN direct Polygon fetch
+(_fetch_minutes_polygon) and only falls back to get_intraday_candles if
+POLYGON_API_KEY is unset -- which it is set, so that fallback is dead
+code in production. bk_orb_scanner's own 150-ticker-per-cycle burst
+(2,471 429s in the same day) is therefore NOT captured by this wiring --
+flagged, not fixed here; a separate wiring of bk_orb_scanner's direct
+path would be needed to see that in the shadow report too.
+
 Everything else that would eventually route through this limiter is the
 cached tier: it can be served a stale on-disk cache value freely, never
 raises BudgetExhausted, and degrades to None (matching
 PolygonData._get()'s existing failure behavior) rather than skip-loud when
 there's truly nothing cached.
 
-Usage (once actually wired into a call site -- not done yet):
+Usage (live wiring, engine/market_data.py::get_intraday_candles):
 
     from engine.polygon_rate_limiter import gated_call, BudgetExhausted
     try:
-        data = gated_call("gamma_context", f"snapshot:{symbol}",
-                           lambda: polygon.get_snapshot(symbol))
+        data = gated_call("get_intraday_candles", f"candles:{symbol}:{interval}:{range_}",
+                           lambda: _fetch_from_polygon(symbol))
     except BudgetExhausted:
-        log.warning(f"{symbol}: GEX unavailable this cycle, skipping")
+        log.warning(f"{symbol}: candles unavailable this cycle, skipping")
         return None  # the caller's OWN skip-this-cycle behavior, not ours
+
+Mode is still "off" by default (POLYGON_LIMITER_MODE unset) -- deploying
+this wiring changes zero live behavior on its own; shadow/enforce require
+an explicit env var, per the module design above.
 """
 from __future__ import annotations
 
@@ -58,6 +84,7 @@ LIVE_CALLERS = {
     "bk_orb_scanner",
     "squeeze_scanner",
     "ollie_machine_universe",
+    "get_intraday_candles",  # HM-POLYGON-LIMITER-REWIRE-2026-09-01 -- see module docstring
 }
 
 # 4/min managed cap (deliberately under Polygon's real 5/min free-tier limit

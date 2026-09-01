@@ -359,31 +359,17 @@ def get_gamma_context(ticker: str, use_cache: bool = True) -> GammaContext:
         if now - ts < CACHE_TTL_SEC:
             return ctx
 
-    # HM-POLYGON-LIMITER-SHADOW-2026-09-01: routed through the tiered rate
-    # limiter (engine/polygon_rate_limiter.py, design-only until now).
-    # POLYGON_LIMITER_MODE defaults to "off" (byte-for-byte passthrough,
-    # identical to calling _polygon_snapshot(ticker) directly -- this wiring
-    # alone changes nothing). In "shadow" mode, real behavior is STILL
-    # unchanged (fetch_fn always actually runs) -- only instrumentation is
-    # added. Only "enforce" mode can change behavior (skip + BudgetExhausted
-    # when the budget and cache are both exhausted during market hours) --
-    # not enabled by this commit; that's a separate, later, explicit env-var
-    # change per the Captain's approval (shadow first, review a day of data,
-    # decide on enforce after).
-    try:
-        from engine.polygon_rate_limiter import gated_call, BudgetExhausted
-        contracts = gated_call(
-            "gamma_context", f"gamma_snapshot:{ticker}",
-            lambda: _polygon_snapshot(ticker),
-        )
-    except BudgetExhausted as e:
-        log.warning("gamma_context %s: rate limiter budget exhausted, skipping this cycle: %s", ticker, e)
-        contracts = None
-    except Exception as e:
-        # Limiter itself must never be why gamma grounding breaks -- fall
-        # back to the direct, unmanaged call (pre-wiring behavior).
-        log.warning("gamma_context %s: rate limiter unavailable (%s), calling Polygon directly", ticker, e)
-        contracts = _polygon_snapshot(ticker)
+    # HM-POLYGON-LIMITER-REWIRE-2026-09-01: the shadow wiring landed here
+    # first (bda14e5, 2026-09-01) but this was the wrong chokepoint --
+    # gamma_context's own Polygon footprint is small next to the real
+    # storm. The actual overload traced to engine/market_data.py's
+    # get_intraday_candles (37,174 Polygon 429s in one day, 15+
+    # uncoordinated callers) -- moved the limiter wiring there instead
+    # (see that function's HM-CB block) so shadow mode observes the call
+    # site that's actually generating the load, not a quiet one that would
+    # report a clean day while the real problem ran untouched. Reverted to
+    # the plain direct call.
+    contracts = _polygon_snapshot(ticker)
     if not contracts:
         ctx = GammaContext(ticker=ticker, available=False, note="chain unavailable")
     else:

@@ -974,3 +974,144 @@ attribution signal needs replacing before it's removed, and decide
 whether to consolidate the whole alias family in one pass rather than
 one row at a time. Not needed unless tomorrow's read falsifies the
 current prediction.
+
+---
+
+## 11. Items 1 & 2 — CODE DONE, COMMITTED, NOT DEPLOYED. Items 3 & 4 wait for tomorrow.
+
+Per Captain directive: two safe-now code fixes, no restart, no enabling.
+Both go live at whatever the next real trader restart is — not triggered
+here.
+
+### Item 1 — 429 backoff in `get_intraday_candles` (`engine/market_data.py`)
+
+Added a module-level cooldown, mirroring the existing (already-proven)
+Yahoo pattern in the same file (`_is_yahoo_limited`/`_set_yahoo_limited`,
+`_COOLDOWN_SECONDS = 60`) rather than inventing a new idiom:
+`_is_polygon_limited()` / `_set_polygon_limited()`,
+`_POLYGON_COOLDOWN_SECONDS = 60`.
+
+**A 429 specifically sets the cooldown — nothing else does.** The status
+check now branches: `429` → `_set_polygon_limited()` then raise (falls
+through to Alpaca, same as any failure); any other non-200 → raises
+exactly as before, cooldown untouched. A generic failure (timeout,
+malformed JSON, 0 bars) is a one-off; only a 429 means "the API said slow
+down," and only a 429 should penalize every other caller.
+
+**Concurrency:** plain module globals, no lock — the same soft-advisory
+pattern the Yahoo cooldown already uses in this exact file. With 15+
+uncoordinated callers, a missed race (two threads both see "not limited"
+in the same instant) is an acceptable imperfection under the GIL, not a
+correctness bug — the goal is collapsing "every caller keeps hammering a
+429'ing endpoint" into "one caller discovers it, the rest skip for 60s,"
+not a hard mutex.
+
+**Doesn't swallow exhaustion:** the final fallback (`return []` after
+Polygon → Alpaca → Yahoo all fail) is unchanged — this cascade has never
+cached or served stale data on total failure, only ever an honest empty
+list. The fix only removes the *wasted* Polygon attempt once it's already
+known to be doomed; the caller still gets a full, real attempt at Alpaca
+(and Yahoo) either way, same as before.
+
+**What this does NOT do:** reduce Alpaca's own request volume. Alpaca is
+still tried exactly as often as before — this fix removes wasted Polygon
+calls, it doesn't change how many times Alpaca gets asked. Flagging so
+tomorrow's Alpaca 429 count isn't read as "this fix didn't work" if it
+doesn't drop — that was never the mechanism.
+
+Tests: `tests/test_polygon_429_backoff.py`, 9 new cases (429 sets
+cooldown, non-429 does not, second call during cooldown skips Polygon
+entirely — the actual fix, being verified directly via a call-count
+assertion — cooldown expires and Polygon is retried, happy path
+unchanged, and the skip-path still falls through to Alpaca/Yahoo rather
+than returning early). Caught and fixed a real problem while writing
+these: the first draft made real Yahoo network calls (18s per run) since
+`_yahoo_chart` wasn't mocked — added an autouse fixture blocking it;
+reran at 0.81s. All 9 pass. Existing `test_polygon_candle_freshness.py`
+(2 tests) still passes unchanged.
+
+### Item 2 — rewired the limiter from `gamma_context.py` to `get_intraday_candles`
+
+**Reverted `engine/gamma_context.py`** to a plain direct
+`_polygon_snapshot(ticker)` call — removed the `gated_call`/
+`BudgetExhausted` wiring from `bda14e5` entirely. Deleted
+`tests/test_gamma_context_rate_limiter_wiring.py` (its subject no longer
+exists there, not left behind as a stale/misleading suite).
+
+**Wired `engine/market_data.py::get_intraday_candles`'s Polygon leg
+instead** — the real chokepoint. Refactored the existing fetch-and-parse
+logic into a local closure (`_do_polygon_fetch`, no behavior change, same
+code, same 429-detection from item 1) and route it through
+`engine.polygon_rate_limiter.gated_call("get_intraday_candles",
+f"candles:{symbol}:{interval}:{range_}", _do_polygon_fetch)`. Added
+`"get_intraday_candles"` to `polygon_rate_limiter.LIVE_CALLERS` — this
+collapses all 15+ real callers into one shared caller identity for
+budget/shadow-accounting purposes (the function doesn't currently know
+which of its 15+ callers is asking, and threading that through every call
+site would be a much bigger change than "move the limiter" — this matches
+"one shared budget," not per-caller attribution). Updated the module's
+own docstring/usage example in `polygon_rate_limiter.py` to match (it
+still said "not done yet" in its usage example).
+
+**Same off-by-default guarantee as the first (reverted) wiring:**
+`POLYGON_LIMITER_MODE` unset → `gated_call()` is `return fetch_fn()`,
+byte-for-byte identical to calling `_do_polygon_fetch()` directly.
+Deploying this rewiring alone changes zero live behavior — verified by
+test, not just asserted (`test_off_mode_passthrough_unchanged`: exactly
+one fetch call, shadow report `total=0`).
+
+**The cooldown (item 1) and the limiter (item 2) compose correctly, tested
+directly:** a call already blocked by `_is_polygon_limited()` never even
+reaches `gated_call()` — `test_cooldown_check_runs_before_offering_call_to_limiter`
+confirms the shadow report sees `total=0` when the cooldown is active,
+proving no double-instrumentation and no wasted limiter bookkeeping on a
+call that was never going to be attempted anyway.
+
+**Important interaction to know about before reading a future shadow
+report:** once both items are eventually live, item 1's cooldown will
+suppress most of the storm *before* item 2's shadow accounting ever sees
+it. A future shadow report will reflect Polygon demand *after* the
+cooldown fix, not the raw pre-fix 37,174/day figure — that's the two
+fixes working together correctly, not the limiter under-reporting the
+original problem. Noting this now so a smaller-than-expected future
+shadow number doesn't read as "the limiter can't represent overshoot
+this large."
+
+**Can the shadow counters actually represent a 30x-scale overshoot?**
+Yes, mechanically — `total`/`would_throttle`/`would_fail_loud`/
+`would_serve_stale` are plain unbounded Python integers incremented once
+per `gated_call()`, no cap, no overflow risk at this scale, confirmed
+correct at small scale by test (`test_shadow_mode_observes_calls_through_get_intraday_candles`).
+**But there's a coverage gap, not a counting gap:** `bk_orb_scanner.py`
+does **not** call `get_intraday_candles` in production — it has its own
+direct `_fetch_minutes_polygon`, and only falls back to the shared
+cascade when `POLYGON_API_KEY` is unset, which it isn't (dead code
+today). Its 150-tickers-per-cycle, 2,471-429s-today burst is therefore
+**invisible to this wiring** — this rewire fixes the biggest single
+source (the 37,174-event `get_intraday_candles` fan-out) but does not
+capture bk_orb_scanner's separate, also-real burst. A shadow report from
+this wiring alone would still under-represent the full daily picture by
+that amount. Flagged, not fixed here — a second, separate wiring of
+`bk_orb_scanner.py`'s own direct Polygon call would be needed to close
+that gap; out of scope for "rewire the existing wiring."
+
+Tests: `tests/test_polygon_limiter_rewire.py`, 5 new cases (off-mode
+passthrough exactly unchanged, `BudgetExhausted` caught and degrades to
+the Alpaca fallback, shadow mode actually observes calls through this
+function now — the literal point of the rewire, `get_intraday_candles`
+confirmed present in `LIVE_CALLERS`, cooldown-skip never reaches the
+limiter). All 5 pass. Full regression sweep across every touched area
+(`market_data`, `polygon`, `intraday`, `rate_limiter`, `gamma_context`,
+`candle`, `vwap`): **63 passed, 0 failed.**
+
+### Not done today
+
+- Not deployed. Nothing restarted, `POLYGON_LIMITER_MODE` never set —
+  confirmed unset throughout every test and every manual check this
+  session. Both items go live at the next real trader restart, whenever
+  that's decided — not triggered by this commit.
+- bk_orb_scanner's own direct Polygon path is not wired into the limiter
+  (see coverage-gap note above) — a real gap in what tomorrow's shadow
+  report, once eventually turned on, would be able to show.
+- Item 3 (tomorrow's three checks) and item 4 (conditional Ollama dedupe)
+  are unchanged from sections 7/10 above — nothing here supersedes them.
