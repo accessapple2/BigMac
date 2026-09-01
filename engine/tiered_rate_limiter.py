@@ -31,6 +31,11 @@ from typing import Callable, Optional
 logger = logging.getLogger(__name__)
 
 
+def _utc_now_iso() -> str:
+    import datetime
+    return datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+
 class LimiterMode(Enum):
     OFF = "off"          # pure passthrough -- the kill switch
     SHADOW = "shadow"    # passthrough + log what enforcement would do
@@ -82,6 +87,17 @@ class TieredRateLimiter:
             "total": 0, "would_throttle": 0, "would_fail_loud": 0,
             "would_serve_stale": 0, "by_caller_fail_loud": {},
         }
+        # HM-SHADOW-VISIBILITY-2026-09-01: shadow_report() previously lived
+        # only in this in-memory dict -- invisible between process restarts,
+        # invisible to anyone who isn't holding a reference to this exact
+        # object and calling the method. Persisted to disk on every shadow
+        # call (see gated_call's SHADOW branch below) so "review a day of
+        # shadow data" means reading a file, not attaching a debugger to a
+        # live process. Sibling of cache_path so both limiter files live
+        # next to each other without a new constructor param.
+        self._shadow_report_path = self.cache_path.with_name(
+            self.cache_path.stem + "_shadow_report.json")
+        self._process_started_at = _utc_now_iso()
 
     # ── mode / kill switch ──────────────────────────────────────────────
     @property
@@ -109,6 +125,26 @@ class TieredRateLimiter:
             tmp.replace(self.cache_path)
         except Exception as e:
             logger.debug(f"{self.name} limiter cache persist failed (non-fatal): {e}")
+
+    def _save_shadow_report(self) -> None:
+        # HM-SHADOW-VISIBILITY-2026-09-01: same atomic tmp-then-replace
+        # idiom as _save_cache -- best-effort, never fatal, never blocks the
+        # real fetch. Written on every shadow-mode call (Polygon's own cap
+        # is 4/min, so this is at most 4 small writes/min -- negligible).
+        try:
+            self._shadow_report_path.parent.mkdir(parents=True, exist_ok=True)
+            payload = dict(
+                self._shadow_stats,
+                mode=self.mode.value,
+                name=self.name,
+                process_started_at=self._process_started_at,
+                updated_at=_utc_now_iso(),
+            )
+            tmp = self._shadow_report_path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(payload, indent=2))
+            tmp.replace(self._shadow_report_path)
+        except Exception as e:
+            logger.debug(f"{self.name} limiter shadow report persist failed (non-fatal): {e}")
 
     # ── token buckets ────────────────────────────────────────────────────
     def _refill(self) -> None:
@@ -180,6 +216,7 @@ class TieredRateLimiter:
                         f"{cache_key} (budget exhausted, cache age={age})")
                 elif is_live:
                     self._shadow_stats["would_serve_stale"] += 1
+            self._save_shadow_report()
             result = fetch_fn()
             if result is not None:
                 self._cache[cache_key] = {"ts": time.time(), "data": result}

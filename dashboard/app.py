@@ -4164,6 +4164,37 @@ def season_info():
     }
 
 
+@app.get("/api/polygon-limiter-shadow-report")
+def polygon_limiter_shadow_report():
+    """HM-SHADOW-VISIBILITY-2026-09-01: reads the shadow-mode report the
+    Polygon rate limiter (engine/tiered_rate_limiter.py) persists to disk on
+    every shadow-mode call. Read-only, reads the file directly rather than
+    importing the live limiter object -- no risk of touching the limiter's
+    own state or threading from a request handler. Returns a clear
+    not-yet-shadowed status if the file doesn't exist yet (mode is "off"
+    until POLYGON_LIMITER_MODE=shadow is explicitly set and the trader
+    restarted -- not done as of this endpoint shipping).
+    """
+    try:
+        from engine.polygon_rate_limiter import CACHE_PATH
+        from pathlib import Path
+        report_path = Path(CACHE_PATH).with_name(
+            Path(CACHE_PATH).stem + "_shadow_report.json")
+        if not report_path.exists():
+            return {
+                "status": "not_running",
+                "note": "no shadow report on disk yet -- POLYGON_LIMITER_MODE "
+                        "is either unset/off, or the trader hasn't run a "
+                        "shadow-mode call since the report path was "
+                        "introduced (2026-09-01)",
+            }
+        import json
+        data = json.loads(report_path.read_text())
+        return {"status": "ok", **data}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
 @app.get("/api/health-manifest")
 def health_manifest():
     """Fleet Auditor manifest — latest health snapshot (reads cached JSON, triggers refresh if stale).

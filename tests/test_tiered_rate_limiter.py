@@ -188,3 +188,43 @@ def test_shadow_mode_distinguishes_would_serve_stale_from_would_fail_loud(tmp_pa
     assert report["would_throttle"] == 1
     assert report["would_serve_stale"] == 1     # fresh-enough cache exists -- would NOT fail loud
     assert report["would_fail_loud"] == 0
+
+
+# ── HM-SHADOW-VISIBILITY-2026-09-01: shadow report must land on disk ────────
+
+def test_shadow_mode_persists_report_to_disk(tmp_path):
+    """shadow_report() living only in memory is invisible between restarts
+    and to anyone not holding the live object -- "review a day of shadow
+    data" requires a file, not a debugger."""
+    import json
+    lim = _limiter(tmp_path, LimiterMode.SHADOW, cap=0, live_reserved=0,
+                    market_hours=True)
+    assert not lim._shadow_report_path.exists()
+    lim.gated_call("live_caller", "k", lambda: {"real": True})
+    assert lim._shadow_report_path.exists()
+    on_disk = json.loads(lim._shadow_report_path.read_text())
+    assert on_disk["total"] == 1
+    assert on_disk["would_fail_loud"] == 1
+    assert on_disk["mode"] == "shadow"
+    assert on_disk["name"] == "test"
+
+
+def test_shadow_report_file_includes_freshness_metadata(tmp_path):
+    """A reviewer needs to know both when the limiter started and when the
+    report last updated, to judge whether "a day of shadow data" has
+    actually elapsed."""
+    import json
+    lim = _limiter(tmp_path, LimiterMode.SHADOW, cap=0, live_reserved=0,
+                    market_hours=True)
+    lim.gated_call("live_caller", "k", lambda: {"real": True})
+    on_disk = json.loads(lim._shadow_report_path.read_text())
+    assert "process_started_at" in on_disk
+    assert "updated_at" in on_disk
+
+
+def test_off_mode_writes_no_shadow_report(tmp_path):
+    """OFF must stay a byte-for-byte passthrough -- no side-effect files,
+    same as no cache writes in OFF mode."""
+    lim = _limiter(tmp_path, LimiterMode.OFF, cap=0, live_reserved=0)
+    lim.gated_call("live_caller", "k", lambda: {"real": True})
+    assert not lim._shadow_report_path.exists()

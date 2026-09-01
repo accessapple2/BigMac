@@ -100,7 +100,17 @@ has **zero** dated `.db` files at all (a prior manual/out-of-band cleanup
 between 08-31 night and today, `_archive/` already holds compressed
 08-25→08-31 snapshots that this script's own log never logged as
 `[ARCHIVED]`) — consistent with someone hand-fixing the symptom without the
-underlying trigger ever having worked. Whatever the exact original
+underlying trigger ever having worked.
+
+**Attribution note, so nobody credits the wrong fix later:** that morning
+`_archive/` move was housekeeping — clearing the accumulated uncompressed
+snapshots off disk — not a fix to the retention mechanism itself. Without
+the code change below, the exact same silent failure would have recurred
+starting tonight: the `ls | sort` count was still broken, `KEEP` was still
+7, there was still no free-space precheck. The manual cleanup bought time;
+it didn't touch the bug.
+
+Whatever the exact original
 mechanism, the fix below closes the confirmed failure mode either way
 (count computed via a fragile `ls | sort` inside a `set -euo pipefail`
 subshell assignment — a failure or a `nullglob`-collapsed-glob there
@@ -289,3 +299,85 @@ decision, not blocking either way.
 
 **Not implemented, not enabled, not decided here** — this is a summary for
 the Captain to act on, per instruction.
+
+---
+
+## 5. Polygon rate limiter — SHADOW WIRING DONE, TESTED, COMMITTED — deploy HELD, separate from both today's kickstarts
+
+**Approved: Polygon in shadow mode, Alpaca held.** Wired the first live
+call site, made shadow output persistent and visible per the Captain's
+explicit ask (not just a log line), and confirmed the kill-switch default
+stays `off`.
+
+**Call site: `engine/gamma_context.py::get_gamma_context()`.** Its
+`_polygon_snapshot(ticker)` call is now routed through
+`engine.polygon_rate_limiter.gated_call("gamma_context",
+f"gamma_snapshot:{ticker}", ...)`, matching the design doc's own usage
+example and `gamma_context`'s membership in `LIVE_CALLERS`. `BudgetExhausted`
+is caught at the call site (per the limiter's own contract: callers MUST
+catch it, never let it propagate) and degrades to the same
+`available=False` / `"chain unavailable"` path the function already used —
+no new failure mode, reuses the existing one. A second `except Exception`
+falls back to calling `_polygon_snapshot` directly if the limiter module
+itself is ever broken — gamma grounding must never go down because of its
+own rate limiter.
+
+**Kill-switch default confirmed unchanged: `off`.** `POLYGON_LIMITER_MODE`
+is read from the environment with `"off"` as the hardcoded fallback
+(`engine/tiered_rate_limiter.py`'s `mode` property); nothing in this commit
+sets that env var anywhere (not `.env`, not a plist, not a cron
+`export`). In `off` mode `gated_call()` is `return fetch_fn()` — a
+byte-for-byte passthrough, confirmed by test
+(`test_off_mode_behavior_unchanged`: same result, fetch called exactly
+once) and confirmed no shadow-report file gets written in `off` mode
+either (`test_off_mode_writes_no_shadow_report`). **Deploying this commit,
+by itself, changes nothing about live gamma-grounding behavior** — same
+guarantee the design doc made before any wiring existed.
+
+**Shadow-output visibility — the Captain's specific ask, addressed twice:**
+1. **Persisted to disk on every shadow-mode call.**
+   `TieredRateLimiter._save_shadow_report()` (new, mirrors the existing
+   `_save_cache()` atomic tmp-then-replace idiom) writes
+   `data/polygon_limiter_cache_shadow_report.json` — full counters
+   (`total`, `would_throttle`, `would_fail_loud`, `would_serve_stale`,
+   `by_caller_fail_loud`) plus `mode`, `name`, `process_started_at`, and
+   `updated_at`, so a reader can judge whether "a day of shadow data" has
+   actually elapsed without needing to attach to a live process. Polygon's
+   own cap is 4/min, so this is at most 4 small writes/min — negligible.
+   Best-effort, never fatal, same posture as the existing cache write.
+2. **Dashboard endpoint:** `GET /api/polygon-limiter-shadow-report`
+   (`dashboard/app.py`, next to `/api/season`/`/api/health-manifest`) reads
+   that file directly (not the live limiter object — no risk of touching
+   its state or threading from a request handler) and returns it, or a
+   clear `{"status": "not_running", ...}` if shadow mode hasn't been turned
+   on yet. Inspectable from the Bridge/API without SSH or grep.
+
+Verified end-to-end against the **real module** (not a test double): set
+`POLYGON_LIMITER_MODE=shadow` for one subprocess, called the real
+`engine.polygon_rate_limiter.gated_call()` with a dummy fetch function
+(no real Polygon HTTP call), confirmed the real
+`data/polygon_limiter_cache_shadow_report.json` was created with correct
+counters, then confirmed the dashboard endpoint function read it back
+correctly. Test artifact deleted immediately after (`data/
+polygon_limiter_cache_shadow_report.json`, `data/polygon_limiter_cache.json`)
+— production is not running shadow mode and nothing was left behind.
+
+**Tests:** 3 new in `tests/test_tiered_rate_limiter.py` (persists to disk,
+includes freshness metadata, OFF mode writes nothing) — 15/15 pass in that
+file. 3 new in `tests/test_gamma_context_rate_limiter_wiring.py` (OFF-mode
+passthrough unchanged, `BudgetExhausted` caught and degrades correctly,
+limiter-import-failure falls back to the direct call) — 3/3 pass. Broader
+sweep (`-k "rate_limiter or gamma_context or polygon"`): 20/20 pass, no
+regressions.
+
+**Deploy status: code committed, HELD — activation is a separate,
+later, explicit step, not bundled with either of today's kickstarts.**
+Two distinct things are gated on the Captain, not done here:
+- **Turning shadow mode ON** requires setting `POLYGON_LIMITER_MODE=shadow`
+  in `.env` (this repo loads it via `python-dotenv` with `override=True` in
+  `config.py`) and a trader restart — not done. Today's 13:00 kickstart is
+  `0730aec` + the War Room filter only; this is not part of that bundle.
+- **Enforce mode** (the only mode that can actually change behavior —
+  raise `BudgetExhausted`, skip a cycle) is not being considered until
+  after a full day of shadow data has been reviewed, per the Captain's own
+  sequencing. Nothing in this commit moves toward that on its own.
