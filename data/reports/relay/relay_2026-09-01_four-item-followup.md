@@ -566,3 +566,149 @@ Pointing both at the identical tag string would make Ollama treat repeat
 calls as cache hits instead of reloads — but that's a routing change to
 `ai_players.model_id`, out of scope for "measure, don't change," and not
 done here.
+
+---
+
+## 8. Deploy sequence — RUN, smoke-verify PASSED, season_config WRITTEN
+
+Captain-approved, executed after 13:00 on the box clock.
+
+### Deploy mechanism note (deviation, flagged before acting)
+
+The specified `launchctl kickstart -k gui/$(id -u)/com.trademinds.trader`
+was checked first (`launchctl print gui/501/com.trademinds.trader`) and
+does not apply: **"Could not find service ... in domain for user gui: 501"**
+— `com.trademinds.trader` is not bootstrapped in launchd on this box,
+matching CLAUDE.md's own Reboot Lifecycle doctrine (trader is still on the
+cron+nohup fallback, not a LaunchDaemon/LaunchAgent). CLAUDE.md's Git &
+Deployment section documents the actual current mechanism:
+`./scripts/trader_restart.sh` (orphan-prevention kill, mutex lock, WAL
+checkpoint at the zero-reader window, single-writer gate that fails loud).
+Used that instead of retrying the literal `launchctl` command against a
+service that provably isn't there. Flagging the substitution plainly
+rather than silently swapping commands.
+
+### Restart
+
+```
+[2026-09-01 12:58:59] restart lock acquired (pid 56937)
+[2026-09-01 12:59:00] killing trader instance(s): 84647
+[2026-09-01 12:59:00] all trader instances dead (zero trader.log writers)
+[2026-09-01 12:59:00] checkpointing WAL (zero-reader window)
+[2026-09-01 12:59:00] starting trader: .venv/bin/python3 main.py
+[2026-09-01 12:59:10] listener PID=56983 | trader.log writers=1
+[2026-09-01 12:59:10] RESTART OK — single trader pid=56983 bound :8080 (orphan-free)
+```
+
+Old process (PID 84647, running since 2026-08-31 11:34 — pre-`0730aec`
+bytecode) killed cleanly, new process (PID 56983) up in 10s, single-writer
+gate passed, exit 0.
+
+### Smoke-verify (CLAUDE.md Restart-then-verify doctrine — runtime, not just py_compile)
+
+- **`trader.log`/`trader_error.log` since restart:** no tracebacks, no
+  `NameError`/`AttributeError`/`ImportError` from any of today's changes.
+  Startup banner clean: `"ALL SYSTEMS OPERATIONAL — ENGAGE"`. The only
+  errors present are pre-existing/unrelated (Polygon options-chain 403s on
+  the free tier, `datetime.utcnow()` deprecation warnings — neither
+  touched by anything shipped today).
+- **`engine/war_room.py`'s new `ADVISORY_CREW` import:** the fallback
+  warning path (`"ADVISORY_CREW import failed"`) is silent in the fresh
+  log — confirms the import succeeded cleanly, the tier-aware filter is
+  live, not degraded to inert.
+- **`engine/gamma_context.py`'s Polygon limiter wiring:** the fallback
+  warning path (`"rate limiter unavailable"`) is also silent — confirms
+  clean import, and mode is confirmed still `off` (see below) — inert as
+  designed, not a live behavior change.
+- **Dashboard reachable:** `GET /api/season` → `200`.
+- **New shadow-report endpoint reachable and correctly inert:**
+  `GET /api/polygon-limiter-shadow-report` → `{"status":"not_running", ...}`
+  — confirms `POLYGON_LIMITER_MODE` is still unset/off on the live process,
+  exactly as instructed (shadow stays held, separate from this deploy).
+- **`0730aec` (BENCH fix) verified live against the new process, not just
+  imported:** `engine.paper_trader._bench_block_reason('ollama-plutus')` →
+  `None` (was `"BENCH: rating D (40/100)"` before the fix) — logged
+  `[BENCH-STALE] ollama-plutus rating D (40/100) is 50d old (> 30d) —
+  treating as expired, not blocking entries`. The fix is live, not just
+  present on disk.
+
+**Smoke-verify: PASS.** No stop condition hit.
+
+### season_config season-7 row — WRITTEN
+
+Approved. Populated with **verified values only** — nothing fabricated:
+
+| column | value | source |
+|---|---|---|
+| `season` | 7 | — |
+| `name` | `"Season 7"` | no real season-7 theme name exists anywhere in this repo (CLAUDE.md's own "Season 6.3 Config (current)" section still describes 6.3, predating the DB's actual rollover to 7) — used the same neutral fallback `dashboard/app.py` already falls back to (`f"Season {current}"`) rather than inventing one |
+| `start_date` | `2026-07-12` | matches the real, already-present `settings.season_7_start` |
+| `end_date` | `NULL` | season 7 is ongoing |
+| `active_agents` | `qwen3-8b-flash,ollama-plutus,options-sosnoff,enterprise-computer,capitol-trades,trade-desk,desk-manual,m5-allocator` | live `ai_players` query, `halt_mode='active'`, taken today (09-01) — **not** the season's original 07-12 launch roster, which was never recorded and can't be reconstructed; this is a current snapshot, not a historical one, and will drift the same way season 6's did unless something keeps it current |
+| `strategies`, `triple_filter` | `NULL` | no verified source for season-7-specific values exists; left blank rather than guessed |
+| `alpha_gate` | `0.3` (schema default) | |
+| `proving_ground` | `0` (schema default) | |
+
+Also set the sibling gap in the same pass: `settings.season_7_name` was
+also missing (only `season_7_start` existed) — set to `"Season 7"` to
+match, since `dashboard/app.py`'s `/api/season` reads both keys
+independently and the missing `_name` key was the other half of the same
+display bug.
+
+**Live-verified after the write:** `GET /api/season` now returns a fully
+populated `config` object (was `{}`) — the Bridge's "Active: N agents"
+line will now show the real count (8), not the misleading `1` that came
+from `('—').split(',').length` on an empty object.
+
+**Attribution note, as requested — this gap was found and flagged twice,
+not once:** `relay_2026-07-18_full-audit-2026q3.md`'s `[AMBER] C7.2`
+already reported "no Season 7 row exists in `season_config`" **on
+2026-07-18**, six weeks before today's independent rediscovery. Both
+times the finding was correct; between them, nobody wrote the row. That
+audit tentatively linked the gap to a much larger active-agent-count
+anomaly (75 vs. documented 15) which has separately resolved since (live
+count today: 8 active) — whether the missing row actually caused that
+incident was unconfirmed then and is still unconfirmed now; not
+re-investigated as part of writing the row today.
+
+**Not done:** extending `engine/season_manager.py::rotate_season()` /
+`start_season()` to write both `season_config` and `settings.season_N_name`
+automatically at every future rotation, so this doesn't require a third
+discovery at season 8. Flagged as the structural fix; today's write is the
+one-time catch-up, not that.
+
+### 20:15 MST snapshot — PENDING, not yet due
+
+It's 13:00 on the box clock as this section is written — tonight's
+`db_snapshot.sh` cron (20:15) and `offhost_backup.sh` (20:30) haven't run
+yet. This is the first real, unattended test of `337407c`'s `find`-based
+retention counting, the free-space precheck, and `KEEP=14`. **Expected
+correct result: no `[ARCHIVED]` lines** — `data/backups/` currently holds
+zero dated `.db` files (confirmed empty earlier today), so after tonight's
+run there will be exactly 1 (today's), and `1 > 14` is false. An
+`[ARCHIVED]` line tonight would actually be the surprising/wrong outcome,
+not the expected one. Checking `logs/db_snapshot.log` after 20:15 and
+appending the result here is still owed — not done as of this section.
+
+### Corrected baseline, restated plainly for tomorrow's comparison
+
+Per section 7 above: the **712** (2026-08-31, complete day) /
+**517** (2026-09-01, partial as of 18:29 UTC) `ollama_model_swap_log`
+totals are the real, verified pre-filter baseline. The **"1,373"** figure
+in this doc's section 5 commit message and section 2 was wrong — I
+introduced it without a source and could not find it anywhere on
+re-check. Worf/Troi correction, restated: they share the literal same
+Ollama tag (`qwen3:8b`) and structurally cannot evict each other (same
+name = cache hit); the pairing that's actually costing anything is Worf
+(`qwen3:8b`) against `ollama-plutus` (`plutus-v1`) — bit-identical
+weights, different tag names.
+
+### What tomorrow's read should check (Captain's framing, recorded verbatim intent)
+
+1. Does `ollama-plutus` actually fire a trade now that it's off BENCH?
+2. Does `qwen3:8b` Ollama swap activity drop to near-zero, per the
+   falsifiable prediction in section 7 — or does something this
+   investigation missed keep it non-zero?
+3. Is the first `20:15` retention run clean — zero `[ARCHIVED]` lines is
+   the *correct* result tonight (count will be 1 against `KEEP=14`), not a
+   failure to flag.
