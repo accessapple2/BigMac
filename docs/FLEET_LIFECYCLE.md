@@ -153,3 +153,26 @@ stale is the plan working, not a finding.
   dedicated non-executing sim loop wired into the scheduler per agent,
   which this tool does not build. It sets the state; it doesn't build new
   execution paths.
+- **No post-deploy verification requirement for a fix to a scheduled
+  job.** A code fix to a cron/launchd-driven collector or job is not
+  "done" when it's committed and the process restarted — it's done when
+  the job has actually produced one real artifact (a fresh row, a
+  successful log line, an updated file) under its normal schedule.
+  Landing 2026-09-01, HM-GEX-RETIRED: the 2026-08-29/08-30 GEX-collector
+  fixes (`85b5f7e`, `e55f330`) were correctly deployed and correctly
+  diagnosed the real blocker (Polygon options-chain 403 NOT_AUTHORIZED,
+  subscription cancelled 07-22) — but a fresh check three days later
+  (09-01, `curl .../api/market/gex`) still read the collector's
+  pre-outage `as_of` because nobody re-ran the collector after the fix to
+  confirm a genuine write, only confirmed the code was correct. The fix
+  *was* correct — re-retiring the collector via crontab once the 403 was
+  confirmed was the right call, not a missed step — but the verification
+  gap is real: a "fixed" scheduled job with zero fresh output since the
+  fix looks identical, from the outside, to a fix that silently didn't
+  deploy at all. **Rule going forward:** after any fix to a
+  cron/launchd-scheduled job, either wait for its next natural scheduled
+  run and confirm a fresh artifact, or trigger one run manually and
+  confirm the same — before calling the fix "shipped." `fleet_lifecycle.py`
+  doesn't enforce this (it isn't wired to any specific job's success
+  criteria), so this is a process rule, not a code gate, until/unless a
+  future revision adds one.
