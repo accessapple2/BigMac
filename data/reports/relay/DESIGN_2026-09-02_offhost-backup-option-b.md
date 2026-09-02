@@ -166,21 +166,86 @@ against the live target, that would be new information worth another look
   snapshotting step (a `signals`-flavored sibling to `db_snapshot.sh`,
   which doesn't exist today) — more script surface, a real but small
   addition.
-- **Incidental option (C), worth knowing about regardless of A/B:**
-  Hetzner Storage Box includes **up to 10 automated snapshots** as a
-  built-in restore-point feature at no extra cost — snapshots taken
-  server-side, independent of what gets rsynced in. If (A) is chosen,
-  turning this on could give `signals.db` real (if coarse, ~10-point)
-  point-in-time recovery essentially for free, without adding any local
-  script complexity. Not fully scoped here (haven't verified the exact
-  snapshot-scheduling UI/API) — flagging as a strong follow-up if (A) is
-  the pick.
+- **(C) — CHOSEN. Fully scoped below, not incidental.** Hetzner Storage Box
+  server-side automated snapshots, confirmed against Hetzner's live docs
+  (not the earlier "up to 10, unverified" placeholder):
 
-**Not deciding this — recommend (A) for tonight's scope (restores parity
-with what already existed, smallest change, fastest to verify), with (C)
-as a near-zero-cost upgrade once the box exists, and (B) as a real but
-separate future decision** given `signals.db`'s zero-history gap is
-already a known, separately-flagged, not-urgent item.
+  - **Slot count is plan-tied, not universal:** BX11 = **10 slots**, BX21 =
+    20, BX31 = 30, BX41 = 40. On BX11 (the plan recommended in §3), that's
+    **10 rolling snapshots**. Manual and automatic snapshots draw from the
+    same slot pool per-plan; oldest is auto-deleted the moment a new one is
+    taken past the limit. Snapshot storage counts against the box's normal
+    capacity — no separate billing line.
+  - **Schedule is configurable, not fixed:** Console → Storage Box →
+    Snapshots tab → "Automatic" → set frequency (daily/weekly/monthly) and
+    time-of-day, plus the slot count to use (up to the plan max). **Set
+    this to fire daily at a time comfortably after the 20:30-20:45 rsync
+    window closes** — e.g. 21:00 MST — so each snapshot captures that
+    night's fully-written mirror, never a mid-transfer file. Getting this
+    ordering wrong (snapshot before rsync completes) would silently
+    snapshot yesterday's data twice and cost a day of real history — worth
+    double-checking once the box exists, before trusting the rotation.
+  - Sources: [Snapshots](https://docs.hetzner.com/storage/storage-box/snapshots/),
+    [Creating snapshots](https://docs.hetzner.com/storage/storage-box/getting-started/creating-snapshots/).
+
+  **Restore procedure — documented now, not left for the night it's needed:**
+
+  1. One-time setup: Console → Storage Box → Snapshots → toggle **"Display
+     snapshot directory"** on (off by default). No effect on normal
+     operation.
+  2. Snapshots then appear as plain, browsable, **read-only** subfolders at
+     `/home/.zfs/snapshot/<snapshot-name>/` when connected over SSH/SFTP on
+     port 23 (the `/home/` prefix is specific to the SSH/rsync protocol
+     path this design already uses; `.zfs/snapshot` alone is the path over
+     other protocols). Each subfolder is a full point-in-time mirror of the
+     box's directory tree at that snapshot's timestamp.
+  3. **To restore `signals.db` (or `trader.db`) from N nights ago:** connect
+     normally (`sftp -P 23` or `rsync` over the existing `hetzner-storage`
+     SSH config entry), `cd` or path into
+     `/home/.zfs/snapshot/<snapshot-name>/`, and copy the file out — a plain
+     `get`/`scp`/`rsync` pull, exactly like fetching any other file on the
+     box. **No console click, no full-box restore, no downtime**, because
+     this is a normal read against a read-only directory. Decompress and
+     `PRAGMA integrity_check` locally after pulling, per the verification
+     standard below.
+  4. **Do not use the Console's whole-box "restore snapshot" action for
+     this.** That's a separate, destructive operation — Hetzner's own
+     warning: *"When you restore a snapshot, any data created after the
+     snapshot was taken — including data from newer snapshots! — will be
+     deleted."* It resets the entire box to time X and wipes everything
+     newer, snapshots included. **Never needed for our case** — per-file
+     pull from the read-only directory in step 3 is the only restore path
+     this design relies on. The whole-box action exists only as a
+     last-resort disaster path (e.g. box-level corruption), not a routine
+     recovery tool, and should not be reached for casually.
+  - Source: [Snapshots](https://docs.hetzner.com/storage/storage-box/snapshots/)
+    (confirmed against the **Storage Box** product docs specifically — an
+    earlier pass in this research briefly pulled from Hetzner's *Storage
+    Share* product docs instead, a different Nextcloud-based offering with
+    no per-file restore at all; that page's info does not apply here and is
+    not used in this design).
+
+  **Does (C) satisfy the original signals.db point-in-time requirement?**
+  **Yes, with one honest caveat on granularity.** Combined with (A)'s
+  nightly mirror-and-overwrite, a correctly-sequenced daily snapshot turns
+  every night's transfer into a durable, independently-restorable
+  checkpoint — `signals.db` goes from *zero* history (today's real gap) to
+  **10 rolling daily checkpoints** on BX11, for no added local script
+  surface. The caveat: this is coarser than (B)'s purpose-built 14-day
+  dated series — 10 days vs. 14, and the retention knob lives in Hetzner's
+  Console rather than this repo's scripts, so it's not visible to
+  `git log` or local tooling the way (B) would be. That trade — less
+  configurability and shorter depth, in exchange for zero new local code —
+  is what makes this "(C) on top of (A)" rather than a full substitute for
+  (B); if 10 days ever proves too shallow, BX21 (20 slots, still cheap)
+  or a future move to (B) both remain open.
+
+**Decision: (C) on top of (A).** Nightly mirror-and-overwrite (A) stays the
+transfer mechanism; Hetzner's server-side automatic snapshots (C) supply
+the point-in-time recovery layer on top of it, per the restore procedure
+above. (B)'s purpose-built dated series remains a real, separate option if
+10-day depth ever proves insufficient — not pursued now given (C) closes
+the immediate gap at effectively zero implementation cost.
 
 ---
 
@@ -240,23 +305,36 @@ payment or account credential.**
 2. `scripts/offhost_backup.sh`: `REMOTE_HOST`/`REMOTE_DIR` repointed from
    dead olliemax to the new target, port 23 added to the ssh/rsync
    invocations, a `gzip` step added ahead of the `signals.db` transfer
-   (retention per your answer to (A)/(B)/(C) above), the old
-   remote-`sqlite3`-integrity-check block removed (Storage Box's SSH is
-   transfer-only — no remote shell) since the source is already
-   integrity-checked locally pre-transfer by `db_snapshot.sh`.
+   (mirror-only, per (A) — no dated-series logic needed since (C) supplies
+   history server-side), the old remote-`sqlite3`-integrity-check block
+   removed (Storage Box's SSH is transfer-only — no remote shell) since
+   the source is already integrity-checked locally pre-transfer by
+   `db_snapshot.sh`.
 3. `scripts/backup_freshness_check.sh`: `X9_BACKUPS_DIR` stat replaced
    with an SSH-based check against the new target (this one *can* use
    real SSH commands, unlike the X9 leg, since it's a normal reachable
    host) — X9's local stat either removed or kept as a secondary/best-
    effort check, your call.
-4. Verification, unchanged standard: a real cron-fired run (temporary
+4. **New step, added by the (C) decision:** once the box exists, enable
+   automatic snapshots in the Console (Snapshots tab → Automatic → daily,
+   10 slots, time set comfortably after the 20:30-20:45 rsync window —
+   e.g. 21:00 MST) and toggle **"Display snapshot directory"** on. Both
+   are one-time Console settings, not script changes — noted here so this
+   step doesn't get silently dropped when the script diff lands.
+5. Verification, unchanged standard: a real cron-fired run (temporary
    near-term crontab entry, same protocol as every prior verification this
    week — not a terminal run standing in), confirmed `SUCCESS` in the log,
    the actual file present and correct size on the remote target, then an
    independent restore-and-check — pull the file back down, decompress,
-   `PRAGMA integrity_check` — before calling it done. Not done until that
-   produces one real, restored, checked artifact.
+   `PRAGMA integrity_check` — before calling it done. **Extended for (C):**
+   after the first automatic snapshot has fired (i.e. not the same night
+   the box is created — wait for the first scheduled snapshot to land),
+   also verify the restore path itself end-to-end: browse
+   `/home/.zfs/snapshot/<name>/`, pull a file back out, confirm it matches.
+   A snapshot nobody has confirmed how to retrieve isn't a backup — this
+   gets checked once, not assumed from the docs above.
 
-Waiting on: (1) your go/no-go and A/B/C pick for §2's retention question,
-(2) account created and public key pasted in per §3, then I'll draft the
-exact script diff for review before applying anything.
+Waiting on: (1) account created and public key pasted in per §3, then
+I'll draft the exact script diff for review before applying anything.
+Retention question (§2) is now resolved — (C), documented above — no
+longer blocking.
