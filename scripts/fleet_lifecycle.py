@@ -124,6 +124,68 @@ def _order_doc_path(action: str, target_type: str, target_name: str, today: str)
     return ORDERS_DIR / f"ORDER_{today}_{action}_{target_type}_{target_name}.md"
 
 
+def _ensure_fresh_rating_on_resume(conn: sqlite3.Connection, target_name: str) -> str:
+    """HM-FLEET-LIFECYCLE-REVIVE-RATING-2026-09-01: a revived agent must
+    never re-enter trading unrestricted just because it has no CURRENT
+    rating. Verified live 2026-09-01: this tool's revive path never
+    touched agent_ratings at all -- combined with the BENCH gate's 30-day
+    staleness fail-open (0730aec, same day) and its pre-existing
+    'never-rated fails open' rule, a revived D/E agent (stale rating) or
+    a never-rated agent both land back trading with zero rating-based
+    protection. Fail CLOSED here instead: try a real recompute first: if
+    the agent already has enough clean current-season trades (rare right
+    after a revive, but possible for a same-day re-halt/revive), a real
+    rating gets computed and inserted by calculate_rating() itself, and
+    that's what governs -- no synthetic override needed. Otherwise
+    (the N/A path -- calculate_rating() returns 'N/A' and, confirmed by
+    reading it, does NOT insert a row in that case) or on any recompute
+    failure, insert a conservative, clearly-synthetic probation row
+    (rating='D', score=0.0 -- 0.0 specifically to be visually
+    distinguishable from a real computed D score, which this fleet's
+    D-rated agents run 39-45) so the BENCH gate (engine/paper_trader.py::
+    _bench_block_reason) has fresh, real, current data to find and block
+    on. This probation naturally clears itself the moment the agent
+    accumulates enough real trades for calculate_rating() to compute and
+    insert a genuine rating (a later row, superseding this one) -- no
+    separate expiry mechanism needed. Never raises -- a rating-system
+    hiccup must never block a legitimate revive, but it must also never
+    silently skip the probation insert; the try/except below wraps ONLY
+    the recompute attempt, the probation insert itself always runs on
+    that path.
+
+    Returns a short status string for the caller to print, never raises.
+    """
+    try:
+        from engine.agent_ratings import calculate_rating
+        result = calculate_rating(target_name, "alltime")
+        if result.get("rating") not in (None, "N/A"):
+            return (f"fresh rating computed: {result['rating']} "
+                     f"({result.get('rating_score', 0):.0f}/100)")
+    except Exception as e:
+        print(f"  [rating] recompute failed ({type(e).__name__}: {e}) -- "
+              f"falling to conservative probation default", file=sys.stderr)
+
+    # N/A (no clean current-season trades yet) or recompute failed --
+    # fail closed: insert a synthetic probation row so BENCH blocks new
+    # entries until this agent proves itself with real post-revive trades.
+    try:
+        conn.execute(
+            "INSERT INTO agent_ratings "
+            "(player_id, period, total_trades, wins, losses, win_rate, "
+            " total_pnl, avg_win, avg_loss, profit_factor, best_trade, "
+            " worst_trade, consecutive_losses, consecutive_wins, "
+            " avg_confidence, pass_rate, volume_accuracy, rating, rating_score) "
+            "VALUES (?, 'alltime', 0,0,0,0.0, 0.0,0.0,0.0,0.0,0.0,0.0,0,0, "
+            "        0.0,0.0,0.0, 'D', 0.0)",
+            (target_name,),
+        )
+        conn.commit()
+        return "no current rating -- inserted conservative D/0 probation row (fail closed)"
+    except Exception as e:
+        return (f"WARNING: probation-row insert also failed ({type(e).__name__}: {e}) "
+                f"-- agent has NO rating protection, check manually")
+
+
 def _write_order_doc(path: Path, action: str, target_type: str, target_name: str,
                       reason: str, resume_by: Optional[str], review_by: Optional[str],
                       today: str) -> None:
@@ -274,6 +336,11 @@ def cmd_apply(args: argparse.Namespace) -> int:
               f"written: {type(e).__name__}: {e}", file=sys.stderr)
         return 1
 
+    rating_note = ""
+    if target_type == "agent" and args.action in RESUME_ACTIONS:
+        rating_note = _ensure_fresh_rating_on_resume(conn, args.name)
+        print(f"  [rating] {rating_note}")
+
     try:
         _write_ledger_row(conn, target_type, args.name, args.action, args.reason,
                            _rel_or_abs(doc_path), args.resume_by, args.review_by)
@@ -296,8 +363,10 @@ def cmd_status(args: argparse.Namespace) -> int:
         return 1
     row = _latest_ledger_row(conn, target_type, args.name)
     if not row:
-        print(f"'{args.name}' ({target_type}): no ledger entry. Run the backfill "
-              f"(scripts/fleet_lifecycle_backfill.py) or this target predates the ledger.")
+        print(f"'{args.name}' ({target_type}): no ledger entry. Reconcile with "
+              f"`scripts/fleet_lifecycle_backfill_agents.py --target {args.name}` "
+              f"if its live state was already changed outside this tool, or this "
+              f"target predates the ledger.")
         return 0
     print(f"{args.name} ({target_type})")
     print(f"  state:      {row['action']}")

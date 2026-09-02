@@ -162,3 +162,108 @@ expected values, nothing to chase.
 - `mlx_qwen3` — healthy today, heartbeat 0.0–3.6 min.
 
 None of these were touched or re-verified this pass, per instruction.
+
+---
+
+## Follow-up: the revive-rating gap fixed, plus a correction to this doc's own evidence
+
+Captain-approved code fix, committed and tested. Two pieces.
+
+### Correction first: my `created_by` evidence above was weaker than stated
+
+This doc's "recorded properly" section (above) cited
+`created_by='fleet_lifecycle.py'` on the ledger rows as proof they were
+tool-written, not hand-inserted. That's **not actually conclusive** — the
+column's schema default is `'fleet_lifecycle.py'`
+(`created_by TEXT NOT NULL DEFAULT 'fleet_lifecycle.py'`), so a raw
+`INSERT` that simply doesn't override it would show the identical value.
+Found this while building the fix below, after discovering
+`scripts/fleet_lifecycle_backfill.py` (the script this doc's earlier
+section said `cmd_status` references) **doesn't exist** — the real
+script is `scripts/fleet_lifecycle_backfill_agents.py`, a differently-
+named, differently-scoped one-time bulk seed tool, not a general
+reconciliation tool. The conclusion itself still stands, on **stronger**
+evidence than the column: the order docs' exact structural/wording match
+to `_write_order_doc()`'s template (verb mapping, section headers,
+the literal "false alarm... legitimate 'this pause was forgotten' alert"
+phrasing) across two independent files is much harder to hand-fabricate
+than to simply run the real tool. Flagging the correction plainly per
+this session's own "state what was wrong and why" standard, not quietly
+swapping the citation.
+
+### Fix 1 — `scripts/fleet_lifecycle.py`: revive now fails closed on rating
+
+New `_ensure_fresh_rating_on_resume()`, called from `cmd_apply` for
+`target_type == "agent"` and `args.action in RESUME_ACTIONS` (`revive`,
+`active`), after the live `halt_mode` change succeeds:
+
+1. Calls `engine.agent_ratings.calculate_rating(name, "alltime")`. If it
+   returns a real (non-N/A) rating, nothing more to do — the function
+   already inserted it, and that's what should govern.
+2. Otherwise (N/A — no clean current-season trades yet, the normal case
+   right after a revive — or the recompute call itself raised), inserts
+   a conservative, clearly-synthetic probation row: `rating='D'`,
+   `rating_score=0.0` (0.0 specifically to be visually distinguishable
+   from a real computed D score, which this fleet's D-rated agents run
+   39-45), `period='alltime'`, fresh timestamp. The BENCH gate
+   (`_bench_block_reason`) now has real, current data to find and block
+   new entries on, instead of either nothing (never-rated fails open) or
+   a rating that's already stale past 30 days (today's other fix).
+3. The probation clears itself naturally the moment the agent
+   accumulates enough real trades for a genuine `calculate_rating()`
+   insert to supersede it — no separate expiry mechanism needed, reuses
+   the existing "most recent row governs" + 30-day-staleness logic
+   as-is.
+
+Never blocks the revive itself on a rating-system hiccup (the recompute
+attempt is wrapped in its own try/except) but always attempts the
+probation insert as the fallback — fail closed on the *rating*, not on
+the *revive*.
+
+### Fix 2 — the backfill script now has a real on-demand mode
+
+`scripts/fleet_lifecycle_backfill_agents.py` was scoped only to a
+one-time bulk seed (explicitly skips any target with existing ledger
+history — correct for its original purpose, wrong for ongoing use).
+Added `--target NAME`: reconciles exactly one agent's *current* live
+state into a fresh `backfilled=1` row, regardless of existing history —
+this is now the tool a future "someone bypassed fleet_lifecycle.py"
+situation should use, instead of reusing the normal `halt`/`revive`
+actions (which can only ever write `backfilled=0`, the exact label
+mismatch this doc originally found). Also fixed `fleet_lifecycle.py`'s
+own `cmd_status` help text, which pointed at the wrong, nonexistent
+filename.
+
+### Tests
+
+`tests/test_fleet_lifecycle_tool.py`: 5 new cases (real rating recompute
+needs no override; N/A inserts D/0 probation; recompute failure still
+inserts probation, revive still succeeds; `active` gets the same
+protection as `revive`; `halt` doesn't touch ratings at all — asserted
+via `mock_calc.assert_not_called()`). Also fixed a real test-hygiene bug
+this change exposed: the two pre-existing revive-exercising tests would
+now hit the **real production `data/trader.db`** through
+`calculate_rating()`'s own internal connection (unaffected by this
+tool's own `DB_PATH` test patch) — added a shared `_patch_never_rated()`
+helper and applied it to both.
+
+`tests/test_fleet_lifecycle_backfill_agents.py` (new file): 5 cases
+(single-target backfill writes a real `backfilled=1` row; works even
+when a ledger row already exists — the exact gap `--target` closes;
+dry-run writes nothing; unknown agent errors cleanly; bulk mode's
+original skip-if-present behavior is unchanged by the new flag). One
+real bug caught while writing these: two tests forgot
+`conn.row_factory = sqlite3.Row` and hit a `TypeError` on `_backfill_one`'s
+dict-style row access — a test bug, not a source bug (production code
+already sets `row_factory` correctly); fixed in the tests.
+
+Full sweep (`-k "fleet_lifecycle or agent_ratings"`): 33 passed, 0
+failed. End-to-end sanity check against the real two agents in
+`--dry-run` (both CLI entry points): output correct, confirmed zero real
+writes to `ai_players`, `fleet_lifecycle_ledger`, or `docs/orders/`
+afterward.
+
+**Not deployed as a restart concern** — `fleet_lifecycle.py` and
+`fleet_lifecycle_backfill_agents.py` are standalone CLI scripts, not part
+of the always-running trader process; the fix takes effect the next time
+either is invoked directly, no restart needed.
