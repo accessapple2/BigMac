@@ -6699,6 +6699,8 @@ def gex_all():
         c = _results.get(t)
         if not c or c.get("error"):
             continue
+        _as_of = c.get("as_of") or c.get("_asof")
+        _age_days = _gex_age_days(_as_of)
         out.append({
             "ticker": c.get("underlying", t), "spot": c.get("spot"),
             "total_gex": c.get("total_gex"), "gamma_flip": c.get("gamma_flip"),
@@ -6708,9 +6710,40 @@ def gex_all():
             "strikes": c.get("strikes", []),
             "source": "canonical (options_flow_gex)",
             "market_closed": bool(c.get("market_closed")),
-            "as_of": c.get("as_of") or c.get("_asof"),
+            "as_of": _as_of,
+            # HM-GEX-STALENESS-MARKER-2026-09-01: dashboard/static/index.html's
+            # "0DTE rules engine" panel already computes this client-side
+            # (commit 174a593, 2026-08-30) -- other consumers (bridge-v2.html's
+            # Gamma Map, any script/agent reading this endpoint directly) had
+            # no equivalent signal at all, so a frozen 2026-07-21 snapshot
+            # (HM-GEX-RETIRED, Polygon options 403, subscription cancelled
+            # 07-22) rendered/read identically to a genuinely fresh one.
+            # Computed here once, server-side, so every consumer gets the same
+            # answer without reimplementing age math -- age_days is None only
+            # when as_of itself is missing/unparseable (never silently "0").
+            "age_days": _age_days,
+            "stale": _age_days is None or _age_days >= 1.0,
         })
     return out
+
+
+def _gex_age_days(as_of) -> float | None:
+    """Age in days of a GEX `as_of` timestamp, or None if missing/unparseable.
+    Handles both ' ' and 'T' separators (formats observed in the wild across
+    this pipeline's different writers) without depending on either."""
+    if not as_of:
+        return None
+    try:
+        from datetime import datetime, timezone
+        _s = str(as_of).replace(" ", "T")
+        if _s.endswith("Z"):
+            _s = _s[:-1] + "+00:00"
+        _dt = datetime.fromisoformat(_s)
+        if _dt.tzinfo is None:
+            _dt = _dt.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - _dt).total_seconds() / 86400.0
+    except Exception:
+        return None
 
 
 _gex_symbol_cache: dict = {}   # {symbol: {"data": ..., "ts": float}}
@@ -6884,6 +6917,13 @@ def gex_ticker(ticker: str):
     magnets = [{"strike": m["strike"], "net_gex": m["net_gex"],
                 "type": ("call_wall" if (spot and m["strike"] >= spot) else "put_wall")}
                for m in c.get("magnets", [])]
+    # HM-GEX-STALENESS-MARKER-2026-09-01: existing `_stale_since` is only set
+    # on one specific serve path (a merely-aging in-memory entry during
+    # market hours) -- the cold-cache/market-closed fallback to the durable
+    # data/flow_gex.db snapshot (the exact HM-GEX-RETIRED scenario, frozen
+    # since 2026-07-21) never sets it. age_days/stale are computed the same
+    # way regardless of which serve path produced this response.
+    _age_days = _gex_age_days(c.get("_asof"))
     return {
         "symbol": c.get("underlying"), "spot": c.get("spot"),
         "total_gex": c.get("total_gex"), "gamma_flip": c.get("gamma_flip"),
@@ -6891,6 +6931,8 @@ def gex_ticker(ticker: str):
         "king_node": c.get("king_node"), "magnets": magnets, "strikes": c.get("strikes", []),
         "updated": c.get("_asof", ""), "source": "gex-snapshot canonical (" + str(c.get("_src", "")) + ")",
         "stale_since": c.get("_stale_since"),
+        "age_days": _age_days,
+        "stale": _age_days is None or _age_days >= 1.0,
     }
 
 
