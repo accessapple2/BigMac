@@ -545,27 +545,89 @@ activity continues at anything like today's ~100/day rate after the
 filter is live, that's a signal something else is calling it that this
 investigation didn't find — worth checking, not assuming away.
 
-**Not touched, per instruction:** `OLLAMA_MAX_LOADED_MODELS` (still `1`,
-`com.ollama.serve`'s plist untouched). Correctly not attempted via
-`launchctl setenv` either — confirmed `com.ollama.serve` is a Homebrew-
-adjacent... no: per CLAUDE.md it's a **root-owned system LaunchDaemon**
-(`/Library/LaunchDaemons/com.ollama.serve.plist`), and separately the
-actual running Ollama process today is owned by `pid 300`'s launch context
-— `launchctl setenv` at the `gui/$UID` domain (where the trader's kickstart
-targets) would not reach a LaunchDaemon running outside that session
-regardless. Not exercised or tested — noted as the reason this was never a
-live option, not verified by attempting and failing.
+**CORRECTION (2026-09-01, same day, flagged by the Captain):** the
+paragraph originally here claimed `OLLAMA_MAX_LOADED_MODELS` was still
+`1`, sourced from CLAUDE.md's documented `com.ollama.serve` LaunchDaemon
+config rather than checked against the actually-running process. Wrong,
+and the same "trust the doc, not the live system" mistake this repo's
+own doctrine warns about. Re-verified directly (`ps eww` on the PID
+actually bound to port 11434, not `launchctl getenv`):
 
-**Consolidation angle for the Captain's future call, not acted on here:**
-the finding above suggests the actionable seat-consolidation opportunity
-isn't "Worf vs. Troi" (moot, Troi's dormant, and same-tag calls wouldn't
-fight anyway) — it's whichever currently-active agents route through
-*different* tag names that happen to share the same underlying weights
-(today: `qwen3-8b-flash`'s `qwen3:8b` vs. `ollama-plutus`'s `plutus-v1`).
-Pointing both at the identical tag string would make Ollama treat repeat
-calls as cache hits instead of reloads — but that's a routing change to
-`ai_players.model_id`, out of scope for "measure, don't change," and not
-done here.
+```
+$ lsof -i :11434
+ollama  300  bigmac  ...  TCP localhost:11434 (LISTEN)
+
+$ ps -o pid,ppid,user,command -p 300
+  PID  PPID USER   COMMAND
+  300     1 bigmac /opt/homebrew/bin/ollama serve
+
+$ ps eww -p 300 | grep OLLAMA_
+OLLAMA_HOST=127.0.0.1:11434
+OLLAMA_MAX_LOADED_MODELS=2
+OLLAMA_CONTEXT_LENGTH=16384
+OLLAMA_MODELS=/Users/bigmac/.ollama/models
+OLLAMA_KEEP_ALIVE=-1
+
+$ launchctl getenv OLLAMA_MAX_LOADED_MODELS
+(empty)
+```
+
+The process actually serving every request measured in this whole
+investigation is **Homebrew's `/opt/homebrew/bin/ollama serve` (PID 300,
+user `bigmac`, parent PID 1)** — not the root-owned `com.ollama.serve`
+LaunchDaemon CLAUDE.md documents. `launchctl getenv` only sees launchd's
+own session-wide environment, never the env vars a Homebrew-launched
+process was actually started with — that's the blind spot, not a flaw in
+the reasoning, just the wrong tool for this question. Whether
+`com.ollama.serve` is technically loaded-but-losing-the-port-race to PID
+300, or not loaded at all, wasn't resolved (`sudo launchctl print
+system/com.ollama.serve` needs a password not available this session) —
+doesn't matter for this analysis either way, since only one process can
+hold port 11434 and PID 300 is provably it. **CLAUDE.md's "com.ollama.serve
+is the ONLY real service" doctrine (2026-08-27) looks stale as of today —
+flagging for whoever owns that doc next, not corrected here.**
+
+**Real values: `OLLAMA_MAX_LOADED_MODELS=2`, `OLLAMA_KEEP_ALIVE=-1`.**
+This changes the causal story, not just a number. `KEEP_ALIVE=-1` means
+a loaded model is **never** evicted for being idle — there is no
+idle-timeout unload happening anywhere in today's data. Every single
+eviction in `ollama_model_swap_log` is therefore a **forced eviction
+under memory pressure**: a newly-requested, *different* model didn't fit
+alongside what was already resident, so something had to be swapped out
+to make room. With 2 configured slots (not 1), the box is actively
+*trying* to hold two models resident simultaneously — the live sample
+this section already found (`resident_models_json: ["plutus-v1:latest"]`,
+a single-element list, right after a `qwen3:8b` eviction) is consistent
+with this: 2 slots configured, but only 1 actually resident at that
+moment, because the box couldn't hold 2 of the qwen3:8b-family's 5.2GB
+weight-sets (or that plus whatever else was competing) at once. **The
+16GB box is already attempting to run two models at a time and hitting a
+real memory ceiling doing it** — not cycling through a single-slot cache
+on every different tag name, the mechanism this section originally
+described.
+
+**Consolidation angle, reframed:** the actionable opportunity isn't
+"Worf vs. Troi" (still moot — Troi's dormant, and same-tag calls still
+can't evict each other regardless of slot count, that part of the
+original finding stands). It's that **the qwen3:8b alias family
+(`plutus-v1`, `qwen3:8b`, `ministral-3:3b`, `qwen2.5-coder:7b`,
+`qwen3:4b` — all the same 5.2GB blob) currently counts as up to 5
+*distinct* competitors for 2 resident slots, when collapsed it would only
+ever need 1.** With identical tags collapsed to one name, that family
+would occupy exactly one of the two configured slots no matter how many
+different agents call it — freeing the second slot to hold whatever
+else is actually needed (`gemma3:4b` 3.3GB, `phi3:mini` 2.2GB,
+`0xroyce/plutus` 5.7GB — real, distinct weights, not part of the alias
+family) without the alias family itself ever forcing its own reload.
+Whether *that* second-slot pairing then comfortably fits `~11.5GB`
+usable VRAM depends on which specific model ends up there (5.2GB +
+`0xroyce/plutus`'s 5.7GB = 10.9GB, plausible; 5.2GB + `qwen3:14b`'s
+9.3GB = 14.5GB, would not fit) — collapsing the alias family doesn't
+guarantee zero future thrashing on its own, but it removes the family's
+own internal 5-way competition entirely, which today's data shows is a
+real, live, current source of forced evictions. Still a routing change
+to `ai_players.model_id`, out of scope for "measure, don't change," not
+done here — see section 10's conditional plan, also reframed below.
 
 ---
 
@@ -921,6 +983,12 @@ in the same measurement window.
 
 ### Conditional dedupe plan — write-up only, not executed, contingent on tomorrow's read
 
+**CORRECTION (2026-09-01, same day):** this plan originally assumed
+`OLLAMA_MAX_LOADED_MODELS=1` — real value is `2`, `OLLAMA_KEEP_ALIVE=-1`
+(never idle-evicts). See the correction in section 7 for the full
+re-verification. Reframed below; the fix itself (single-row `UPDATE`)
+doesn't change, but *why* it would help does.
+
 **If tomorrow's `qwen3:8b` swap count does NOT drop toward zero**
 (falsifying the War Room theory, or revealing a second live caller this
 investigation missed), the next candidate fix is consolidating the tag
@@ -933,10 +1001,25 @@ named tag pointing at identical bytes.
 cp` needed — the alias tags themselves can stay on disk, unused, rather
 than being deleted). Confirmed above this changes nothing behaviorally:
 same weights, same template, same params, no system-prompt coupling.
-Ollama would then see repeated requests for the literal same tag from
-both McCoy and Worf's calls and serve them without an evict/reload cycle
-between them, the way `qwen3-8b-flash` and `options-sosnoff` already do
-today (same tag, confirmed no mutual eviction, section 7).
+
+**Why it helps, corrected:** with `MAX_LOADED_MODELS=2` and
+`KEEP_ALIVE=-1` (never idle-evicts — every swap in today's data is a
+forced eviction under memory pressure, not routine cleanup), the alias
+family currently behaves as up to 5 *distinct* competitors for 2 resident
+slots. Collapsing them to one tag makes the whole family count as a
+single competitor — it would occupy at most 1 of the 2 slots regardless
+of how many different agents (McCoy, Worf, and anyone else who gets
+pointed at it) call it, the same way `qwen3-8b-flash` and `options-
+sosnoff` already share one resident copy today with no mutual eviction
+(confirmed, section 7). **With the family collapsed, 2 resident slots
+would plausibly fit** — one slot permanently held by the (now singular)
+qwen3:8b-family weight-set, the second slot free for whichever non-alias
+model is actually needed alongside it. Not a guarantee for every possible
+pairing (5.2GB + `0xroyce/plutus`'s 5.7GB ≈ 10.9GB fits a ~11.5GB usable
+budget; 5.2GB + `qwen3:14b`'s 9.3GB ≈ 14.5GB would not) — but it removes
+the alias family's own internal 5-way competition entirely, which is a
+real, current, live source of forced evictions today regardless of what
+else is competing for the second slot.
 
 **What it risks:**
 - **Attribution, not behavior.** `ai_players.model_id` is read in places
