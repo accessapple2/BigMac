@@ -501,12 +501,21 @@ def generate_ready_room_briefing(force: bool = False) -> dict:
     # citing put_wall 740 / flip 749 vs canonical 750 / 755). The legacy
     # `profile` is retained ONLY for per-strike OI (`levels`), which the
     # canonical daily row does not persist — the P/C ratio + max-pain below
-    # still consume `levels`. Overlay is best-effort: on canonical error the
-    # legacy values stand (no regression vs prior behavior).
+    # still consume `levels`.
+    #
+    # HM-GEX-FRESHNESS-GATE-2026-09-01: this overlay used to apply on ANY
+    # non-error canonical result, with no age check — so when the daily
+    # Polygon collector went dark (HM-GEX-RETIRED, 07-21), the "error-free"
+    # branch kept firing forever against a frozen row, silently overwriting
+    # today's live Alpaca spot/walls with six-week-old ones. canonical_gex_
+    # if_fresh() (single freshness gate, shared with dynamic_advisor.py's
+    # copy of this same override — see there) returns None on stale/missing/
+    # errored data, so a stale snapshot now falls through to the legacy
+    # values below exactly like a real fetch error always did.
     try:
-        from engine.canonical_gex import canonical_gex as _canon_gex
-        _c = _canon_gex("SPY")
-        if _c and not _c.get("error"):
+        from engine.canonical_gex import canonical_gex_if_fresh as _canon_gex_fresh
+        _c = _canon_gex_fresh("SPY")
+        if _c:
             if _c.get("spot") is not None:       spot       = _c["spot"]
             if _c.get("call_wall") is not None:  call_wall  = _c["call_wall"]
             if _c.get("put_wall") is not None:   put_wall   = _c["put_wall"]
@@ -515,6 +524,8 @@ def generate_ready_room_briefing(force: bool = False) -> dict:
             if _c.get("total_gex") is not None:  total_gex  = _c["total_gex"]
             console.log(f"[dim]ReadyRoom: GEX walls from canonical "
                         f"({_c.get('_src')}): put_wall={put_wall} flip={gamma_flip}")
+        else:
+            console.log("[dim]ReadyRoom: canonical GEX stale/unavailable; using legacy walls")
     except Exception as _ce:
         console.log(f"[yellow]ReadyRoom: canonical GEX overlay skipped ({_ce}); "
                     f"using legacy walls")

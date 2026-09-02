@@ -788,10 +788,18 @@ def generate_advisory(force: bool = False) -> dict:
         # intraday_snapshots walls, which served a PRE-FIX put_wall ABOVE spot (e.g. SPY put wall
         # $825 with spot ~$740). canonical_gex carries the put_wall<spot fix. Walls/flip are
         # strike-based; override only the GEX levels. Advisory / observation-only, no order path.
+        #
+        # HM-GEX-FRESHNESS-GATE-2026-09-01: this was a straight copy of ready_room.py's
+        # identical overlay block (same bug, same fix, independently — see engine/canonical_gex.py's
+        # canonical_gex_if_fresh() docstring for why duplicating this check twice caused the
+        # original stale-data incident). Consolidated to the one shared freshness gate: when the
+        # canonical Polygon row is stale/missing/errored, this now falls through to red_alert's
+        # own walls exactly like a fetch error already did, instead of unconditionally trusting
+        # whatever canonical_gex() last had on file.
         try:
-            from engine.canonical_gex import canonical_gex as _cg
-            _gx = _cg("SPY")
-            if isinstance(_gx, dict) and not _gx.get("error"):
+            from engine.canonical_gex import canonical_gex_if_fresh as _cg_fresh
+            _gx = _cg_fresh("SPY")
+            if _gx:
                 if _gx.get("put_wall"):
                     put_wall = float(_gx["put_wall"])
                 if _gx.get("call_wall"):

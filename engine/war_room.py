@@ -748,6 +748,15 @@ def generate_hot_take(provider, player_id: str, symbol: str, price_data: dict,
         pass
 
     grounding = build_grounding_block(symbol)
+    # HM-GEX-FRESHNESS-GATE-2026-09-01: intentionally NOT freshness-gated like
+    # ready_room.py/dynamic_advisor.py's canonical_gex overlay was. This is a
+    # different pipeline (engine.gamma_context, Polygon-direct, no flow_gex.db
+    # fossil in the loop) that already fails safe to "" the moment its live
+    # Polygon call errors (which it does today, HM-GEX-RETIRED) -- there is no
+    # "stale-but-error-free" row for it to silently serve, so no gate is needed
+    # here. Do not "fix" this by pointing it at canonical_gex_if_fresh() --
+    # that would trade a fail-safe empty string for a fallback to the same
+    # fossil source this gate exists to guard against elsewhere.
     gamma_block = build_gamma_block(symbol)
     prompt = (
         f"{grounding}\n{gamma_block}\n\n"

@@ -23,6 +23,62 @@ under either interpreter.
 """
 from typing import Optional
 
+# HM-GEX-FRESHNESS-GATE-2026-09-01: gamma exposure is intraday regime data —
+# walls/flip move with the day's flow. A day-old snapshot is already stale
+# for decisioning, even though it's a perfectly valid "last known" value for
+# an audit trail. This is the ONE place that number lives; every freshness
+# check in this pipeline (dashboard staleness markers, the ready_room/
+# dynamic_advisor overlay gate below) reads it from here rather than
+# hardcoding it locally, precisely so the definition of "stale" can't drift
+# between consumers again the way it silently did before this fix.
+CANONICAL_GEX_MAX_AGE_DAYS = 1.0
+
+
+def snapshot_age_days(as_of) -> Optional[float]:
+    """Age in days of a canonical-GEX `_asof`/`as_of` timestamp, or None if
+    missing/unparseable (never silently 0 — a missing timestamp must not
+    read as "fresh"). Handles both ' ' and 'T' separators (both are
+    observed in the wild across this pipeline's different writers)."""
+    if not as_of:
+        return None
+    try:
+        from datetime import datetime, timezone
+        s = str(as_of).replace(" ", "T")
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - dt).total_seconds() / 86400.0
+    except Exception:
+        return None
+
+
+def canonical_gex_if_fresh(symbol: str) -> Optional[dict]:
+    """canonical_gex(symbol) IF its `_asof` is within CANONICAL_GEX_MAX_AGE_DAYS,
+    else None.
+
+    HM-GEX-FRESHNESS-GATE-2026-09-01: canonical_gex()'s own priority list
+    (intraday cache -> flow_gex.db -> live compute) already fails safe when
+    Polygon is unreachable (returns an "error" key). The gap this closes is
+    different: when the *daily collector itself* has been dead for weeks
+    (HM-GEX-RETIRED, the /v3/snapshot/options 403), tier 2 of that priority
+    list still returns a structurally VALID row — no error, just old. Two
+    call sites (engine/ready_room.py, engine/dynamic_advisor.py) were each
+    independently treating "no error" as "use this," unconditionally
+    overwriting live Alpaca-derived values with a frozen Polygon snapshot.
+    This is the single freshness gate both now share instead of duplicating
+    the same age check twice — callers that get None here fall through to
+    their own live/legacy source exactly as they already do on a real error.
+    """
+    c = canonical_gex(symbol)
+    if not c or c.get("error"):
+        return None
+    age = snapshot_age_days(c.get("_asof"))
+    if age is None or age >= CANONICAL_GEX_MAX_AGE_DAYS:
+        return None
+    return c
+
 
 def latest_snapshot(symbol: str) -> Optional[dict]:
     """Latest durable data/flow_gex.db row for `symbol`, or None if none exists.

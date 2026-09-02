@@ -6722,28 +6722,32 @@ def gex_all():
             # answer without reimplementing age math -- age_days is None only
             # when as_of itself is missing/unparseable (never silently "0").
             "age_days": _age_days,
-            "stale": _age_days is None or _age_days >= 1.0,
+            "stale": _gex_is_stale(_as_of),
         })
     return out
 
 
 def _gex_age_days(as_of) -> float | None:
     """Age in days of a GEX `as_of` timestamp, or None if missing/unparseable.
-    Handles both ' ' and 'T' separators (formats observed in the wild across
-    this pipeline's different writers) without depending on either."""
-    if not as_of:
-        return None
-    try:
-        from datetime import datetime, timezone
-        _s = str(as_of).replace(" ", "T")
-        if _s.endswith("Z"):
-            _s = _s[:-1] + "+00:00"
-        _dt = datetime.fromisoformat(_s)
-        if _dt.tzinfo is None:
-            _dt = _dt.replace(tzinfo=timezone.utc)
-        return (datetime.now(timezone.utc) - _dt).total_seconds() / 86400.0
-    except Exception:
-        return None
+
+    HM-GEX-FRESHNESS-GATE-2026-09-01: thin delegator to engine.canonical_gex.
+    snapshot_age_days — the SAME timestamp-age logic engine/ready_room.py and
+    engine/dynamic_advisor.py's freshness gate now use, kept in one place
+    rather than reimplemented per-layer. Name/signature kept stable here
+    since tests/test_gex_staleness_marker.py exercises it directly."""
+    from engine.canonical_gex import snapshot_age_days
+    return snapshot_age_days(as_of)
+
+
+def _gex_is_stale(as_of) -> bool:
+    """True if `as_of` is missing/unparseable/older than the shared
+    CANONICAL_GEX_MAX_AGE_DAYS threshold (engine.canonical_gex) — the same
+    bar engine/ready_room.py and engine/dynamic_advisor.py's overlay gate
+    use, so "stale" can't drift between what's displayed and what's
+    reasoned over."""
+    from engine.canonical_gex import CANONICAL_GEX_MAX_AGE_DAYS
+    age = _gex_age_days(as_of)
+    return age is None or age >= CANONICAL_GEX_MAX_AGE_DAYS
 
 
 _gex_symbol_cache: dict = {}   # {symbol: {"data": ..., "ts": float}}
@@ -6932,7 +6936,7 @@ def gex_ticker(ticker: str):
         "updated": c.get("_asof", ""), "source": "gex-snapshot canonical (" + str(c.get("_src", "")) + ")",
         "stale_since": c.get("_stale_since"),
         "age_days": _age_days,
-        "stale": _age_days is None or _age_days >= 1.0,
+        "stale": _gex_is_stale(c.get("_asof")),
     }
 
 
@@ -8585,18 +8589,28 @@ def red_alert_status(limit: int = 10):
 @app.get("/api/gex-overlay/levels")
 def gex_overlay_levels(symbol: str = "SPY"):
     """HM-GEX-CANONICAL 2026-05-31: king node / flip / walls served from the single
-    canonical GEX (engine.options_flow_gex). Legacy engine.gex_overlay dormant."""
+    canonical GEX (engine.options_flow_gex). Legacy engine.gex_overlay dormant.
+
+    HM-GEX-STALENESS-MARKER-2026-09-01 (part 2): the dashboard's highest-traffic
+    GEX endpoint (index.html's SPY/QQQ overlay panel, polled every 15 min per
+    open tab -- confirmed via a live trader.log sample, far more than any other
+    GEX endpoint) was one of the three that 0e14e77 missed. Added here for the
+    same reason as gex_all/gex_ticker: this panel rendered the frozen 07-21
+    snapshot as current on every single poll, with no signal to a viewer."""
     c = _canonical_gex_cached(symbol)
     if c.get("error"):
         return {"error": c["error"], "pending": c.get("pending", False)}
     spot = c.get("spot"); flip = c.get("gamma_flip")
     stable = (spot is not None and flip is not None and spot >= flip)
+    _as_of = c.get("_asof")
     return {
         "symbol": c.get("underlying"), "spot": spot,
         "king_node": c.get("king_node"), "gamma_flip": flip,
         "put_wall": c.get("put_wall"), "call_wall": c.get("call_wall"),
         "regime": ("stable (above flip)" if stable else "volatile (below flip)"),
-        "as_of": c.get("_asof"), "source": "gex-snapshot canonical (" + str(c.get("_src", "")) + ")",
+        "as_of": _as_of, "source": "gex-snapshot canonical (" + str(c.get("_src", "")) + ")",
+        "age_days": _gex_age_days(_as_of),
+        "stale": _gex_is_stale(_as_of),
     }
 
 
@@ -8609,8 +8623,10 @@ def gex_overlay_heatmap(symbol: str = "SPY"):
         if c.get("error"):
             return {"error": c["error"], "strikes": [], "count": 0, "pending": c.get("pending", False)}
         strikes = c.get("strikes", [])
+        _as_of = c.get("_asof")
         return {"symbol": c.get("underlying", symbol.upper()), "strikes": strikes,
-                "count": len(strikes), "source": "gex-snapshot canonical (" + str(c.get("_src", "")) + ")"}
+                "count": len(strikes), "source": "gex-snapshot canonical (" + str(c.get("_src", "")) + ")",
+                "as_of": _as_of, "age_days": _gex_age_days(_as_of), "stale": _gex_is_stale(_as_of)}
     except Exception as e:
         return {"error": str(e), "strikes": [], "count": 0}
 
@@ -16275,12 +16291,17 @@ def chart_data(symbol: str = "SPY", timeframe: str = "1Day", bars: int = 200):
         if not _c.get("error"):
             _spot = _c.get("spot"); _flip = _c.get("gamma_flip")
             _stable = (_spot is not None and _flip is not None and _spot >= _flip)
+            _as_of = _c.get("_asof")
             result["gex_levels"] = {
                 "gamma_flip": _flip,
                 "call_wall":  _c.get("call_wall"),
                 "put_wall":   _c.get("put_wall"),
                 "king_node":  _c.get("king_node"),
                 "regime":     ("stable (above flip)" if _stable else "volatile (below flip)"),
+                # HM-GEX-STALENESS-MARKER-2026-09-01 (part 2): missed by 0e14e77.
+                "as_of":      _as_of,
+                "age_days":   _gex_age_days(_as_of),
+                "stale":      _gex_is_stale(_as_of),
             }
     except Exception:
         pass
