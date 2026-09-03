@@ -55,6 +55,56 @@ mkdir -p "$(dirname "$LOG")"
 exec >>"$LOG" 2>&1
 echo "=== $(date -Iseconds) offhost_backup START ==="
 
+# HM-OFFHOST-CONCURRENCY-GUARD (2026-09-03): mkdir is atomic on any POSIX
+# filesystem, unlike a flag file -- two processes racing to mkdir the same
+# path will have exactly one winner, no TOCTOU window on the mkdir itself.
+# Not flock(1): not present on this box (macOS ships no flock CLI). A missed
+# lock here isn't hypothetical -- three unlocked concurrent runs on
+# 2026-09-02 interleaved their log output into one unreadable block and,
+# more seriously, raced rsync writes against the same X9 destination files
+# at the same time.
+#
+# HM-OFFHOST-LOCK-RACE-FIX (2026-09-03, same day): the first version of this
+# guard treated an EMPTY/unreadable pid file the same as a dead-process pid
+# -- both triggered reclaim. That's wrong: there's a real (if narrow) window
+# between a winner's `mkdir` succeeding and its very next line writing its
+# own pid, during which a second process can see the dir exist but the pid
+# file still empty, misread that as "stale", `rm -rf` the legitimate
+# holder's lock out from under it, and re-mkdir its own -- both instances
+# then run concurrently, exactly what this guard exists to prevent. Caught
+# live: `.offhost_backup.lock` was observed momentarily absent while its
+# recorded holder (pid 83839) was still genuinely running. Fix: empty/
+# unreadable pid means "ambiguous, holder mid-start" -> treat as busy and
+# skip. Reclaim ONLY fires for a pid that is present AND confirmed dead via
+# `kill -0`. Skipping a live cron tick is harmless (next `*/5` picks it up);
+# reclaiming a live lock is not.
+LOCKDIR="$REPO/.offhost_backup.lock"
+acquire_lock() {
+    if mkdir "$LOCKDIR" 2>/dev/null; then
+        echo $$ >"$LOCKDIR/pid"
+        trap 'rm -rf "$LOCKDIR"' EXIT
+        return 0
+    fi
+    return 1
+}
+if ! acquire_lock; then
+    held_pid=$(cat "$LOCKDIR/pid" 2>/dev/null || echo "")
+    if [ -z "$held_pid" ]; then
+        echo "=== SKIPPED: lock dir present, pid not yet readable (holder mid-start) -- treating as busy, NOT reclaiming ==="
+        exit 0
+    fi
+    if kill -0 "$held_pid" 2>/dev/null; then
+        echo "=== SKIPPED: already running (pid $held_pid holds $LOCKDIR) ==="
+        exit 0
+    fi
+    echo "  [WARN] stale lock dir (pid $held_pid not running) -- reclaiming"
+    rm -rf "$LOCKDIR"
+    if ! acquire_lock; then
+        echo "=== SKIPPED: lost race reclaiming stale lock ==="
+        exit 0
+    fi
+fi
+
 # HM-X9-MOUNT-GUARD (2026-08-27): if the X9 is unplugged, "/Volumes/Crucial X9"
 # is just a path under /Volumes -- a real directory that lives on the BOOT
 # DRIVE, not the external volume. mkdir -p / rsync would happily create it
