@@ -685,6 +685,41 @@ LAUNCHD_JOB_REGISTRY: dict[str, tuple[str, float]] = {
     # says it tracks the 08-29-reactivated set, which this no longer is.
     "archer-briefing":                   ("logs/archer_briefing_err.log", 30.0),
 }
+
+# HM-GUI-DOMAIN-OUTAGE-2026-09-04: per-job ceilings above (30h-216h,
+# cadence-scaled) are the right threshold for "is THIS one job stuck" but
+# far too slow to catch "the whole gui/501 launchd domain is unloaded" --
+# a 2026-09-02 WindowServer crash during a Screen Sharing connection
+# attempt silently unloaded ALL ~19 active com.ollietrades.*/com.trademinds.*
+# LaunchAgents (confirmed via `launchctl list | grep -c ollietrades\|
+# trademinds` == 0 from a real GUI session), and the per-job staleness
+# check alone would have taken up to 216h (universe-refresh/model-watcher's
+# ceiling) to notice most of them -- it did fire for the 30h-ceiling jobs,
+# but only as N separate WARNINGs, never as the single "the whole fleet
+# went dark" signal the outage actually was.
+#
+# Can't query `launchctl list`/`launchctl print gui/501` directly for a
+# real loaded-count -- confirmed live that this fails from cron/any non-
+# Aqua-session shell with "125: Domain does not support specified action",
+# the identical blind spot documented throughout CLAUDE.md's LaunchAgent
+# Reboot Lifecycle section. Building this check on that call would just
+# move the blind spot, not close it.
+#
+# Instead: a uniform, ceiling-independent freshness window applied to
+# EVERY registered job regardless of its own (cadence-scaled) ceiling. A
+# few individual jobs going quiet for a few hours is normal (market-hours
+# gating, weekend gaps); nearly the WHOLE registry going quiet at once,
+# inside a window far shorter than any of their real ceilings, is not --
+# that pattern is what a domain-wide outage looks like from a cron-only
+# vantage point, and it's observable via plain log mtimes with no
+# launchctl call at all.
+MASS_OUTAGE_WINDOW_HOURS = 6.0
+MASS_OUTAGE_FRACTION = 0.5
+# Fraction alone degenerates at small N (1 stale job out of 1 registered
+# is a trivial "100%" but not evidence of a mass event) -- require an
+# absolute floor too, well under the real registry's size (15-17 active).
+MASS_OUTAGE_MIN_COUNT = 5
+
 # Three of the registry's logs live under the ~/ollietrades/ tree (a
 # sibling project dir), not this repo's own logs/ -- rather than a second
 # hardcoded absolute-path map, resolve each entry against both roots and
@@ -746,13 +781,26 @@ def check_launchd_jobs_health(alerts: list[AlertTuple]) -> dict:
     each job's own calendar cadence (weekly jobs ~9 days, weekday-daily
     ~48h, daily ~30h) so a normal weekend gap never false-fires.
 
+    HM-GUI-DOMAIN-OUTAGE-2026-09-04: those per-job ceilings alone are too
+    slow to catch a domain-wide gui/501 outage (a WindowServer crash can
+    unload every LaunchAgent at once; some individual ceilings run to
+    216h). Alongside the per-job stale list, also checks a uniform
+    MASS_OUTAGE_WINDOW_HOURS freshness window across every job with an
+    existing log, regardless of that job's own ceiling -- if at least
+    MASS_OUTAGE_FRACTION of them have gone quiet within that much shorter
+    common window simultaneously, that's the fleet-wide-outage pattern,
+    not individual staleness, and fires its own RED_ALERT
+    (sentinel_launchd_mass_outage) instead of/alongside the per-job
+    WARNING list.
+
     Never raises -- a missing log just lands as "not stale yet", a ledger
     read failure just means every registered job is treated as active
     (fail toward checking, not toward silence).
     """
     ledger = _ledger_latest_by_target("job")
-    results: dict = {"checked": 0, "skipped_by_ledger": [], "stale": []}
+    results: dict = {"checked": 0, "skipped_by_ledger": [], "stale": [], "mass_outage": None}
     now = time.time()
+    all_ages: list[tuple[str, float]] = []
     for label, (rel_log, max_age_hours) in LAUNCHD_JOB_REGISTRY.items():
         entry = ledger.get(label)
         if entry and entry["action"] not in _ACTIVE_LEDGER_ACTIONS:
@@ -766,8 +814,27 @@ def check_launchd_jobs_health(alerts: list[AlertTuple]) -> dict:
         if not log_path.exists():
             continue  # never written yet post-reactivation -- not stale, just new
         age_hours = (now - log_path.stat().st_mtime) / 3600.0
+        all_ages.append((label, age_hours))
         if age_hours > max_age_hours:
             results["stale"].append({"label": label, "age_hours": round(age_hours, 1), "ceiling_hours": max_age_hours})
+
+    quiet_recent = [label for label, age in all_ages if age > MASS_OUTAGE_WINDOW_HOURS]
+    if (all_ages and len(quiet_recent) >= MASS_OUTAGE_MIN_COUNT
+            and len(quiet_recent) / len(all_ages) >= MASS_OUTAGE_FRACTION):
+        results["mass_outage"] = {
+            "quiet": quiet_recent, "quiet_count": len(quiet_recent), "total": len(all_ages),
+            "window_hours": MASS_OUTAGE_WINDOW_HOURS,
+        }
+        alerts.append((
+            "red_alert", "sentinel_launchd_mass_outage",
+            f"HM-OPS-SENTINEL: {len(quiet_recent)}/{len(all_ages)} launchd jobs have been "
+            f"silent for over {MASS_OUTAGE_WINDOW_HOURS:.0f}h simultaneously -- consistent "
+            f"with a domain-wide gui/501 outage (e.g. a WindowServer crash unloading every "
+            f"LaunchAgent at once), not individual job staleness. Verify with `launchctl "
+            f"list | grep -c ollietrades\\|trademinds` from a real GUI session -- 0 confirms "
+            f"the whole domain is unloaded. Affected: {', '.join(quiet_recent)}.",
+            float(len(quiet_recent)),
+        ))
 
     if results["stale"]:
         worst = max(results["stale"], key=lambda s: s["age_hours"] - s["ceiling_hours"])
