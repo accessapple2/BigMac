@@ -44,6 +44,20 @@ _polygon_limited_until = 0
 _POLYGON_COOLDOWN_SECONDS = 60
 _polygon_cooldown_logged = False
 
+# HM-POLYGON-FRESHNESS-2026-09-04: Massive/Polygon's free "Stocks Basic"
+# tier is End-of-Day data, confirmed against their own pricing page and by
+# live testing -- a call during market hours can return HTTP 200 with a
+# real, well-formed payload that is simply yesterday's (or older) session,
+# no error, no warning. Live-demonstrated: engine/volatility_breakout.py's
+# detect_breakout() consumed a 22.3h-stale Polygon response for MSFT and
+# emitted a "live" BEARISH breakout signal built entirely from a session
+# that had already closed, which build_breakout_prompt_section() would
+# have injected verbatim into every AI trading agent's prompt. Any
+# Polygon candle response whose newest bar is older than this threshold
+# is rejected (not returned) so the caller falls through to Alpaca
+# instead of silently trusting stale data.
+_POLYGON_STALENESS_THRESHOLD_HOURS = 1.0
+
 
 def _is_polygon_limited():
     return time.time() < _polygon_limited_until
@@ -930,6 +944,28 @@ def get_intraday_candles(symbol: str, interval: str = "5m", range_: str = "1d") 
         if not _rows:
             raise RuntimeError("Polygon returned 0 bars")
 
+        # HM-POLYGON-FRESHNESS-2026-09-04: sort=desc means _rows[0] is the
+        # newest bar in this response. A well-formed 200 on the free tier
+        # can still be End-of-Day-only data -- reject rather than let a
+        # stale-but-valid payload pass for current. interval="1d" callers
+        # will routinely trip this (a completed daily bar is timestamped
+        # at that day's start, hours old by construction) -- that's an
+        # accepted side effect, not a bug: it means daily-candle requests
+        # fall through to Alpaca too, which serves them fine.
+        _newest_ts_ms = _rows[0].get("t")
+        if _newest_ts_ms is not None:
+            _age_hours = (time.time() - _newest_ts_ms / 1000.0) / 3600.0
+            if _age_hours > _POLYGON_STALENESS_THRESHOLD_HOURS:
+                console.log(
+                    f"[yellow]HM-CB Polygon candles stale for {symbol}: newest bar "
+                    f"{_age_hours:.1f}h old (> {_POLYGON_STALENESS_THRESHOLD_HOURS}h "
+                    f"threshold) -- rejecting, falling back to Alpaca[/yellow]"
+                )
+                raise RuntimeError(
+                    f"Polygon data stale: newest bar {_age_hours:.1f}h old "
+                    f"(threshold {_POLYGON_STALENESS_THRESHOLD_HOURS}h)"
+                )
+
         candles = []
         for _row in _rows:
             _ts_ms = _row.get("t")
@@ -1024,6 +1060,16 @@ def get_intraday_candles(symbol: str, interval: str = "5m", range_: str = "1d") 
             end=_end,
             feed="iex",
         )
+        # HM-ALPACA-LIMITER-WIRE-2026-09-04: this is the unmanaged path
+        # that took 777 Alpaca 429s on 2026-09-01 -- the existing
+        # engine/rate_limiter.py::AlpacaRateLimiter (150/min conservative
+        # token bucket, real Alpaca ceiling is 200/min) was already built
+        # and already wired into deep_scan.py/strategy_rotator.py, just
+        # never into this chokepoint. Acquired right before the network
+        # call, not earlier, so a request that fails before reaching
+        # Alpaca (missing creds, bad interval) never spends a token.
+        from engine.rate_limiter import limiter as _alpaca_limiter
+        _alpaca_limiter.acquire()
         _resp = _client.get_stock_bars(_req)
         _raw = _resp.data.get(symbol.upper(), [])
         if not _raw:
@@ -1199,6 +1245,13 @@ def get_alpaca_bars(
     sym_list = [symbols] if single else list(symbols)
     start = (datetime.utcnow() - pd.Timedelta(days=days + 5)).strftime("%Y-%m-%d")
     try:
+        # HM-ALPACA-LIMITER-WIRE-2026-09-04: this function's HTTP 429s
+        # (525 of the 777 counted on 2026-09-01, "get_alpaca_bars HTTP 429")
+        # were the largest single share of that day's unmanaged Alpaca
+        # load. Same shared singleton already throttling deep_scan.py/
+        # strategy_rotator.py.
+        from engine.rate_limiter import limiter as _alpaca_limiter
+        _alpaca_limiter.acquire()
         r = requests.get(
             f"{_ALPACA_BASE}/bars",
             headers=hdrs,
@@ -1228,6 +1281,7 @@ def get_alpaca_bars(
             result: dict = {}
             for sym in sym_list:
                 try:
+                    _alpaca_limiter.acquire()
                     rr = requests.get(
                         f"{_ALPACA_BASE}/{sym}/bars",
                         headers=hdrs,
@@ -1326,6 +1380,14 @@ def _alpaca_bulk_bars_chunk(
     if not hdrs:
         return {}
     try:
+        # HM-ALPACA-LIMITER-WIRE-2026-09-04: 236 of the 777 Alpaca 429s
+        # counted on 2026-09-01 ("_alpaca_bulk_bars_chunk HTTP 429") came
+        # from here -- _BULK_BARS_PARALLELISM=8 concurrent workers, each
+        # unmanaged. Same shared singleton every caller acquires against;
+        # thread-safe, so 8 concurrent workers coordinate through it
+        # correctly rather than each bursting independently.
+        from engine.rate_limiter import limiter as _alpaca_limiter
+        _alpaca_limiter.acquire()
         r = requests.get(
             f"{_ALPACA_BASE}/bars",
             headers=hdrs,
