@@ -97,6 +97,23 @@ LOCK_WINDOW_MIN = 10
 QUEUE_PENDING_WARN = 3000
 QUEUE_OLDEST_WARN_HOURS = 48
 
+# HM-ALERT-COOLDOWN (2026-09-03): per-alert-type dispatch cooldown, independent
+# of engine.alert_channels.send_alert's own rate limiter. That limiter only
+# consumes its window on a CONFIRMED external delivery (ntfy/email/pushover --
+# see _mark_rate_limit_sent's docstring), but ntfy has been globally silenced
+# since DECOM-SILENCE (2026-07-19) and WARNING-level alerts never touch
+# pushover or email (RED_ALERT-only channels) -- so WARNING alerts never mark
+# a confirmed delivery and _rate_ok() always returns True. Confirmed live:
+# sentinel_disk_space and sentinel_lifecycle_drift each fired on every single
+# 5-min cron tick for 3+ straight hours (36 notifications each), zero
+# suppression. This cooldown is tracked here, in the sentinel's own state
+# file, and is deliberately NOT the ack mechanism (scripts/hm_sentinel_ack.py)
+# -- an ack hides the alert entirely, which the Admiral does not want for
+# real, ongoing conditions; this only throttles repeat notifications while
+# the underlying alert keeps firing (and still counts toward exit code 2).
+RED_ALERT_COOLDOWN_SECS = 1800   # 30 min -- unchanged cadence, now guaranteed
+WARNING_COOLDOWN_SECS = 3600     # 60 min -- "no more than hourly" while it persists
+
 # An alert tuple is (level_kw, alert_type, message, metric_value). metric_value
 # is the single number an ack's ceiling compares against -- None means "no
 # comparable scalar for this alert type," so an ack on it is a permanent
@@ -1046,8 +1063,42 @@ def main() -> int:
               f"{ack.get('acked_by', '?')}, ceiling={ceiling}, metric={metric_value}) "
               f"[{level_kw}/{alert_type}]: {message[:100]}")
 
+    # HM-ALERT-COOLDOWN: fire immediately on first occurrence, then no more
+    # than once per per-severity cooldown window while the condition
+    # persists. Re-arm (treat as a fresh first occurrence) as soon as a
+    # cycle's raw `alerts` no longer includes the type at all -- i.e. the
+    # underlying condition actually cleared, not just got acked.
+    state = _load_state()
+    cooldown_state = dict(state.get("alert_cooldown", {}))
+    now = time.time()
+    due, on_cooldown = [], []
+    for level_kw, alert_type, message, metric_value in fired:
+        entry = cooldown_state.get(alert_type)
+        cooldown_secs = RED_ALERT_COOLDOWN_SECS if level_kw == "red_alert" else WARNING_COOLDOWN_SECS
+        if entry is None or now - entry.get("last_fired", 0) >= cooldown_secs:
+            due.append((level_kw, alert_type, message, metric_value))
+            cooldown_state[alert_type] = {"last_fired": now, "level": level_kw}
+        else:
+            on_cooldown.append((level_kw, alert_type, message, metric_value))
+
+    current_types = {a[1] for a in alerts}
+    for alert_type in list(cooldown_state.keys()):
+        if alert_type not in current_types:
+            del cooldown_state[alert_type]  # condition cleared -- re-arm
+
+    if not dry_run:
+        state["alert_cooldown"] = cooldown_state
+        _save_state(state)
+
+    for level_kw, alert_type, message, metric_value in on_cooldown:
+        cooldown_secs = RED_ALERT_COOLDOWN_SECS if level_kw == "red_alert" else WARNING_COOLDOWN_SECS
+        print(f"[sentinel] ON COOLDOWN ({cooldown_secs}s per {level_kw}) "
+              f"[{level_kw}/{alert_type}]: {message[:100]}")
+
+    if due:
+        _dispatch(due, dry_run=dry_run)
+
     if fired:
-        _dispatch(fired, dry_run=dry_run)
         return 2
 
     if suppressed:

@@ -85,27 +85,36 @@ def test_main_dispatches_only_unsuppressed_alerts():
     strict alert-set assertion. Pin every check to a known-quiet return so
     this test is hermetic regardless of what's actually broken on the
     machine running it.
+
+    HM-ALERT-COOLDOWN-2026-09-03: also pins check_disk_space (the real
+    disk crossed DISK_WARN_PCT the same week this test was written) and
+    patches STATE_PATH -- main() now persists a per-alert-type cooldown
+    there, which would otherwise read/write the real
+    data/.hm_ops_sentinel_state.json.
     """
     with tempfile.TemporaryDirectory() as tmp:
         acks_path = Path(tmp) / "acks.json"
         acks_path.write_text(json.dumps({
             "sentinel_signals_v2_queue": {"ceiling": 13.0, "acked_at": "x", "acked_by": "y"},
         }))
+        state_path = Path(tmp) / "state.json"  # HM-ALERT-COOLDOWN: don't touch the real state file
         with patch.object(sentinel, "ACKS_PATH", acks_path):
-            with patch.object(sentinel, "check_fd_count", side_effect=lambda alerts: alerts.append(
-                ("warning", "sentinel_fd_warn", "fd high", 200.0)) or {"pid": 1, "fd_count": 200}):
-                with patch.object(sentinel, "check_lock_errors", return_value={"lock_errors": 0}):
-                    with patch.object(sentinel, "check_signals_v2_queue", side_effect=lambda alerts: alerts.append(
-                        ("warning", "sentinel_signals_v2_queue", "queue stale", 0.0)) or {"pending": 140, "oldest": "x", "oldest_age_hours": 45.9, "oldest_age_market_hours": 0.0}):
-                        with patch.object(sentinel, "check_collector_freshness", return_value={"checked": False, "reason": "market closed"}):
-                            with patch.object(sentinel, "check_status_page_heartbeat", return_value={"status_page_heartbeat_age_min": 1.0}):
-                                with patch.object(sentinel, "check_source_health_watcher_heartbeat", return_value={"source_health_heartbeat_age_min": 1.0}):
-                                    with patch.object(sentinel, "check_mlx_qwen3_heartbeat", return_value={"mlx_qwen3_heartbeat_age_min": 1.0, "healthy": True}):
-                                        with patch.object(sentinel, "check_cron_missing_scripts", return_value={"scanned": 0, "broken": []}):
-                                            with patch.object(sentinel, "check_launchd_jobs_health", return_value={"checked": 0, "skipped_by_ledger": [], "stale": []}):
-                                                with patch.object(sentinel, "check_fleet_lifecycle_drift", return_value={"job_drift": [], "agent_drift": [], "overdue": []}):
-                                                    with patch.object(sentinel, "_dispatch") as mock_dispatch:
-                                                        rc = sentinel.main()
+            with patch.object(sentinel, "STATE_PATH", state_path):
+                with patch.object(sentinel, "check_fd_count", side_effect=lambda alerts: alerts.append(
+                    ("warning", "sentinel_fd_warn", "fd high", 200.0)) or {"pid": 1, "fd_count": 200}):
+                    with patch.object(sentinel, "check_lock_errors", return_value={"lock_errors": 0}):
+                        with patch.object(sentinel, "check_signals_v2_queue", side_effect=lambda alerts: alerts.append(
+                            ("warning", "sentinel_signals_v2_queue", "queue stale", 0.0)) or {"pending": 140, "oldest": "x", "oldest_age_hours": 45.9, "oldest_age_market_hours": 0.0}):
+                            with patch.object(sentinel, "check_collector_freshness", return_value={"checked": False, "reason": "market closed"}):
+                                with patch.object(sentinel, "check_status_page_heartbeat", return_value={"status_page_heartbeat_age_min": 1.0}):
+                                    with patch.object(sentinel, "check_source_health_watcher_heartbeat", return_value={"source_health_heartbeat_age_min": 1.0}):
+                                        with patch.object(sentinel, "check_mlx_qwen3_heartbeat", return_value={"mlx_qwen3_heartbeat_age_min": 1.0, "healthy": True}):
+                                            with patch.object(sentinel, "check_cron_missing_scripts", return_value={"scanned": 0, "broken": []}):
+                                                with patch.object(sentinel, "check_launchd_jobs_health", return_value={"checked": 0, "skipped_by_ledger": [], "stale": []}):
+                                                    with patch.object(sentinel, "check_fleet_lifecycle_drift", return_value={"job_drift": [], "agent_drift": [], "overdue": []}):
+                                                        with patch.object(sentinel, "check_disk_space", return_value={"disk_pct": 50.0, "disk_free_gb": 500.0}):
+                                                            with patch.object(sentinel, "_dispatch") as mock_dispatch:
+                                                                rc = sentinel.main()
 
     assert rc == 2  # sentinel_fd_warn fired unsuppressed
     dispatched_types = {a[1] for a in mock_dispatch.call_args[0][0]}
