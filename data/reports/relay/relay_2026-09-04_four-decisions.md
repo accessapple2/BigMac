@@ -334,11 +334,41 @@ pass. **Live-verified against real current state tonight: fires exactly
 as designed — 15/15 checked jobs quiet, confirming the outage is still
 ongoing right now**, not something that already self-healed.
 
-**Full reconciliation + reload needs your terminal, all in one paste.**
-Supersedes the ledger-only batch below — this version also bulk-reloads
-everything else, skipping anything the ledger says should stay off and
-anything already confirmed alive some other way (e.g. `signal-center`,
-to avoid stacking a second process on its already-running one):
+### Third addendum — holding the bulk-reload, letting tonight's reboot do it instead
+
+**Admiral's call: not running the script below now.** Tonight's already-
+planned restart (see §1b) does the same recovery through the supported
+path — a real reboot + fresh login triggers launchd's normal RunAtLoad
+pass for every LaunchAgent, which is the canonical way `gui/501` gets
+populated, unlike the crash-glitch session rebuild on 09-02. Running the
+manual bulk-reload now AND rebooting later is two chances for something
+to go sideways for one outcome. **Script kept below as fallback only** —
+run it (or just the part still needed) after tonight's reboot, only if
+`launchctl list | grep -c "ollietrades\|trademinds"` still isn't back to
+a healthy count once you're logged back in.
+
+**One thing worth watching for, not a reason to change the plan:** the
+8-target ledger drift and the ~22-job total outage may not resolve
+identically from the reboot. The script's **Step 2** (reload everything
+the ledger says should be active) should be fully handled by launchd's
+own RunAtLoad pass — that's exactly the mechanism it uses. **Step 1**
+(re-applying the 8 halts/retires) is less certain: the
+`disabled.501.plist` override file's mtime landing exactly one minute
+after the *prior* 08-31 reboot suggests that file gets regenerated fresh
+at boot from each LaunchAgent's own plist defaults — which is what let
+these 8 come back enabled in the first place, independent of the 09-02
+crash. If that pattern holds, tonight's reboot could put the same 8 jobs
+back to enabled again too, needing Step 1 (only) re-run afterward. Quick
+check once logged in: `launchctl print-disabled gui/501 | grep -E
+"crusher|monday-check|morning-cd-instr|premarket|riker-synthesis|
+ti-picks-watcher"` — if those show enabled, run Step 1 alone; Step 2
+almost certainly won't be needed.
+
+**Full reconciliation + reload, for reference / fallback use only.**
+Bulk-reloads everything else, skipping anything the ledger says should
+stay off and anything already confirmed alive some other way (e.g.
+`signal-center`, to avoid stacking a second process on its already-running
+one):
 
 ```bash
 cd ~/autonomous-trader
