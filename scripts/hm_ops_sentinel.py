@@ -529,7 +529,18 @@ def check_mlx_qwen3_heartbeat(alerts: list[AlertTuple]) -> dict:
                 f"`launchctl print gui/501/com.ollietrades.mlx-qwen3` if this persists.",
                 0.0,
             ))
-        return {"mlx_qwen3_heartbeat_age_min": round(age_min, 1), "healthy": raw.get("healthy")}
+        # HM-OPS-SENTINEL-2026-09-04: `healthy` used to echo the heartbeat
+        # JSON's last-written value unconditionally -- a probe that died
+        # cleanly (last write said healthy=True) would report healthy in
+        # this status dict FOREVER, independent of the age_min computed two
+        # lines above. The RED_ALERT above already fires correctly off
+        # age_min; this just stops the summary field from lying next to it.
+        # A dead probe reporting healthy is worse than no probe.
+        is_fresh = age_min <= MLX_QWEN3_STALE_MIN
+        return {
+            "mlx_qwen3_heartbeat_age_min": round(age_min, 1),
+            "healthy": bool(is_fresh and raw.get("healthy")),
+        }
     except FileNotFoundError:
         alerts.append((
             "warning", "sentinel_mlx_qwen3_heartbeat_missing",

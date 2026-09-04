@@ -91,4 +91,25 @@ rotate_one "logs/trader.log" $((100 * 1024 * 1024)) "trader"
 rotate_one "logs/hm_ops_sentinel_cron.log" $((10 * 1024 * 1024)) "hm_ops_sentinel_cron"
 rotate_one "logs/watchdog_cron.log" $((10 * 1024 * 1024)) "watchdog_cron"
 
+# HM-DISK-SENTINEL followup (2026-09-04): trader_error.log was found at 109MB
+# with NO rotation mechanism at all -- born 2026-04-10 (per its APFS birth
+# time), never once truncated, same unbounded-growth disease trader.log had
+# before this script existed (trader.py's error-log sibling, held open by
+# the same live process, same truncate-in-place requirement). A repo-wide
+# sweep for every other actively-written log with no rotation coverage
+# turned up seven more, all also never-rotated since their own birth times:
+# signal-center.log (29MB, standalone signal-center.py process) and six
+# smaller cron/service logs that would eventually repeat the same story if
+# left alone. Same 100MB tier as trader.log for trader_error.log (comparable
+# live-process-held error stream); same 10MB tier as the existing cron-log
+# entries above for the rest (comparable low/moderate growth rates).
+rotate_one "logs/trader_error.log" $((100 * 1024 * 1024)) "trader_error"
+rotate_one "logs/signal-center.log" $((20 * 1024 * 1024)) "signal-center"
+rotate_one "logs/crusher.log" $((10 * 1024 * 1024)) "crusher"
+rotate_one "logs/cloudflared-daemon.log" $((10 * 1024 * 1024)) "cloudflared-daemon"
+rotate_one "logs/source_health_watcher_cron.log" $((10 * 1024 * 1024)) "source_health_watcher_cron"
+rotate_one "logs/otasty.log" $((10 * 1024 * 1024)) "otasty"
+rotate_one "logs/aladdin.log" $((10 * 1024 * 1024)) "aladdin"
+rotate_one "logs/schwab_live_sync.log" $((10 * 1024 * 1024)) "schwab_live_sync"
+
 echo "=== $(date -Iseconds) rotate_logs DONE ==="

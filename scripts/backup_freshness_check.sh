@@ -27,7 +27,29 @@
 # channel `scripts/origin_healthcheck.sh` already proved out (DECOM-SILENCE
 # explicitly carves out an exception for RED_ALERT -- no need to lift it).
 #
-# Schedule: cron daily 20:45 MST (after db_snapshot 20:15 and offhost_backup 20:30).
+# HM-BACKUP-FRESHNESS-FIX-2026-09-04: the 09-02 fix above stopped the wrong-
+# host/silent-ntfy bugs, but left a THIRD one live: `ls "$X9_BACKUPS_DIR"`
+# from cron hits the exact same TCC Removable-Volume block that
+# offhost_backup.sh had (relay_2026-09-02_offhost-backup-tcc-diagnosis.md) --
+# cron, not sshd, was still the responsible process for this script's own
+# reads. Confirmed live: every run since 09-02 20:45 MST logged "[ALARM] ...
+# directory unreadable from cron" and fired a RED_ALERT regardless of
+# whether the real off-host backup that night succeeded or failed -- a
+# freshness alarm that can't tell fresh from stale provides no more signal
+# than no alarm at all, just louder. Fixed the same way offhost_backup.sh's
+# write side was fixed (relay_2026-09-03_offhost-backup-ssh-loopback-fix.md):
+# repointed the CRONTAB line (not this file) to invoke via
+# `ssh -tt -o BatchMode=yes localhost 'bash .../backup_freshness_check.sh'`
+# so sshd (which holds the TCC grant) is the reading process, not cron.
+# Live-verified same night: identical script, invoked via the loopback,
+# read the X9 dir successfully and reported real freshness (`overall=0`)
+# instead of the permanent unreadable-alarm. The `ls ... || alarm` fallback
+# a few lines below stays as defense in depth (honest degraded-mode message)
+# in case the loopback itself ever breaks -- not removed, just no longer
+# the normal path.
+#
+# Schedule: cron daily 20:45 MST (after db_snapshot 20:15 and offhost_backup 20:30),
+# invoked via the SSH-loopback wrapper above, not a bare `/bin/bash` line.
 
 set -uo pipefail  # no -e: we want to always reach the freshness comparisons even if a check fails
 

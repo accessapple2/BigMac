@@ -72,6 +72,24 @@ def test_fresh_but_unhealthy_fires_warning_not_red_alert():
         assert result["healthy"] is False
 
 
+def test_stale_heartbeat_reports_unhealthy_even_if_last_write_said_healthy():
+    """HM-OPS-SENTINEL-2026-09-04: a dead probe's last-written value used to
+    echo forever regardless of age -- a probe dead for 30 hours whose last
+    successful run said healthy=True would report healthy:True in this
+    status dict indefinitely. A dead probe reporting healthy is worse than
+    no probe: `healthy` must be gated on freshness, not just echo the JSON.
+    """
+    with tempfile.TemporaryDirectory() as d:
+        path = Path(d) / "heartbeat.json"
+        _write_heartbeat(path, age_min=1810.9, healthy=True)  # last real probe: all clear
+        with patch.object(sentinel, "MLX_QWEN3_HEARTBEAT_PATH", path):
+            alerts: list = []
+            result = sentinel.check_mlx_qwen3_heartbeat(alerts)
+        assert len(alerts) == 1
+        assert alerts[0][1] == "sentinel_mlx_qwen3_heartbeat_stale"
+        assert result["healthy"] is False
+
+
 def test_stale_and_unhealthy_only_fires_stale_alert():
     """Staleness is the more serious finding -- don't double-fire when both conditions hold."""
     with tempfile.TemporaryDirectory() as d:
