@@ -287,6 +287,135 @@ connection attempt reverted a session-scoped `launchctl disable` override
 that hadn't survived the 08-31 reboot in the first place — not a person
 bypassing `fleet_lifecycle.py`.**
 
+### Second addendum (same day, next check-in) — the outage is bigger than 8 jobs, and it's still live
+
+Admiral ran `launchctl list | grep -c "ollietrades\|trademinds"` from a
+real GUI session: **0**. Not six stale jobs, not eight drifted jobs —
+**every one of the ~19-30 configured `gui/501` LaunchAgents is currently
+unloaded**, ~43 hours after the 09-02 14:21:53 WindowServer crash, and
+still nobody has logged back into the desktop since to let them reload.
+
+**Corroborated independently** (log mtimes, not launchctl — this session
+still can't query `gui/501` any better than cron can; confirmed again
+tonight, `launchctl list` from here shows the same 0 and `launchctl print
+gui/501` still errors `125: Domain does not support specified action`).
+Three unrelated jobs' own stdout logs all went silent within minutes of
+the crash and have not written since: `ti-email-poller` (last write 09-02
+14:17:39, 4 min before the crash), `daily-watch` (13:30:09), `uhura-watch`
+(13:00:02) — all still silent as of this check. (`scotty`, `mlx-qwen3`,
+`danelfin-update`, `model-watcher` were already dead from unrelated,
+pre-existing causes well before 09-02 — not conflating those with this.)
+`signal-center` is the one exception, confirmed alive via its independent
+cron+nohup fallback (PID still running, log still updating in real time)
+— its LaunchAgent is separately unloaded too, but the process itself
+never depended on it.
+
+**Detector fix shipped** (`scripts/hm_ops_sentinel.py`,
+`check_launchd_jobs_health`): the existing per-job ceilings (30h-216h)
+are individually correct but far too slow to catch a domain-wide outage
+as one event — this incident would have taken up to 216h
+(`universe-refresh`/`model-watcher`'s ceiling) to fully surface, and even
+then only as N separate WARNINGs. Added a uniform,
+ceiling-independent 6-hour freshness window across the whole registry: if
+at least half the checked jobs (minimum absolute floor of 5, so it can't
+misfire on a 1-job test/edge case) have gone quiet inside that window
+simultaneously, it now fires one `sentinel_launchd_mass_outage`
+**RED_ALERT** instead of relying on individual ceilings to eventually
+catch up. Deliberately does not call `launchctl` directly for a live
+loaded-count — confirmed live tonight that `launchctl list`/`print`
+against `gui/501` fails identically from cron with the same "125: Domain
+does not support specified action" seen throughout this whole saga, so
+building the check on that call would just move the blind spot, not
+close it. Stayed on log-mtime data, the one signal actually observable
+from a cron-only context. Three new tests added (mass-outage fires at
+scale, a couple of individually-stale jobs don't false-trigger it,
+small-N doesn't degenerate to a false 100%); 53 sentinel-scoped tests
+pass. **Live-verified against real current state tonight: fires exactly
+as designed — 15/15 checked jobs quiet, confirming the outage is still
+ongoing right now**, not something that already self-healed.
+
+**Full reconciliation + reload needs your terminal, all in one paste.**
+Supersedes the ledger-only batch below — this version also bulk-reloads
+everything else, skipping anything the ledger says should stay off and
+anything already confirmed alive some other way (e.g. `signal-center`,
+to avoid stacking a second process on its already-running one):
+
+```bash
+cd ~/autonomous-trader
+
+echo "=== STEP 1: reconcile the 8-target ledger drift (09-02 WindowServer crash) ==="
+WSCRASH="Re-applying the original halt/retire after a WindowServer crash reverted the gui/501 launchctl disable override, not a human bypass. On 2026-09-02 14:19-14:22 MST the Admiral initiated a Screen Sharing connection to bigmac's console that never rendered past a black screen; WindowServer crashed at 14:21:53 and macOS rebuilt the session seconds later, silently resetting this job's disabled-override (unchanged on disk since the prior 08-31 04:15 reboot) back to enabled -- exposed by hm_ops_sentinel's lifecycle_drift check at 14:25:03 the same afternoon. Root-caused and confirmed in relay_2026-09-04_four-decisions.md. Original reason stands: "
+
+python3 scripts/fleet_lifecycle.py halt crusher --type job --review-by 2026-09-28 \
+  --reason "${WSCRASH}already dead since 2026-04-26, unrelated failure, deferred for separate investigation."
+python3 scripts/fleet_lifecycle.py halt morning-cd-instr --type job --review-by 2026-09-28 \
+  --reason "${WSCRASH}already dead since 2026-05-22, unrelated failure, deferred for separate investigation."
+python3 scripts/fleet_lifecycle.py halt ti-picks-watcher --type job --review-by 2026-09-28 \
+  --reason "${WSCRASH}already dead since 2026-05-14, unrelated failure, deferred for separate investigation."
+python3 scripts/fleet_lifecycle.py halt premarket --type job --review-by 2026-09-15 \
+  --reason "${WSCRASH}older, independent scanner (not part of the Kirk-briefing pipeline), deferred pending its own explicit call per QUESTION_fleet-standdown-reversal.md, not decided."
+python3 scripts/fleet_lifecycle.py retire hm-signals-v2-monday-check --type job \
+  --reason "${WSCRASH}superseded -- recurring HM-OPS-SENTINEL queue-age monitoring now covers what this one-shot watched; retiring reverses the 08-29 revive deliberately, Admiral-approved."
+python3 scripts/fleet_lifecycle.py retire hm-signals-v2-monday-check-verify --type job \
+  --reason "${WSCRASH}superseded -- recurring HM-OPS-SENTINEL queue-age monitoring now covers what this one-shot watched; retiring reverses the 08-29 revive deliberately, Admiral-approved."
+python3 scripts/fleet_lifecycle.py retire hm-wr-dur-monday-check --type job \
+  --reason "${WSCRASH}one-shot StartCalendarInterval hardcoded to 2026-07-20 09:00 (RunAtLoad=false) -- confirmed via plist read, never fires again regardless of enabled state. Reversing the 08-29 revive that missed this."
+python3 scripts/fleet_lifecycle.py retire riker-synthesis --type job \
+  --reason "${WSCRASH}code-retired 2026-06-24 per CLAUDE.md -- main.py's scheduler for it was removed, not just paused. Re-enabling the launchd job would fire nothing."
+
+echo
+echo "=== STEP 2: bulk-reload every OTHER configured LaunchAgent ==="
+EXCLUDED=$(sqlite3 data/trader.db "
+WITH latest AS (
+  SELECT target_name, action, ROW_NUMBER() OVER (PARTITION BY target_name ORDER BY created_at DESC) rn
+  FROM fleet_lifecycle_ledger WHERE target_type='job'
+)
+SELECT target_name FROM latest WHERE rn=1 AND action IN ('halt','bench','shadow','retire');
+")
+KNOWN_ALIVE_ELSEWHERE=("com.trademinds.signal-center")
+
+for plist in ~/Library/LaunchAgents/com.ollietrades.*.plist ~/Library/LaunchAgents/com.trademinds.*.plist; do
+  [[ -f "$plist" ]] || continue
+  label=$(basename "$plist" .plist)
+  short=${label#com.ollietrades.}
+  short=${short#com.trademinds.}
+
+  if echo "$EXCLUDED" | grep -qx "$short"; then
+    echo "  skip (halted/retired in ledger): $label"
+    continue
+  fi
+  if (( ${KNOWN_ALIVE_ELSEWHERE[(Ie)$label]} )); then
+    echo "  skip (already alive via a separate mechanism, confirmed): $label"
+    continue
+  fi
+  script=$(/usr/libexec/PlistBuddy -c "Print ProgramArguments:1" "$plist" 2>/dev/null)
+  if [[ -n "$script" ]] && pgrep -f "$script" >/dev/null 2>&1; then
+    echo "  skip (a process matching '$script' is already running): $label"
+    continue
+  fi
+
+  echo "  reload: $label"
+  launchctl bootout "gui/501/$label" 2>/dev/null
+  launchctl bootstrap gui/501 "$plist" 2>&1
+  launchctl enable "gui/501/$label" 2>&1
+  launchctl kickstart -k "gui/501/$label" 2>&1
+done
+
+echo
+echo "=== STEP 3: verify ==="
+echo "loaded count (should be well above 0 now, NOT still 0):"
+launchctl list | grep -c "ollietrades\|trademinds"
+echo "still excluded on purpose (should stay unloaded):"
+echo "$EXCLUDED"
+```
+
+This subsumes the standalone mlx-qwen3-probe and ollama-swap-probe
+relaunch commands from earlier — both are configured plists in the loop
+above and will get reloaded along with everything else. No need to run
+those separately after this.
+
+### (Superseded) original ledger-only reconciliation attempt
+
 ### Ledger reconciliation — attempted, correctly refused, needs your terminal
 
 Tried `scripts/fleet_lifecycle.py halt crusher --type job --reason "..."
