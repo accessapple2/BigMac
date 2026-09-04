@@ -272,6 +272,122 @@ fresh read rather than either historical number.
 
 ---
 
+## Addendum (same session, after Admiral confirmation) — drift closed, ledger reconciliation attempted, Worf settled, swap-log relaunch command
+
+### Drift — confirmed, reading holds, cause recorded as WindowServer crash not human bypass
+
+Admiral confirmed: initiated the 14:19-14:22 MST Screen Sharing connection
+on 09-02, but it never got past a black screen — no GUI ever rendered, no
+clicks, nothing enabled by hand. This is one event with three symptoms,
+not three separate mysteries: the black framebuffer, the dead swap-log
+KeepAlive daemon, and the eight reverted launchd jobs are all downstream
+of the same WindowServer crash at 14:21:53. The reading holds. **Root
+cause is recorded as: a WindowServer crash during a Screen-Sharing
+connection attempt reverted a session-scoped `launchctl disable` override
+that hadn't survived the 08-31 reboot in the first place — not a person
+bypassing `fleet_lifecycle.py`.**
+
+### Ledger reconciliation — attempted, correctly refused, needs your terminal
+
+Tried `scripts/fleet_lifecycle.py halt crusher --type job --reason "..."
+--review-by 2026-09-28` from this session. It failed exactly as the tool
+is designed to: `launchctl disable gui/501/com.ollietrades.crusher`
+returned `125: Domain does not support specified action` (this shell still
+can't reach `gui/501`, same limitation as mlx-qwen3-probe and the
+swap-probe restart). Per the tool's own doctrine ("refuses to do partial
+work"), it wrote an order doc, marked it FAILED, and inserted **zero**
+ledger rows — confirmed no drift was introduced by the attempt. Deleted
+the FAILED order doc per its own footer ("safe to delete this file or
+retry the command").
+
+**Full reconciliation needs your real terminal.** One block, all 8
+targets, using the exact original 08-29/08-30 reasons plus the
+WindowServer-crash context, same halt/retire action and review-by dates as
+the original entries:
+
+```bash
+cd ~/autonomous-trader
+
+WSCRASH="Re-applying the original halt/retire after a WindowServer crash reverted the gui/501 launchctl disable override, not a human bypass. On 2026-09-02 14:19-14:22 MST the Admiral initiated a Screen Sharing connection to bigmac's console that never rendered past a black screen; WindowServer crashed at 14:21:53 and macOS rebuilt the session seconds later, silently resetting this job's disabled-override (unchanged on disk since the prior 08-31 04:15 reboot) back to enabled -- exposed by hm_ops_sentinel's lifecycle_drift check at 14:25:03 the same afternoon. Root-caused and confirmed in relay_2026-09-04_four-decisions.md. Original reason stands: "
+
+python3 scripts/fleet_lifecycle.py halt crusher --type job --review-by 2026-09-28 \
+  --reason "${WSCRASH}already dead since 2026-04-26, unrelated failure, deferred for separate investigation."
+
+python3 scripts/fleet_lifecycle.py halt morning-cd-instr --type job --review-by 2026-09-28 \
+  --reason "${WSCRASH}already dead since 2026-05-22, unrelated failure, deferred for separate investigation."
+
+python3 scripts/fleet_lifecycle.py halt ti-picks-watcher --type job --review-by 2026-09-28 \
+  --reason "${WSCRASH}already dead since 2026-05-14, unrelated failure, deferred for separate investigation."
+
+python3 scripts/fleet_lifecycle.py halt premarket --type job --review-by 2026-09-15 \
+  --reason "${WSCRASH}older, independent scanner (not part of the Kirk-briefing pipeline), deferred pending its own explicit call per QUESTION_fleet-standdown-reversal.md, not decided."
+
+python3 scripts/fleet_lifecycle.py retire hm-signals-v2-monday-check --type job \
+  --reason "${WSCRASH}superseded -- recurring HM-OPS-SENTINEL queue-age monitoring now covers what this one-shot watched; retiring reverses the 08-29 revive deliberately, Admiral-approved."
+
+python3 scripts/fleet_lifecycle.py retire hm-signals-v2-monday-check-verify --type job \
+  --reason "${WSCRASH}superseded -- recurring HM-OPS-SENTINEL queue-age monitoring now covers what this one-shot watched; retiring reverses the 08-29 revive deliberately, Admiral-approved."
+
+python3 scripts/fleet_lifecycle.py retire hm-wr-dur-monday-check --type job \
+  --reason "${WSCRASH}one-shot StartCalendarInterval hardcoded to 2026-07-20 09:00 (RunAtLoad=false) -- confirmed via plist read, never fires again regardless of enabled state. Reversing the 08-29 revive that missed this."
+
+python3 scripts/fleet_lifecycle.py retire riker-synthesis --type job \
+  --reason "${WSCRASH}code-retired 2026-06-24 per CLAUDE.md -- main.py's scheduler for it was removed, not just paused. Re-enabling the launchd job would fire nothing."
+
+echo "--- verify ---"
+python3 scripts/fleet_lifecycle.py list --type job --action halt
+python3 scripts/fleet_lifecycle.py list --type job --action retire
+launchctl print-disabled gui/501 | grep -E "crusher|monday-check|morning-cd-instr|premarket|riker-synthesis|ti-picks-watcher"
+```
+
+### Worth thinking about (not fixing today) — the reconciler itself has the same blind spot it's meant to catch
+
+If a WindowServer crash can silently revert eight halted jobs to enabled
+with zero ledger trace, the ledger alone can't be the source of truth for
+what's actually running — only for what was *intended*. The thing that
+closes that gap is whatever periodically diffs live state against the
+ledger (today: `hm_ops_sentinel.py`'s `check_fleet_lifecycle_drift`, every
+5 min via cron) — and tonight's incident shows **that reconciler has the
+identical blind spot**: it reads `launchctl print-disabled gui/501`, which
+only returns real data when a `gui/501` session actually exists. Between
+the 08-31 04:15 reboot and the first Screen Sharing connection at 14:19 on
+09-02 — **about 34 hours** — the reconciler had no way to see the true
+state at all, regardless of cadence. A monitor that can't observe its
+target outside of specific session conditions isn't a 5-minute-latency
+gap, it's an unbounded one that happens to close whenever someone next
+opens a GUI session. Worth a design pass on whether the drift check can
+run against something that doesn't require `gui/501` to be attached (e.g.
+reading `disabled.501.plist` directly, or another point in the launchd
+API that doesn't need an Aqua session) — not scoped or built tonight.
+
+### Worf — settled, not open
+
+Closed as a settled decision, not a question to revisit: static (no
+learning mechanism), and re-tiering would add queue load to the
+already-thrashing qwen3:8b lane. Fails both criteria. His live trading
+seat stays untouched at `halt_mode='active'` — this decision only ever
+concerned the War Room debate tier.
+
+### Swap-log KeepAlive daemon — relaunch command for your next terminal session
+
+```bash
+launchctl print gui/501/com.ollietrades.ollama-swap-probe
+launchctl bootout gui/501/com.ollietrades.ollama-swap-probe 2>/dev/null
+launchctl bootstrap gui/501 ~/Library/LaunchAgents/com.ollietrades.ollama-swap-probe.plist
+launchctl enable gui/501/com.ollietrades.ollama-swap-probe
+launchctl kickstart -k gui/501/com.ollietrades.ollama-swap-probe
+sleep 3 && tail -5 ~/autonomous-trader/logs/ollama_model_swap_probe.log
+```
+
+### Disk — reconfirmed unchanged, restart still pending your call
+
+Re-checked tonight: still 27.02 GiB free / 88.16% used, same as after the
+1a compression earlier this session — nothing degraded since. The 1b
+restart sequence above remains written but not executed; still gated on
+tonight's 20:30/20:45 backup pair landing clean first.
+
+---
+
 ## Summary
 
 | # | Item | Status |
