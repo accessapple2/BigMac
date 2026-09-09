@@ -355,7 +355,18 @@ def setup():
     # as a variance from the Phase 4 proposal (gemma4:26b) but never live-tested
     # in production (main.py:127 was always qwen3:8b — silent bypass). HM-BN.2
     # specialty bakeoff (priority #1) will revalidate the right options model.
-    c.execute("UPDATE ai_players SET provider='ollama', model_id='qwen3:8b' WHERE id='options-sosnoff'")            # 2026-05-17 truth-up
+    # HM-OLLIE-30B-LIVE 2026-09-09: this line was unconditional and fired on
+    # EVERY trader startup, silently clobbering any runtime model_id change
+    # back to qwen3:8b within seconds -- the exact fix the HM-CN postmortem
+    # comment above proposed and never applied. Root cause of two separate
+    # incidents: last night's 30B cutover commit (b1ccddf) claimed Troi moved
+    # to qwen3:30b-a3b but she never actually left qwen3:8b (this line reset
+    # her on the very next restart), and this morning's live 30B-instruct
+    # repoint hit the same wall within seconds of the 09:12 restart. Guarded
+    # per the postmortem's own proposed fix -- only applies to a fresh/reset
+    # row, never stomps a runtime change again.
+    c.execute("UPDATE ai_players SET provider='ollama', model_id='qwen3:8b' WHERE id='options-sosnoff' "
+              "AND (model_id IS NULL OR model_id='')")            # 2026-05-17 truth-up, guarded 2026-09-09
     c.execute("UPDATE ai_players SET model_id='ministral-3:3b' WHERE id='ollama-qwen3'")                               # was qwen3:8b
     c.execute("UPDATE ai_players SET model_id='ministral-3:3b' WHERE id='mlx-qwen3'")                                 # 2026-04-20: qwen3:8b → phi3:mini
     c.execute("UPDATE ai_players SET model_id='ministral-3:3b' WHERE id='energy-arnold'")                              # was qwen3:8b
