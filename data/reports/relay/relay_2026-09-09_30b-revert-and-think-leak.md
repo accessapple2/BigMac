@@ -2,7 +2,7 @@
 
 **VERDICT: 8B stays production (7.74s avg, improving further with olliemax tuning — see three-column table below). qwen3:30b-a3b (cut over last night, commit `b1ccddf`) reverted this morning after going queue-bound in production (last 200 calls avg 38.4s, max 100s, trending up: 43/55/72s).**
 
-**Root cause of the think-leak found (not just confirmed-broken): `ollama show qwen3:30b-a3b` on olliemax shows `thinking` in capabilities and an `IsThinkSet` branch in the template — Ollama's `qwen3:30b-a3b` tag points at the **thinking-2507** build, which cannot be suppressed via either the API `think:false` field or the `/no_think` prompt token. Fix in flight: pulling `qwen3:30b-a3b-instruct-2507-q4_K_M` (non-thinking by design) on olliemax; 5-real-McCoy-prompt verification pending the pull landing, numbers-only, fleet not repointed.**
+**Root cause of the think-leak found and fixed: `ollama show qwen3:30b-a3b` on olliemax shows `thinking` in capabilities and an `IsThinkSet` branch in the template — Ollama's `qwen3:30b-a3b` tag points at the **thinking-2507** build, which cannot be suppressed via either the API `think:false` field or the `/no_think` prompt token. Fix verified: `qwen3:30b-a3b-instruct-2507-q4_K_M` pulled and tested on 5 real McCoy prompts — 0/5 `<think>` leaks, clean in-character War Room takes, avg 18.60s/call (still ~3.7x slower than the tuned 8B's 5.08s, see three-column table). Fleet stays on 8B; instruct-2507 is a viable candidate on correctness now, not yet on latency.**
 
 ---
 
@@ -63,8 +63,9 @@ Then shipped direct measurement of contention itself rather than inferring it: `
 | 8B, f16 KV cache (baseline, pre-step-2) | 4 | 8.64s | 9.69s | 6.72s |
 | 8B, q8_0 KV cache + keep_alive=-1 | 5 | 6.45s | 12.03s | 1.91s |
 | 8B, q8_0 + `NUM_PARALLEL=2` | 10 | 5.08s | 10.46s | 3.66s |
-| *(reference)* 30B, direct calls, not repointed | 5 | 16.93s | 28.08s | 12.28s |
-| *(reference)* 30B in production, pre-revert | ~200 | 38.4s | 100s | — |
+| *(reference)* 30B thinking-2507 (`qwen3:30b-a3b`), direct calls | 5 | 16.93s | 28.08s | 12.28s |
+| *(reference)* 30B instruct-2507 (`qwen3:30b-a3b-instruct-2507-q4_K_M`), direct calls | 5 | 18.60s | 20.60s | 14.69s |
+| *(reference)* 30B (thinking build) in production, pre-revert | ~200 | 38.4s | 100s | — |
 
 Not a controlled A/B (real production traffic, not synthetic load), but a consistent downward trend as each olliemax tuning step landed. 8B stays production regardless of what the instruct-2507 30B variant measures — this table is the "step 1 vs step 3" comparison the revert decision was made on.
 
@@ -77,7 +78,14 @@ Last night's relay flagged the leak as "not blocking, worth a look later" (see [
 
 6/6 test calls that round (5 real McCoy prompts + 1 raw probe) leaked reasoning text into the visible response.
 
-**Root cause, found via `ollama show qwen3:30b-a3b` on olliemax:** capabilities list `thinking`, and the template has an `IsThinkSet` branch — Ollama pre-fills an empty think block and the model reasons past it regardless of the `think` API field or in-prompt `/no_think` token. Cross-checked against Qwen's own repo: Ollama's `qwen3:30b-a3b` tag points at the **thinking-2507** build specifically, which has no non-thinking mode — this isn't a suppression bug, it's the wrong tag. **Fix:** pulling `qwen3:30b-a3b-instruct-2507-q4_K_M` on olliemax (non-thinking by design, no `<think>` blocks possible). Will evict the resident 8B for a couple of minutes during the pull/load — accepted, paper day. Verification (5 real McCoy prompts, zero `<think>` content, wall times, numbers only, fleet not repointed) pending the pull landing.
+**Root cause, found via `ollama show qwen3:30b-a3b` on olliemax:** capabilities list `thinking`, and the template has an `IsThinkSet` branch — Ollama pre-fills an empty think block and the model reasons past it regardless of the `think` API field or in-prompt `/no_think` token. Cross-checked against Qwen's own repo: Ollama's `qwen3:30b-a3b` tag points at the **thinking-2507** build specifically, which has no non-thinking mode — this isn't a suppression bug, it's the wrong tag.
+
+**Fix verified:** pulled `qwen3:30b-a3b-instruct-2507-q4_K_M` on olliemax (evicted the resident 8B for the pull/load, ~2min, accepted — paper day). 5 real McCoy War Room prompts, same direct-call methodology as the thinking-build test, config/DB untouched, fleet not repointed:
+```
+CASY 19.04s | SUNB 20.60s | SNAP 20.02s | MEDP 14.69s | META 18.67s
+avg 18.60s | max 20.60s | min 14.69s | think_leaks: 0/5
+```
+Every response was a clean, in-character take (crew-name rival call-outs, price targets, no reasoning preamble, no `<think>`/`</think>` anywhere). The instruct-2507 tag genuinely fixes the correctness problem. It does not fix the latency gap: 18.60s avg is ~3.7x the tuned 8B's 5.08s (three-column table above) — so this is a real, viable model now on correctness grounds, but not a latency win over 8B as currently tuned.
 
 ## Taint window — decision output is suspect
 
@@ -92,5 +100,5 @@ Commits `ea1269e` (revert + failed think-suppression attempt) and `ff420ce` (que
 - `engine/ollama_queue.py`: `_Task.submit_ts`/`dispatch_ts`, `OllamaQueue.submit(timing=...)` optional output dict
 
 ## Open items
-- `qwen3:30b-a3b-instruct-2507-q4_K_M` pull in progress on olliemax — verification (5 real McCoy prompts, zero `<think>` content, wall times) pending, numbers only, fleet not repointed regardless of result.
+- `qwen3:30b-a3b-instruct-2507-q4_K_M` verified clean (0/5 think leaks) but not faster than tuned 8B (18.60s vs 5.08s avg). Not repointed. If a future case calls for 30B-class reasoning depth despite the latency cost, this is the tag to use — `qwen3:30b-a3b` (thinking-2507) should not be used for any fleet seat again.
 - Queue-contention watch is live for the rest of the session (persistent Monitor, flags any `queue_wait` > 1s) — the step-3 "2-3x faster direct vs. production average" finding is now instrumented, not just inferred; no contention observed yet in today's quiet post-close-adjacent traffic.
