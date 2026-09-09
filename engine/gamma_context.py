@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import math
 import os
+import re
 import time
 import json
 import logging
@@ -53,6 +54,13 @@ import requests
 
 log = logging.getLogger("gamma_context")
 _SNAPSHOT_LOCK = threading.Lock()
+_APIKEY_RE = re.compile(r"apiKey=[^&\s]+")
+
+
+def _redact(e: Exception) -> str:
+    """str(e) for a requests.HTTPError includes the full request URL, which
+    carries our Polygon apiKey as a query param -- strip it before logging."""
+    return _APIKEY_RE.sub("apiKey=REDACTED", str(e))
 
 # --------------------------------------------------------------------------- #
 # Config
@@ -133,7 +141,7 @@ def _fetch_spot(ticker: str) -> Optional[float]:
         if px:
             return float(px)
     except Exception as e:
-        log.warning("spot snapshot failed for %s: %s", ticker, e)
+        log.warning("spot snapshot failed for %s: %s", ticker, _redact(e))
     try:
         r = requests.get(f"{POLYGON_BASE}/v2/last/trade/{ticker.upper()}",
                          params={"apiKey": POLYGON_KEY}, timeout=10)
@@ -141,7 +149,7 @@ def _fetch_spot(ticker: str) -> Optional[float]:
         px = r.json().get("results", {}).get("p")
         return float(px) if px else None
     except Exception as e:
-        log.warning("last-trade spot failed for %s: %s", ticker, e)
+        log.warning("last-trade spot failed for %s: %s", ticker, _redact(e))
         return None
 
 
@@ -181,7 +189,7 @@ def _polygon_snapshot(ticker: str) -> Optional[list[dict]]:
                 break
             url, params = nxt, {"apiKey": POLYGON_KEY}
     except Exception as e:
-        log.warning("polygon snapshot failed for %s: %s", ticker, e)
+        log.warning("polygon snapshot failed for %s: %s", ticker, _redact(e))
         return None
 
     for c in out:

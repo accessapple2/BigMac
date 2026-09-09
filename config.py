@@ -268,9 +268,9 @@ DALIO_BOND_SYMBOLS = {"TLT", "IEF"}  # stored as asset_type='bond' in paper_trad
 
 # AI Provider Keys
 OLLAMA_MODEL = "phi3:mini"
-OLLAMA_URL = "http://localhost:11434"          # Ollie Box (all heavy inference — 2026-04-24 routing fix)
-OLLAMA_LOCAL_URL = "http://localhost:11434"        # bigmac residents only (phi3/gemma3/mistral)
-OLLIE_URL  = "http://localhost:11434"          # Ollie Max — RTX 5080 16GB VRAM + 32GB sys RAM (Admiral-confirmed 2026-05-30; was mislabeled "RTX 5060")
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")          # Ollie Box (all heavy inference — 2026-04-24 routing fix; HM-OLLIE-REMOTE-WIRE 2026-09-08: now env-backed, was a hardcoded literal that .env's migration never reached)
+OLLAMA_LOCAL_URL = "http://localhost:11434"        # bigmac residents only (phi3/gemma3/mistral) — retained for reference, do not reuse (see CLAUDE.md)
+OLLIE_URL  = os.environ.get("OLLIE_URL", "http://localhost:11434")          # Ollie Max — RTX 5080 16GB VRAM + 32GB sys RAM (Admiral-confirmed 2026-05-30; was mislabeled "RTX 5060"); HM-OLLIE-REMOTE-WIRE 2026-09-08: now env-backed
 # HM-PERF-FLEET-THROUGHPUT 2026-07-07: Ollie Max co-resides TWO 7-8B-class
 # models (~10-12GB together, live /api/ps-confirmed) with server-side
 # NUM_PARALLEL=2 -- the client-side queue (engine/ollama_queue.py) was still
