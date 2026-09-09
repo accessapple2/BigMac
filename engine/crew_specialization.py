@@ -49,8 +49,22 @@ ALPHA_SQUAD: list[str] = [
 ]
 
 SCAN_PAIRS: list[list[str]] = [
-    ["ollama-coder"],                  # Pair 1: Data solo (Spock moved to RULES_SCANNERS)
-    ["ollama-qwen3", "ollama-plutus"], # Pair 2: Dax + McCoy
+    # HM-OLLIE-30B-LIVE 2026-09-09: ollama-coder (Data) and ollama-plutus
+    # (McCoy) paused from this LLM-scan rotation for TODAY ONLY -- VRAM
+    # collision with the resident qwen3:30b-a3b-instruct-2507-q4_K_M on
+    # olliemax (2x RTX 2080 Ti, ~22GB total; the 30B alone is 18.56GB, no
+    # room for a 5-6GB alpha-squad model alongside it, so every ~2min
+    # rotation was forcing a full evict/reload of the 30B -- confirmed live
+    # in trader_error.log, 5+ swaps in the 15 minutes after the 09:12/09:28
+    # restarts). No model identity change: ALPHA_SQUAD above is untouched,
+    # so hard-stop-fallback and dip-buy position management for both
+    # players still runs; this only pauses NEW-entry LLM scanning via
+    # get_alpha_pair(). McCoy's real trading decisions continue unaffected
+    # via the separate Arena/ai_players path (decision_audit). Restore the
+    # two commented lines below once the 30B live-run ends.
+    # ["ollama-coder"],                  # Pair 1: Data solo (Spock moved to RULES_SCANNERS)
+    # ["ollama-qwen3", "ollama-plutus"], # Pair 2: Dax + McCoy
+    ["ollama-qwen3"],                    # Dax solo for today (McCoy paused out of this pair)
 ]
 
 # Advisory crew — bridge vote only, no individual scanning
