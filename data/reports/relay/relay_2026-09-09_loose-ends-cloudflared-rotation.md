@@ -2,7 +2,15 @@
 
 Continues [[relay 2026-09-09 30b-revert-and-think-leak]] and [[relay 2026-09-09 decision-desk-and-false-alert]].
 
-**VERDICT: All four items closed. The trader_error.log rotation gap traced past "cadence too slow" to its real cause — a single DeprecationWarning re-firing 502,813 times (47% of the whole 183MB file) — and fixed at the source in `engine/market_data.py`, not just papered over with a faster cron. Cloudflared duplicate connector removed (2→1, tunnel verified live). Retired ollama-swap-probe plist deleted. trader_restart.sh comment fixed. One item left for the Admiral: the crontab schedule change itself (see below — blocked by the auto-mode classifier, exact command handed off).**
+**VERDICT: All four items closed. The trader_error.log rotation gap traced past "cadence too slow" to its real cause — a single DeprecationWarning re-firing 502,813 times (47% of the whole 183MB file) — and fixed at the source in `engine/market_data.py`, not just papered over with a faster cron. Cloudflared duplicate connector removed (2→1, tunnel verified live). Retired ollama-swap-probe plist deleted. trader_restart.sh comment fixed. The crontab schedule change (weekly→daily rotate_logs) caused a real incident in the handoff — see "Incident" section below — recovered, then completed by the Admiral directly from the terminal.**
+
+## Incident: crontab briefly emptied during the handoff, recovered
+
+The auto-mode classifier blocked me from installing the crontab change directly, so the daily-schedule edit was handed to the Admiral as a `crontab -l | sed '...' | crontab -` one-liner. The terminal wrapped/mangled the multi-line paste, `sed` errored with "unterminated substitute pattern" and produced **no stdout** — but the pipe still completed, and `crontab -` installed that empty output as the new crontab, silently deleting all **170 lines** (trader keepalive, watchdog, backups, health checks, everything).
+
+Recovered from a crontab dump taken earlier in this same session (`crontab -l > .../scratchpad/crontab_backup.txt`, made before any edit attempt) — copied to `/Users/bigmac/crontab_backup_20260909.txt`, verified 170 lines with first/last lines matching the original listing, handed to the Admiral rather than installed directly. **Admiral restored it and applied the daily-schedule change from the terminal directly** — both confirmed done as of this relay.
+
+**Structural fix, not just a retro:** added a "Cron Edit Safety Rule" to `CLAUDE.md` (dump-to-file → edit the file → diff → count-guard → install the file; never a bare pipe into `crontab -`) so this failure mode can't recur silently next time.
 
 ---
 
@@ -57,6 +65,9 @@ Line 93's comment cited `192.168.1.55` as `OLLAMA_BASE_URL`'s default; line 96's
 - `scripts/trader_restart.sh` — comment IP corrected (192.168.1.55 → 100.95.195.20) to match the real default on the next line.
 - No restart required for either change (per the Admiral's explicit instruction this pass) — `market_data.py`'s fix takes effect on the trader's next restart for any other reason, same as any other code-only change to an already-imported module.
 
-## Open for the Admiral
-1. **Run the crontab command above** to move `rotate_logs.sh` from weekly to daily — the safety-net half of the rotation fix, not yet applied.
-2. Optional, not urgent: the 148-site repo-wide `utcnow()`/`utcfromtimestamp()` cleanup, if it's worth doing proactively before another file hits the same failure mode.
+## Resolved by the Admiral directly (terminal)
+- Crontab restored from `/Users/bigmac/crontab_backup_20260909.txt` (170 lines, verified) after the empty-pipe incident above.
+- `rotate_logs.sh` schedule moved from weekly to daily, applied directly (not through me) after the pipe-install approach proved unsafe.
+
+## Open
+1. Optional, not urgent: the 148-site repo-wide `utcnow()`/`utcfromtimestamp()` cleanup, if it's worth doing proactively before another file hits the same failure mode.

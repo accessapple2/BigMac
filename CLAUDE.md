@@ -180,6 +180,30 @@ while live production never fires — verify the live execution path with a log
 heartbeat before declaring shipped. HM-EQ daemon went 128h silent because the
 Arena-coupled spawn never fired; commit `54881bb` moved it to module-level.
 
+## Cron Edit Safety Rule (added 2026-09-09, HM-CRON-EMPTY-PIPE-INCIDENT)
+**Never edit the live crontab with `crontab -l | ... | crontab -`.** If the
+middle command fails or produces no output (a broken `sed` pattern, a bad
+quote, a line-wrap mangling a pasted multi-line command), the pipe still
+succeeds end-to-end and `crontab -` installs an **empty crontab** — silently
+deleting every job (trader keepalive, watchdog, backups, health checks, all
+of it). This happened for real 2026-09-09 during a routine rotate_logs.sh
+schedule change: a wrapped/mangled `sed` command errored with no stdout, and
+the empty output got installed as the new crontab, wiping all 170 lines.
+Recovered from a pre-edit backup file that happened to exist.
+
+**Required pattern for any cron edit, no exceptions:**
+1. Dump the live crontab to a file: `crontab -l > /path/to/backup.txt`
+2. Copy it to a working file and `sed`/edit **the file**, not a pipe:
+   `cp backup.txt new.txt && sed -i '' 's|...|...|' new.txt`
+3. `diff backup.txt new.txt` — confirm only the intended line(s) changed.
+4. Count-guard: `wc -l backup.txt new.txt` — line counts must match (or
+   differ by exactly the expected added/removed lines). A big unexplained
+   drop means something ate the file — stop, don't install.
+5. Only then: `crontab new.txt` (a file argument, never a bare `crontab -`
+   fed by a pipe whose upstream could silently fail empty).
+
+Keep the backup file until the new crontab is confirmed live and correct.
+
 ## LaunchAgent Reboot Lifecycle (added 2026-05-23)
 
 On this macOS box, `launchctl bootstrap gui/$UID <plist>` fails with "Domain
