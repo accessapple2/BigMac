@@ -104,7 +104,8 @@ def _default_strict_affinity() -> bool:
 
 class _Task:
     """A queued inference call plus its result plumbing."""
-    __slots__ = ("fn", "model_id", "lane", "result", "exc", "done")
+    __slots__ = ("fn", "model_id", "lane", "result", "exc", "done",
+                 "submit_ts", "dispatch_ts", "model_elapsed_s")
 
     def __init__(self, fn: Callable[[], Any], model_id: str, lane: str) -> None:
         self.fn = fn
@@ -113,6 +114,13 @@ class _Task:
         self.result: Any = None
         self.exc: BaseException | None = None
         self.done = threading.Event()
+        # HM-OLLIE-QUEUE-CONTENTION-2026-09-09: split total wall time into
+        # queue-wait (submit_ts -> a worker actually starts fn()) vs
+        # model-time (fn() itself), so contention is measured directly
+        # instead of inferred from direct-call vs production averages.
+        self.submit_ts: float = time.monotonic()
+        self.dispatch_ts: float | None = None
+        self.model_elapsed_s: float | None = None
 
 
 class OllamaQueue:
@@ -175,7 +183,8 @@ class OllamaQueue:
     # Public API
     # ------------------------------------------------------------------
 
-    def submit(self, fn: Callable[[], Any], model_id: str = "", lane: str | None = None) -> Any:
+    def submit(self, fn: Callable[[], Any], model_id: str = "", lane: str | None = None,
+               timing: dict | None = None) -> Any:
         """Submit a callable to the queue and block until it completes (or times out).
 
         Args:
@@ -184,6 +193,12 @@ class OllamaQueue:
             lane: ``"scan"`` or ``"wr"``. If omitted, auto-detected from the
                 calling thread (War Room provider threads → ``"wr"``, else
                 ``"scan"``), so existing call sites need no changes.
+            timing: HM-OLLIE-QUEUE-CONTENTION-2026-09-09 -- optional dict,
+                populated in place with ``queue_wait_s`` (time spent sitting
+                in a lane before a worker picked it up) and ``model_time_s``
+                (the fn() call itself) once the task completes. Backward-
+                compatible: existing callers that omit this get identical
+                behavior to before.
 
         Returns:
             Whatever fn() returns.
@@ -225,6 +240,12 @@ class OllamaQueue:
             raise TimeoutError(
                 f"Ollama request timed out after {REQUEST_TIMEOUT}s (model={model_id})"
             )
+
+        if timing is not None:
+            timing["queue_wait_s"] = (
+                (task.dispatch_ts - task.submit_ts) if task.dispatch_ts is not None else None
+            )
+            timing["model_time_s"] = task.model_elapsed_s
 
         if task.exc is not None:
             raise task.exc
@@ -358,9 +379,11 @@ class OllamaQueue:
                     )
 
                 t0 = time.monotonic()
+                task.dispatch_ts = t0
                 try:
                     task.result = task.fn()
                     elapsed = time.monotonic() - t0
+                    task.model_elapsed_s = elapsed
                     with self._cv:
                         self._last_success_ts = time.time()
                         self._response_times.append(elapsed)

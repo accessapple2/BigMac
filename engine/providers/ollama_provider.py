@@ -7,7 +7,9 @@ from engine.ollama_queue import get_queue  # per-host registry (D1 dual-queue)
 
 # HM-CN 2026-05-17: latency telemetry for ministral-3:3b post-HM-BN.1 + future bakeoffs.
 # Routes to trader_error.log via stdlib logger (per HM-LOG-CHANNEL doctrine).
-# Parser format: "ollama_call model=<m> agent=<a> wall=<s>s"
+# Parser format: "ollama_call model=<m> agent=<a> wall=<s>s queue_wait=<s>s model_time=<s>s"
+# (queue_wait/model_time added HM-OLLIE-QUEUE-CONTENTION-2026-09-09; "n/a" if
+# the queue timing dict wasn't populated, e.g. on a cancel-path exception)
 # Explicit INFO level — root logger defaults to WARNING in this codebase.
 _latency_logger = logging.getLogger("ollama_provider")
 _latency_logger.setLevel(logging.INFO)
@@ -190,9 +192,13 @@ class OllamaProvider(AIProvider):
             return body.get("response", "")
 
         # HM-CN 2026-05-17: time the queue submit (queue wait + Ollama inference).
+        # HM-OLLIE-QUEUE-CONTENTION-2026-09-09: split via OllamaQueue.submit's
+        # timing dict so contention is measured directly, not inferred from
+        # direct-call vs production average comparisons.
         t0 = time.time()
+        _timing: dict = {}
         try:
-            result = get_queue(self.url).submit(_do_request, model_id=self.model_id)
+            result = get_queue(self.url).submit(_do_request, model_id=self.model_id, timing=_timing)
         except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
             # HM-WR-CANCEL-ON-TIMEOUT 2026-05-21: log the cancellation path so we
             # can observe in trader_error.log that the socket was closed and the
@@ -202,7 +208,14 @@ class OllamaProvider(AIProvider):
                 self.model_id, self.player_id, time.time() - t0, type(e).__name__,
             )
             raise
-        _latency_logger.info("ollama_call model=%s agent=%s wall=%.2fs", self.model_id, self.player_id, time.time() - t0)
+        _qw = _timing.get("queue_wait_s")
+        _mt = _timing.get("model_time_s")
+        _latency_logger.info(
+            "ollama_call model=%s agent=%s wall=%.2fs queue_wait=%s model_time=%s",
+            self.model_id, self.player_id, time.time() - t0,
+            f"{_qw:.2f}s" if _qw is not None else "n/a",
+            f"{_mt:.2f}s" if _mt is not None else "n/a",
+        )
         return result
 
     def analyze_chain(self, symbol: str, price: float, change_pct: float,
