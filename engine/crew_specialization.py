@@ -323,7 +323,7 @@ CREW_MANIFEST: dict[str, dict[str, Any]] = {
         "display_name": "Lt. Cmdr. Geordi",
         "role": "Sector Rotation [ADVISORY]",
         "strategy": "Buy leading sector ETF, short lagging. Rotates weekly via sector_heatmap.",
-        "model": "qwen3:30b-a3b",  # HM-OLLIE-30B-CUTOVER 2026-09-08, was gemma3:4b -- seat is halt_mode='full' (culled 2026-06-06/07-04), reference updated for consistency, doesn't affect live traffic
+        "model": "gemma3:4b",  # HM-OLLIE-30B-REVERT 2026-09-09, reverted with McCoy/Worf -- seat is halt_mode='full' (culled 2026-06-06/07-04), doesn't affect live traffic
         "max_positions": 2,
         "size_factor": 1.0,
         "bridge_voter": False,

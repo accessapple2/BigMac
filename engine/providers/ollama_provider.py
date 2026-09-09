@@ -43,6 +43,23 @@ _QWEN3_ALIAS_MODEL_IDS = {
     "plutus-v1", "plutus-v1:latest", "ministral-3:3b", "qwen2.5-coder:7b",
 }
 
+# HM-OLLIE-30B-THINK-LEAK 2026-09-09: the API-level "think": False field
+# (below) is confirmed NOT honored for qwen3:30b-a3b -- direct /api/generate
+# probe against olliemax with think:false explicitly set returned no separate
+# "thinking" key at all; the full chain-of-thought was baked straight into
+# "response" on every call (6/6 in testing: 5 real McCoy War Room prompts +
+# 1 raw probe). This is the qwen3moe (MoE) family template, distinct from the
+# dense qwen3:8b/14b tags the API flag was verified against on 2026-04-27.
+# scout_critic.py and mlx_provider.py already use the template-level
+# "/no_think" prompt token for the same reason (Qwen3's chat template always
+# honors this in-band control, independent of Ollama's API-level support for
+# a given model). Applying the same fix here, scoped to this one model until
+# broader qwen3moe API support is verified. IMPACT: any McCoy/Troi/Worf
+# decision output from qwen3:30b-a3b between the 2026-09-08 21:18 cutover and
+# this fix (2026-09-09 ~07:55 confirmation) carried leaked CoT instead of a
+# clean take -- treat that window's War Room output as suspect.
+_NO_THINK_PROMPT_MODELS = {"qwen3:30b-a3b"}
+
 # HM-OLLIE-30B-CUTOVER 2026-09-08: num_ctx was a single global constant
 # (10240, sized off qwen3:8b's p95 real-traffic token usage) applied to
 # every model regardless of size. qwen3:30b-a3b needs more headroom -- last
@@ -113,6 +130,11 @@ class OllamaProvider(AIProvider):
         # 2026-05-28 HM-AUDIT-T0 (this comment previously said "RTX 5060,"
         # which was wrong) — does not have the same stacking concern so the
         # longer keep_alive is safe.
+        # HM-OLLIE-30B-THINK-LEAK 2026-09-09: see _NO_THINK_PROMPT_MODELS above --
+        # the API "think" field alone doesn't suppress CoT for this model.
+        if self.model_id in _NO_THINK_PROMPT_MODELS:
+            prompt = "/no_think\n" + prompt
+
         payload = {
             "model": self.model_id,
             "prompt": prompt,
