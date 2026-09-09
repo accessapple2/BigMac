@@ -709,6 +709,34 @@ def setup():
     c.execute("CREATE INDEX IF NOT EXISTS idx_decision_audit_symbol_ts ON decision_audit(symbol, created_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_decision_audit_event ON decision_audit(event_type, created_at)")
 
+    # HM-DESK-TRACE 2026-09-09: per-hop timing for Decision Desk manual "send
+    # it" executions (dashboard/app.py::desk_execute_signal). scan_ts is the
+    # originating signal's created_at; prompt_ts/model_ts are NOT retrofitted
+    # for pre-existing signals (would need timing threaded through
+    # analyze_chain()->save_signal(), out of scope this pass -- the
+    # ollama_call log already has queue_wait/model_time, just not joined to
+    # signal_id). gate_ts/gate_verdict come from paper_trader.buy()'s
+    # regime_router check (logged whether bypassed or enforced). order_ts is
+    # stamped just before the desk endpoint calls buy(); ack_ts/fill_ts/
+    # fill_price/order_id/order_status come from Alpaca's own order object
+    # (submitted_at/filled_at), not our clock -- measures real broker-side
+    # delay instead of inferring it.
+    c.execute('''CREATE TABLE IF NOT EXISTS desk_execution_trace (
+        signal_id INTEGER PRIMARY KEY,
+        scan_ts TEXT,
+        prompt_ts TEXT,
+        model_ts TEXT,
+        gate_ts TEXT,
+        gate_verdict TEXT,
+        order_ts TEXT,
+        order_id TEXT,
+        order_status TEXT,
+        ack_ts TEXT,
+        fill_ts TEXT,
+        fill_price REAL,
+        created_at TEXT DEFAULT (datetime('now'))
+    )''')
+
     # HM-POST-EXIT-TRACKER 2026-05-20: flag exits that proved premature.
     # Seeded on every SELL via engine.paper_trader.sell hook; daily scan in
     # engine.post_exit_tracker.run_daily_scan checks current price vs exit.

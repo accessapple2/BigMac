@@ -159,6 +159,15 @@ _EXECUTION_PORTFOLIO_BY_PLAYER = {
     # Admiral-approved). It only ever sells — exit_only + absent from all
     # scanners means buy()/_forward BUY paths are never reached for it.
     "guardian-of-forever": "Alpaca Paper",
+    # HM-DESK-TRACE-2026-09-09: Decision Desk manual "send it" needs a REAL
+    # Alpaca paper order (route_mode="trading") so ack/fill timestamps come
+    # from the broker's own order object, not simulated bookkeeping -- without
+    # this mapping desk-manual defaults to route_mode="paper" (SIMULATED, no
+    # broker call at all, per _resolve_execution_portfolio's default branch).
+    # Still gated behind DESK_EXECUTE_ENABLED + an explicit manual click on
+    # a specific signal_id in dashboard/app.py::desk_execute_signal -- this
+    # mapping alone does not make anything fire automatically.
+    "desk-manual": "Alpaca Paper",
 }
 
 
@@ -489,6 +498,35 @@ def _log_gate_reject(player_id: str, symbol: str | None, gate_name: str,
         pass  # fail-safe — gate logic must never be blocked by telemetry
 
 
+def _desk_trace_upsert(signal_id: int, **fields) -> None:
+    """HM-DESK-TRACE-2026-09-09: upsert one or more hop timestamps/fields into
+    desk_execution_trace, keyed by signal_id. Fail-safe, like _log_gate_reject
+    -- never blocks the caller (buy() or the desk endpoint) over telemetry.
+    Only touches columns actually passed in **fields; existing values for
+    other columns are left alone (SQLite UPSERT with per-column excluded()).
+    """
+    if not fields:
+        return
+    cols = list(fields.keys())
+    try:
+        conn = _conn()
+        try:
+            placeholders = ",".join("?" for _ in cols)
+            col_list = ",".join(cols)
+            update_clause = ",".join(f"{c}=excluded.{c}" for c in cols)
+            conn.execute(
+                f"INSERT INTO desk_execution_trace (signal_id, {col_list}) "
+                f"VALUES (?, {placeholders}) "
+                f"ON CONFLICT(signal_id) DO UPDATE SET {update_clause}",
+                (signal_id, *[fields[c] for c in cols]),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        pass  # fail-safe -- desk trace telemetry must never block a gate or a fill
+
+
 def _log_signal_only(player_id: str, action: str, symbol: str, route: dict, reasoning: str,
                      confidence: float) -> dict:
     msg = (
@@ -725,7 +763,8 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
         signal_id: int | None = None,
         strategy_id: str | None = None,
         grade: str | None = None,
-        voting_agents: str | None = None) -> dict | None:
+        voting_agents: str | None = None,
+        bypass_regime: bool = False) -> dict | None:
     """HM-SPREAD-STRATEGY-ID-WRITESITE 2026-05-23: strategy_id is opt-in
     kwarg so single-leg strategies (long_call, csp legs that don't go
     through the multi-leg alpaca_options path) can stamp trades.strategy_id.
@@ -992,18 +1031,43 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
         else:
             _rr_strategy = asset_type or "long_equity"
         _rr_allowed, _rr_reason = check_regime_fit(_rr_strategy, _rr_regime)
+        from datetime import datetime as _rr_dt, timezone as _rr_tz
         if not _rr_allowed:
-            console.log(
-                f"[yellow][REGIME-ROUTER] player={player_id} symbol={symbol} "
-                f"strategy={_rr_strategy} regime={_rr_regime} — "
-                f"BLOCKED: {_rr_reason}"
+            # HM-DESK-TRACE-2026-09-09: bypass_regime (desk-manual ONLY, see
+            # dashboard/app.py::desk_execute_signal -- no other caller ever
+            # sets this) still runs the check and logs the real verdict, it
+            # just doesn't enforce it. Always write the gate hop to
+            # desk_execution_trace when a signal_id is present, whether
+            # bypassed or not, so the trace is complete either way.
+            if signal_id:
+                _desk_trace_upsert(
+                    signal_id,
+                    gate_ts=_rr_dt.now(_rr_tz.utc).isoformat(),
+                    gate_verdict=f"REGIME-ROUTER: {_rr_reason}" + (" (BYPASSED)" if bypass_regime else " (BLOCKED)"),
+                )
+            if bypass_regime:
+                console.log(
+                    f"[magenta][REGIME-ROUTER] player={player_id} symbol={symbol} "
+                    f"strategy={_rr_strategy} regime={_rr_regime} — "
+                    f"BYPASSED (desk-manual): {_rr_reason}"
+                )
+            else:
+                console.log(
+                    f"[yellow][REGIME-ROUTER] player={player_id} symbol={symbol} "
+                    f"strategy={_rr_strategy} regime={_rr_regime} — "
+                    f"BLOCKED: {_rr_reason}"
+                )
+                log_regime_reject(
+                    player_id=player_id, symbol=symbol, strategy=_rr_strategy,
+                    regime=_rr_regime, reason=_rr_reason, confidence=confidence,
+                )
+                _last_rejection[player_id] = f"REGIME-ROUTER: {_rr_reason}"
+                return None
+        elif signal_id:
+            _desk_trace_upsert(
+                signal_id, gate_ts=_rr_dt.now(_rr_tz.utc).isoformat(),
+                gate_verdict=f"REGIME-ROUTER: allowed ({_rr_strategy}/{_rr_regime})",
             )
-            log_regime_reject(
-                player_id=player_id, symbol=symbol, strategy=_rr_strategy,
-                regime=_rr_regime, reason=_rr_reason, confidence=confidence,
-            )
-            _last_rejection[player_id] = f"REGIME-ROUTER: {_rr_reason}"
-            return None
     except Exception as _rr_e:
         # Fail-safe: any router error → allow trade, log loudly.
         console.log(
@@ -1766,6 +1830,7 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
     # HM-POSITIONS-AVG-PRICE-WRITEBACK 2026-05-21: also recompute positions.avg_price
     # from the broker fill so subsequent SELL closes use broker truth as the
     # realized_pnl entry basis (stock-only; options + SHORT out of scope).
+    _alpaca_result = None
     if route["route_mode"] == "trading":
         _alpaca_result = _forward_to_alpaca("BUY", player_id, symbol, qty, asset_type, price=price)
         _persist_alpaca_fill(_trade_id, "BUY", qty, _alpaca_result, player_id, symbol)
@@ -1774,6 +1839,19 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
                 player_id, symbol, qty,
                 _pos_ex_qty_before, _pos_ex_avg_before, _pos_was_new,
                 _alpaca_result,
+            )
+        # HM-DESK-TRACE-2026-09-09: real broker timestamps for the desk trace,
+        # only when a signal_id is present (i.e. this came from a tracked
+        # signal, not a direct-call agent) -- fail-safe, never blocks the fill.
+        if signal_id and _alpaca_result:
+            _desk_trace_upsert(
+                signal_id,
+                order_ts=datetime.utcnow().isoformat(),
+                order_id=_alpaca_result.get("order_id"),
+                order_status=_alpaca_result.get("status"),
+                ack_ts=_alpaca_result.get("submitted_at"),
+                fill_ts=_alpaca_result.get("filled_at"),
+                fill_price=_alpaca_result.get("filled_avg_price"),
             )
 
     return {
@@ -1788,6 +1866,11 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
         "portfolio_type": route["type"],
         "route_mode": route["route_mode"],
         "execution_status": "EXECUTED" if route["route_mode"] == "trading" else "SIMULATED",
+        "order_id": (_alpaca_result or {}).get("order_id"),
+        "order_status": (_alpaca_result or {}).get("status"),
+        "submitted_at": (_alpaca_result or {}).get("submitted_at"),
+        "filled_at": (_alpaca_result or {}).get("filled_at"),
+        "filled_avg_price": (_alpaca_result or {}).get("filled_avg_price"),
     }
 
 

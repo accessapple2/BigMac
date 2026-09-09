@@ -386,10 +386,24 @@ class AlpacaBridge:
             # can persist filled_avg_price into trades.entry_price (not the
             # submit-time internal target). Fail-safe: returns None on timeout.
             fill_price, fill_qty, final_status = self._poll_fill(str(o.id))
+            # HM-DESK-TRACE-2026-09-09: broker-side timestamps, not our clock --
+            # submitted_at comes straight off the initial submit_order() response;
+            # filled_at needs one more get_order_by_id() since _poll_fill() only
+            # returns (price, qty, status), not the order object itself. Additive
+            # keys only -- existing callers that ignore them are unaffected.
+            _filled_at = None
+            if final_status in ('filled', 'partially_filled'):
+                try:
+                    _final_o = self.client.get_order_by_id(str(o.id))
+                    _filled_at = str(_final_o.filled_at) if _final_o.filled_at else None
+                except Exception:
+                    pass
             return {
                 'success': True, 'order_id': str(o.id), 'symbol': o.symbol,
                 'status': final_status, 'filled_avg_price': fill_price,
                 'filled_qty': fill_qty,
+                'submitted_at': str(o.submitted_at) if getattr(o, 'submitted_at', None) else None,
+                'filled_at': _filled_at,
             }
         except Exception as e:
             return {'error': str(e)}
@@ -423,10 +437,24 @@ class AlpacaBridge:
             console.log(f"[red]Alpaca SELL {_size_log} {symbol} type={order_type} — order {o.id}")
             # HM-TRADES-PRICE-WRITEBACK-FIX 2026-05-21: see buy() above.
             fill_price, fill_qty, final_status = self._poll_fill(str(o.id))
+            # HM-DESK-TRACE-2026-09-09: broker-side timestamps, not our clock --
+            # submitted_at comes straight off the initial submit_order() response;
+            # filled_at needs one more get_order_by_id() since _poll_fill() only
+            # returns (price, qty, status), not the order object itself. Additive
+            # keys only -- existing callers that ignore them are unaffected.
+            _filled_at = None
+            if final_status in ('filled', 'partially_filled'):
+                try:
+                    _final_o = self.client.get_order_by_id(str(o.id))
+                    _filled_at = str(_final_o.filled_at) if _final_o.filled_at else None
+                except Exception:
+                    pass
             return {
                 'success': True, 'order_id': str(o.id), 'symbol': o.symbol,
                 'status': final_status, 'filled_avg_price': fill_price,
                 'filled_qty': fill_qty,
+                'submitted_at': str(o.submitted_at) if getattr(o, 'submitted_at', None) else None,
+                'filled_at': _filled_at,
             }
         except Exception as e:
             return {'error': str(e)}

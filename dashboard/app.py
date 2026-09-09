@@ -5620,25 +5620,85 @@ def desk_execute_signal(signal_id: int):
     paper_trader.buy() chokepoint, routed under the dedicated desk-manual
     player (paper only, can_trade_live=0). Gated behind DESK_EXECUTE_ENABLED
     (default off). Atomic claim (PENDING -> EXECUTING in one UPDATE) closes
-    the check-then-write race window found during HM-DESK-SCOPE audit."""
+    the check-then-write race window found during HM-DESK-SCOPE audit.
+
+    HM-DESK-TRACE-2026-09-09: desk-manual is now mapped to the real "Alpaca
+    Paper" execution portfolio (paper_trader._EXECUTION_PORTFOLIO_BY_PLAYER),
+    so this places a REAL Alpaca paper-account order -- not a simulated
+    bookkeeping entry -- specifically so ack/fill timestamps come from the
+    broker's own order object. Also passes bypass_regime=True: the ONLY
+    caller in the codebase that ever does. This is a manual, per-signal,
+    explicit-click override of the regime_router gate -- no automatic
+    regime override exists anywhere; every other gate (stale_signal,
+    LOW_CONVICTION, GEX, halt, bench) stays fully enforced. Every hop
+    (scan/gate/order/ack/fill) is logged to desk_execution_trace, keyed by
+    signal_id, whether or not the regime gate actually had anything to
+    bypass for this particular signal."""
     if not _desk_execute_enabled():
         raise HTTPException(status_code=403, detail="DESK_EXECUTE_ENABLED is off — Rung 4 gated")
 
+    # HM-DESK-CLAIM-EXT-2026-09-09: the atomic claim normally requires
+    # execution_status='PENDING'. Extension (Admiral spec, 2026-09-09): also
+    # allow claiming a REJECTED signal, but ONLY if (a) the rejection reason
+    # was the regime block specifically (not stale/LOW_CONVICTION/GEX/other),
+    # and (b) it's still inside its timeframe's stale budget (same
+    # events_bus._STALE_BUDGET_S the automated stale_signal gate uses --
+    # SWING=3600s today). Both checks run BEFORE the atomic UPDATE below;
+    # the UPDATE's own WHERE clause still atomically guards the actual
+    # execution_status transition, so a concurrent double-click can't race.
     conn = _conn()
-    cur = conn.execute(
-        "UPDATE signals SET execution_status='EXECUTING' WHERE id=? AND execution_status='PENDING'",
+    _pre = conn.execute(
+        "SELECT execution_status, created_at, timeframe FROM signals WHERE id=?",
         (signal_id,),
+    ).fetchone()
+    if not _pre:
+        conn.close()
+        raise HTTPException(status_code=404, detail="signal not found")
+
+    _regime_reject_fresh = False
+    if _pre["execution_status"] == "REJECTED":
+        _verdict_row = conn.execute(
+            "SELECT gate_verdict FROM decision_audit WHERE signal_id=? AND event_type='gate_reject' "
+            "ORDER BY id DESC LIMIT 1",
+            (signal_id,),
+        ).fetchone()
+        _verdict = (_verdict_row["gate_verdict"] or "") if _verdict_row else ""
+        _is_regime = _verdict.startswith("REGIME-ROUTER") or _verdict.startswith("regime_mismatch")
+        if _is_regime:
+            from engine.events_bus import _STALE_BUDGET_S
+            _budget_s = _STALE_BUDGET_S.get((_pre["timeframe"] or "swing").lower())
+            if _budget_s is not None:
+                from datetime import datetime as _desk_dt
+                _emit_dt = _desk_dt.strptime(str(_pre["created_at"])[:19], "%Y-%m-%d %H:%M:%S")
+                _age_s = (_desk_dt.utcnow() - _emit_dt).total_seconds()
+                _regime_reject_fresh = _age_s <= _budget_s
+
+    cur = conn.execute(
+        "UPDATE signals SET execution_status='EXECUTING' WHERE id=? "
+        "AND (execution_status='PENDING' OR (execution_status='REJECTED' AND ?))",
+        (signal_id, 1 if _regime_reject_fresh else 0),
     )
     conn.commit()
     if cur.rowcount == 0:
         row = conn.execute("SELECT execution_status FROM signals WHERE id=?", (signal_id,)).fetchone()
         conn.close()
-        if not row:
-            raise HTTPException(status_code=404, detail="signal not found")
-        raise HTTPException(status_code=400, detail=f"signal already {row['execution_status']}")
+        detail = f"signal already {row['execution_status']}" if row else "signal not found"
+        if row and row["execution_status"] == "REJECTED":
+            detail += " (not a fresh regime-only rejection -- see desk_execution_trace/decision_audit)"
+        raise HTTPException(status_code=400, detail=detail)
 
     sig = conn.execute("SELECT * FROM signals WHERE id=?", (signal_id,)).fetchone()
     conn.close()
+
+    # HM-DESK-TRACE-2026-09-09: scan hop -- the originating signal's own
+    # created_at. prompt_ts/model_ts are intentionally left NULL here (not
+    # retrofitted for pre-existing signals, see desk_execution_trace's
+    # CREATE TABLE comment in setup_db.py).
+    try:
+        from engine.paper_trader import _desk_trace_upsert
+        _desk_trace_upsert(signal_id, scan_ts=sig["created_at"])
+    except Exception:
+        pass  # fail-safe -- trace telemetry must never block execution
 
     def _rollback_to_pending():
         c = _conn()
@@ -5665,6 +5725,7 @@ def desk_execute_signal(signal_id: int):
             sources=sig["sources"] or "",
             timeframe=sig["timeframe"] or "SWING",
             signal_id=signal_id,
+            bypass_regime=True,  # HM-DESK-TRACE-2026-09-09: manual, per-signal only -- see docstring above
         )
     except HTTPException:
         raise
