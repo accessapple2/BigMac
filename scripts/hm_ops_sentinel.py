@@ -764,6 +764,26 @@ _PAUSE_LEDGER_ACTIONS = {"halt", "bench", "shadow"}
 _ACTIVE_LEDGER_ACTIONS = {"active", "revive"}
 
 
+def _uptime_hours() -> float:
+    """Hours since this box last booted (sysctl kern.boottime). Never raises --
+    on any failure, return infinity so callers fail toward checking (treat the
+    box as having been up forever) rather than toward silently graced alerts.
+
+    HM-OPS-SENTINEL-BOOT-GRACE (2026-09-08): a real ~8h power-off caused a
+    sentinel_launchd_mass_outage flood -- launchd does not retroactively fire
+    missed StartCalendarInterval slots across a shutdown, so every daytime
+    job's log legitimately went stale simultaneously. That's an outage-
+    recovery artifact, not a fleet failure, and shouldn't page anyone."""
+    try:
+        out = subprocess.run(["sysctl", "-n", "kern.boottime"], capture_output=True,
+                              text=True, timeout=5, check=True).stdout
+        # e.g. "{ sec = 1788905144, usec = 310237 }"
+        sec = int(out.split("sec = ")[1].split(",")[0])
+        return (time.time() - sec) / 3600.0
+    except Exception:
+        return float("inf")
+
+
 def check_launchd_jobs_health(alerts: list[AlertTuple]) -> dict:
     """OPS TRIAGE follow-up (2026-08-29): every job the fleet_lifecycle
     ledger currently says should be running gets freshness coverage, same
@@ -798,8 +818,9 @@ def check_launchd_jobs_health(alerts: list[AlertTuple]) -> dict:
     (fail toward checking, not toward silence).
     """
     ledger = _ledger_latest_by_target("job")
-    results: dict = {"checked": 0, "skipped_by_ledger": [], "stale": [], "mass_outage": None}
+    results: dict = {"checked": 0, "skipped_by_ledger": [], "stale": [], "graced": [], "mass_outage": None}
     now = time.time()
+    uptime_hours = _uptime_hours()
     all_ages: list[tuple[str, float]] = []
     for label, (rel_log, max_age_hours) in LAUNCHD_JOB_REGISTRY.items():
         entry = ledger.get(label)
@@ -814,12 +835,26 @@ def check_launchd_jobs_health(alerts: list[AlertTuple]) -> dict:
         if not log_path.exists():
             continue  # never written yet post-reactivation -- not stale, just new
         age_hours = (now - log_path.stat().st_mtime) / 3600.0
+
+        # HM-OPS-SENTINEL-BOOT-GRACE: the box hasn't been up long enough since
+        # its last boot to have missed this job's own ceiling on its own merits
+        # -- a shutdown that spanned its last scheduled slot explains the gap
+        # better than a broken job does. Excluded from all_ages too, so a
+        # post-outage recovery window can't trip the mass-outage check either.
+        if uptime_hours < max_age_hours:
+            if age_hours > max_age_hours:
+                results["graced"].append({"label": label, "age_hours": round(age_hours, 1),
+                                           "ceiling_hours": max_age_hours,
+                                           "uptime_hours": round(uptime_hours, 1)})
+            continue
+
         all_ages.append((label, age_hours))
         if age_hours > max_age_hours:
             results["stale"].append({"label": label, "age_hours": round(age_hours, 1), "ceiling_hours": max_age_hours})
 
     quiet_recent = [label for label, age in all_ages if age > MASS_OUTAGE_WINDOW_HOURS]
-    if (all_ages and len(quiet_recent) >= MASS_OUTAGE_MIN_COUNT
+    if (uptime_hours >= MASS_OUTAGE_WINDOW_HOURS and all_ages
+            and len(quiet_recent) >= MASS_OUTAGE_MIN_COUNT
             and len(quiet_recent) / len(all_ages) >= MASS_OUTAGE_FRACTION):
         results["mass_outage"] = {
             "quiet": quiet_recent, "quiet_count": len(quiet_recent), "total": len(all_ages),
