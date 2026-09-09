@@ -869,7 +869,16 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
                 f"{type(_ebd_e).__name__}: {_ebd_e!r}"
             )
     # GUARD: Never auto-trade human portfolios
-    if _is_human_player(player_id):
+    # HM-DESK-TRACE-2026-09-09: desk-manual is deliberately is_human=1 (it
+    # represents a human's manual Desk action, not an AI agent) -- but that
+    # made this guard block the Decision Desk's OWN execute endpoint too,
+    # unconditionally, since the feature shipped 2026-07-05. Confirmed live:
+    # desk-manual had ZERO trades ever recorded pre-fix. bypass_regime is
+    # exclusively set by dashboard/app.py::desk_execute_signal (see its
+    # signature comment) -- reused here as "this is the one authorized
+    # manual channel", not just a regime-gate flag, since both bypasses are
+    # always set together by that same, single caller.
+    if _is_human_player(player_id) and not bypass_regime:
         console.log(f"[red]BLOCKED: {player_id} is human — cannot auto-trade")
         return None
     # === HALT GATE === (halt_mode-aware; blocks new positions in exit_only OR full)
@@ -1944,7 +1953,14 @@ def sell(player_id: str, symbol: str, price: float, asset_type: str = "stock",
         )
         return None
     # GUARD: Never auto-trade human portfolios
-    if _is_human_player(player_id):
+    # HM-DESK-EXIT-2026-09-09: desk-manual is is_human=1 (represents a
+    # human's manual Desk entry) but still needs the generic rules-based
+    # exit safety net (hard stop, scaled exits) to close its own positions
+    # -- unlike genuinely human-owned accounts (webull, trade-desk,
+    # alpaca-mirror), which this guard exists to protect from ever being
+    # auto-traded. Exempted by exact player_id, not by weakening the guard
+    # generally -- every other is_human account stays fully protected.
+    if _is_human_player(player_id) and player_id != "desk-manual":
         console.log(f"[red]BLOCKED: {player_id} is human — cannot auto-trade")
         return None
     # === HALT GATE === (halt_mode-aware; exit_only PERMITS sells, only 'full' blocks)
@@ -2220,7 +2236,10 @@ def sell_partial(player_id: str, symbol: str, price: float, qty: float,
                  option_type: str = None) -> dict | None:
     """Sell a partial quantity of a position (for tiered take-profit)."""
     # GUARD: Never auto-trade human portfolios
-    if _is_human_player(player_id):
+    # HM-DESK-EXIT-2026-09-09: same desk-manual exemption as sell() above --
+    # see that comment for rationale. Every other is_human account stays
+    # fully protected.
+    if _is_human_player(player_id) and player_id != "desk-manual":
         console.log(f"[red]BLOCKED: {player_id} is human — cannot auto-trade")
         return None
     # HM-I-Option-ε-prime (2026-05-05): tracking-mode early-return mirrors sell()

@@ -9,6 +9,12 @@ ROOT="/Users/bigmac/autonomous-trader"
 LOG="$ROOT/logs/recall_refresh.log"
 cd "$ROOT" || exit 1
 
+# HM-OLLIE-CONSOLIDATE-2026-09-09: bigmac's local Ollama (com.ollama.serve)
+# is being retired -- olliemax carries the full session now. Default in
+# engine/setup_similarity_signal.py falls back to 127.0.0.1:11434, which
+# will 404/timeout once com.ollama.serve is disabled below.
+export RECALL_OLLAMA_URL="http://100.95.195.20:11434/api/embed"
+
 echo "[$(date '+%Y-%m-%dT%H:%M:%S%z')] recall_refresh start" >> "$LOG"
 "$ROOT/.venv-recall/bin/python" "$ROOT/scripts/recall_refresh.py" >> "$LOG" 2>&1
 rc=$?

@@ -18859,14 +18859,22 @@ def seasons_history():
     return {"seasons": get_season_history()}
 
 
-@app.post("/api/seasons/rotate")
-def seasons_rotate():
-    """Manually trigger season rotation."""
-    from engine.season_manager import rotate_season
-    new = rotate_season()
-    return {"ok": True, "new_season": new}
-
-
+# HM-FALSE-RED-ALERT-2026-09-09: removed POST /api/seasons/rotate.
+# This endpoint was unauthenticated for any localhost caller (AuthMiddleware's
+# documented "API routes from localhost bypass auth" carve-out) and had no
+# day-of-week gate or margin re-check beyond what rotate_season() does
+# internally -- a real, live, write-capable path with none of the cron
+# path's safety framing. Investigated as the leading suspect for
+# HM-FALSE-RED-ALERT (docs/XO_BACKLOG.md, 8 occurrences 2026-07-18 ->
+# 2026-09-09, byte-identical "31 vs 1, margin=10" payload every time) and
+# RULED OUT: zero ENDPOINT-DUR hits for this path in either the one
+# archived trader.log window that could catch the 2026-07-18 occurrence
+# (HM-ENDPOINT-LATENCY-OBS logging has been active since 2026-05-20) or
+# today's fully-covered window. No frontend page ever called it. Removed
+# rather than guarded -- nothing legitimate used it, and it was never
+# actually the alert's source, just a real unrelated risk found along the
+# way. rotate_season() itself, and its cron-scheduled Sunday-only caller
+# in main.py, are untouched.
 @app.post("/api/seasons/start")
 def seasons_start(data: dict = None):
     """Start a specific season number."""
