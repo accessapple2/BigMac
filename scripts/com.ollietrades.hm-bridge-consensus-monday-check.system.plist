@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  com.ollietrades.hm-bridge-consensus-monday-check — one-shot Monday
+  2026-07-20 07:00 MST freshness check for the bridge_consensus source
+  (HM-BRIDGE-CONSENSUS-STALE). System LaunchDaemon so the calendar trigger
+  fires independent of an active Aqua/GUI console session (the per-user
+  LaunchAgent version depends on bigmac staying logged into the console
+  through Monday morning — see CLAUDE.md "LaunchAgent Reboot Lifecycle").
+  Same pattern as com.trademinds.swingdesk.plist / com.trademinds.
+  cloudflared.plist: UserName=bigmac so the process runs as bigmac (needed
+  for read access to data/trader.db + signal-center/signals.db and write
+  access to the log files below, all bigmac-owned). No secrets/env vars
+  needed — the script only does read-only sqlite queries via file-relative
+  absolute paths.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.ollietrades.hm-bridge-consensus-monday-check</string>
+
+  <key>UserName</key>
+  <string>bigmac</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/bigmac/autonomous-trader/.venv/bin/python3</string>
+    <string>/Users/bigmac/autonomous-trader/scripts/hm_bridge_consensus_monday_check.py</string>
+  </array>
+
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Year</key>
+    <integer>2026</integer>
+    <key>Month</key>
+    <integer>7</integer>
+    <key>Day</key>
+    <integer>20</integer>
+    <key>Hour</key>
+    <integer>7</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/Users/bigmac/autonomous-trader/logs/hm_bridge_consensus_monday_check_stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/bigmac/autonomous-trader/logs/hm_bridge_consensus_monday_check_stderr.log</string>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/bigmac/autonomous-trader</string>
+
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>

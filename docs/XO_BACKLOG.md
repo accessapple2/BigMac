@@ -10790,3 +10790,44 @@ new drift introduced.
 that are hours-to-a-day away on their own real schedules. Recommend a
 follow-up check Monday afternoon once weekday schedules have had a full
 cycle, rather than treating tonight's 9/3 remainder as unresolved.
+
+
+---
+## Counterfactual Report — 2026-08-30 (P1 measurement layer, scripts/counterfactual_report.py)
+
+# Counterfactual Report — 2026-08-30
+Window: last 30 days (2026-07-31 to 2026-08-30)
+Outlier guard: entry price >= $1.00, |forward return| <= 100% (see script docstring for why)
+
+Executed baseline (BUY signals that went live): n=5/2/0 (1d/3d/5d with bars available)
+  fwd_1d: mean=0.113%, median=0.005%
+  fwd_3d: mean=0.117%, median=0.117%
+  fwd_5d: mean=n/a, median=n/a
+
+| Gate | Blocked (deduped) | Bars avail | mean/median fwd_1d | mean/median fwd_3d | mean/median fwd_5d | Structural? |
+|---|---|---|---|---|---|---|
+| BENCH | 208 | 145 | 0.57/0.32% | 0.98/0.89% | n/a |  |
+| MARKET_CLOSED | 189 | 92 | 1.85/1.06% | 16.53/-0.47% | n/a | yes |
+| HALT | 22 | 16 | 3.70/-2.13% | -0.90/-2.28% | n/a | yes |
+
+
+---
+## Counterfactual Report — 2026-09-06 (P1 measurement layer, scripts/counterfactual_report.py)
+
+# Counterfactual Report — 2026-09-06
+Window: last 30 days (2026-08-07 to 2026-09-06)
+Outlier guard: entry price >= $1.00, |forward return| <= 100% (see script docstring for why)
+
+Executed baseline (BUY signals that went live): n=6/5/5 (1d/3d/5d with bars available)
+  fwd_1d: mean=-0.208%, median=0.000%
+  fwd_3d: mean=-0.088%, median=-0.368%
+  fwd_5d: mean=-0.299%, median=-0.424%
+
+| Gate | Blocked (deduped) | Bars avail | mean/median fwd_1d | mean/median fwd_3d | mean/median fwd_5d | Structural? |
+|---|---|---|---|---|---|---|
+| MARKET_CLOSED | 1851 | 1386 | 0.80/0.04% | 0.95/0.00% | 2.18/0.00% | yes |
+| BENCH | 706 | 686 | -0.08/-0.03% | 0.81/0.61% | -0.24/0.15% |  |
+| LEARNING_BLOCK | 576 | 285 | 0.62/0.35% | n/a | n/a |  |
+| HALT | 539 | 383 | 1.00/-0.06% | 3.93/0.90% | 3.11/-0.82% | yes |
+| GRADE_B | 123 | 8 | -0.46/0.01% | n/a | n/a |  |
+| SCANNER_FILTER | 2 | 2 | 2.80/2.80% | n/a | n/a |  |

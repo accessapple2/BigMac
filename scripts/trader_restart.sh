@@ -90,7 +90,7 @@ cd "$ROOT_DIR" || { echo "[$(ts)] FATAL: cannot cd $ROOT_DIR" >&2; exit 1; }
 # HM-OLLAMA-WATCH-RETARGET (2026-06-14): point the in-process weekend bakeoff
 # (engine/weekend_backtest.py, run from dashboard/app.py bakeoff endpoints) at
 # olliemax instead of its localhost default, so bigmac needs no co-located
-# ollama. weekend_backtest reads OLLAMA_BASE_URL (default http://localhost:11434);
+# ollama. weekend_backtest reads OLLAMA_BASE_URL (default http://192.168.1.55:11434);
 # everything else already uses config.OLLIE_URL. Localhost stays the dev fallback
 # when the var is unset. Applies on the next trader restart (no forced restart).
 export OLLAMA_BASE_URL="${OLLAMA_BASE_URL:-http://192.168.1.55:11434}"
