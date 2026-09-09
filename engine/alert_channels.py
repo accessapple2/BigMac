@@ -345,8 +345,16 @@ def _send_pushover(title: str, message: str, priority: int = 0) -> bool:
     if not (tok and usr):
         logger.warning("pushover creds missing")
         return False
+    # HM-PUSHOVER-TIMESTAMP-2026-09-09: explicit send-time, not left to
+    # Pushover's own receipt-time default. Found while investigating a
+    # RED_ALERT that displayed a ~12-day-old timestamp (HM-FALSE-RED-ALERT,
+    # docs/XO_BACKLOG.md 2026-08-29, recurred 2026-09-09) -- this function
+    # never sent a `timestamp` field, so whatever Pushover displayed wasn't
+    # controlled here. Pinning it removes that as a variable regardless of
+    # any upstream queuing/delay between construction and this call.
     fields = {"token": tok, "user": usr, "title": title[:250],
-              "message": message[:1024], "priority": priority}
+              "message": message[:1024], "priority": priority,
+              "timestamp": int(_time.time())}
     try:
         req = urllib.request.Request(
             "https://api.pushover.net/1/messages.json",

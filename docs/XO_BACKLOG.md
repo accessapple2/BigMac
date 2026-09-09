@@ -10293,6 +10293,54 @@ trigger is Sunday-only, zero rotation lines in trader.log, and no
 working Pushover path exists. Text reproduces engine/season_manager.py:176
 verbatim including margin=10. Source unidentified.
 
+### RECURRED 2026-09-09 (~12:29 MST) — identical text, source still unidentified
+Same alert, byte-identical numbers (31 vs 1, margin=10, "Season 2"),
+arrived via the now-working Pushover RED_ALERT path (added 2026-08-28,
+one day after the first occurrence) under the "GPU Watch" app token
+(cosmetic — that's just which Pushover app this machine's token happens
+to be registered under, not a code routing choice).
+
+Re-ran every check from the 08-29 entry, live, today — same result:
+- `season_manager.get_current_season()`: plain uncached `SELECT`, returns
+  `7` right now. No stale key inside `season_manager.py` itself.
+- `_dry_run_unhalt_scope()`'s two live COUNT queries: `active_before=8`,
+  `would_affect=8` — exact match, zero drift, nowhere near margin=10.
+- `trader.log` + `.1.gz` (weeks of history): zero "SEASON ROTATION
+  ABORTED" / "Season auto-rotation" lines — only the routine "armed"
+  startup message every restart. The scheduled job only fires Sunday
+  23:55-23:59 MST; 2026-09-09 is a Wednesday.
+- No alternate/phantom `trader.db` found anywhere on disk that reproduces
+  these numbers (checked `/Users/bigmac/data/trader.db` — empty,
+  pre-halt_mode schema, unrelated; `/Users/bigmac/autonomous-trader/
+  trader.db` — 0 bytes, dead since 2026-06-11).
+- `reset_season2.py` (repo root) is the historical origin of the "Season
+  2" *label* itself (the original March 2026 migration script, no
+  dry-run/margin logic, unconditional reactivate-all) but does not send
+  alerts and there's no evidence it ran.
+
+**Real, related bug found, NOT confirmed as this alert's cause:**
+`engine/agent_ratings.py:35` — `_CURRENT_SEASON = _current_season_safe()`
+evaluated at module-import time, not inside a function re-called per use.
+Freezes for the life of the process; its own fallback (`return 6`) is
+already stale (real season is 7). Same *family* of bug as this ticket
+(a season value that doesn't track live state), but a different file,
+and I have no evidence tying it to this specific alert's construction.
+
+**Shipped anyway, unrelated to root-causing this specific alert:**
+`engine/alert_channels.py::_send_pushover()` never sent an explicit
+`timestamp` field, leaving Pushover's own receipt-time default in
+control of what displays. Added `"timestamp": int(_time.time())` to the
+payload so future alerts pin their actual send time regardless of any
+upstream queuing/delay between construction and delivery — removes one
+variable, does not explain the ~12-day-old display on this occurrence.
+
+**Still true: source unidentified.** Two occurrences, 12 days apart,
+byte-identical payload, neither traceable to a live code execution path
+on this system. If it recurs a third time, the next investigation should
+assume neither "code bug in season_manager.py" nor "someone ran
+reset_season2.py" until proven — both were checked twice now and ruled
+out both times.
+
 ---
 ## 🟡 HM-QUIETDOWN-STALE-JOBS-CLASSIFICATION — 2026-08-30 (report-only, no revives executed)
 
