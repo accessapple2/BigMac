@@ -8,7 +8,7 @@ import requests
 import time
 import threading
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from rich.console import Console
 
@@ -885,7 +885,7 @@ def get_intraday_candles(symbol: str, interval: str = "5m", range_: str = "1d") 
     # had failed normally.
     def _do_polygon_fetch():
         import os as _os_p, requests as _req_p
-        from datetime import datetime as _dt_p, timedelta as _td_p
+        from datetime import datetime as _dt_p, timedelta as _td_p, timezone as _dt_p_timezone
         _key_p = _os_p.environ.get("POLYGON_API_KEY", "")
         if not _key_p:
             raise RuntimeError("POLYGON_API_KEY unavailable")
@@ -907,8 +907,9 @@ def get_intraday_candles(symbol: str, interval: str = "5m", range_: str = "1d") 
         # Map range to days window with 2x padding for weekends/holidays.
         _days_map_p = {"1d": 1, "5d": 5, "1mo": 30, "3mo": 90, "6mo": 180, "1y": 365}
         _days_p = _days_map_p.get(range_, 5)
-        _end_p = _dt_p.utcnow().strftime("%Y-%m-%d")
-        _start_p = (_dt_p.utcnow() - _td_p(days=_days_p * 2)).strftime("%Y-%m-%d")
+        _now_p = _dt_p.now(_dt_p_timezone.utc).replace(tzinfo=None)
+        _end_p = _now_p.strftime("%Y-%m-%d")
+        _start_p = (_now_p - _td_p(days=_days_p * 2)).strftime("%Y-%m-%d")
 
         # HM-BUG-BATCH-2026-07-10: sort=desc (+limit=500) is required, not
         # optional. Polygon's default sort for this endpoint is ASCENDING
@@ -971,7 +972,7 @@ def get_intraday_candles(symbol: str, interval: str = "5m", range_: str = "1d") 
             _ts_ms = _row.get("t")
             if _ts_ms is None:
                 continue
-            _iso = datetime.utcfromtimestamp(_ts_ms / 1000).isoformat() + "Z"
+            _iso = datetime.fromtimestamp(_ts_ms / 1000, tz=timezone.utc).replace(tzinfo=None).isoformat() + "Z"
             candles.append({
                 "time":   _iso,
                 "open":   round(float(_row.get("o", 0)), 2),
@@ -1112,7 +1113,7 @@ def get_intraday_candles(symbol: str, interval: str = "5m", range_: str = "1d") 
             if i >= len(closes) or closes[i] is None:
                 continue
             candles.append({
-                "time": datetime.utcfromtimestamp(ts).isoformat() + "Z",
+                "time": datetime.fromtimestamp(ts, tz=timezone.utc).replace(tzinfo=None).isoformat() + "Z",
                 "open": round(float(opens[i] or closes[i]), 2),
                 "high": round(float(highs[i] or closes[i]), 2),
                 "low": round(float(lows[i] or closes[i]), 2),
@@ -1243,7 +1244,7 @@ def get_alpaca_bars(
         return pd.DataFrame() if isinstance(symbols, str) else {}
     single = isinstance(symbols, str)
     sym_list = [symbols] if single else list(symbols)
-    start = (datetime.utcnow() - pd.Timedelta(days=days + 5)).strftime("%Y-%m-%d")
+    start = (datetime.now(timezone.utc).replace(tzinfo=None) - pd.Timedelta(days=days + 5)).strftime("%Y-%m-%d")
     try:
         # HM-ALPACA-LIMITER-WIRE-2026-09-04: this function's HTTP 429s
         # (525 of the 777 counted on 2026-09-01, "get_alpaca_bars HTTP 429")
@@ -1487,7 +1488,7 @@ def get_bulk_daily_ohlcv(
     if not misses:
         return result
 
-    end_dt = datetime.utcnow()
+    end_dt = datetime.now(timezone.utc).replace(tzinfo=None)
     days_back = _BULK_BARS_RANGE_MAP[range_str]
     start_iso = (end_dt - pd.Timedelta(days=days_back)).strftime("%Y-%m-%d")
     end_iso = end_dt.strftime("%Y-%m-%d")
