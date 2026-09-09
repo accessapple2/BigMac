@@ -5537,7 +5537,7 @@ if __name__ == "__main__":
             return
         try:
             from engine.season_manager import rotate_season
-            new = rotate_season()
+            new = rotate_season(caller="cron-sunday")
             if new is not None:
                 console.log(f"[bold green]⭐ Season auto-rotation complete → Season {new}")
             else:

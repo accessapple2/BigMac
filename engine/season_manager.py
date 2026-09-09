@@ -164,7 +164,18 @@ def _dry_run_unhalt_scope(conn) -> dict:
     }
 
 
-def _alert_rotation_aborted(scope: dict, season: int) -> None:
+def _alert_rotation_aborted(scope: dict, season: int, caller: str) -> None:
+    # HM-FALSE-RED-ALERT-FORENSICS-2026-09-09: this exact alert fired 8
+    # times (2026-07-18 -> 2026-09-09), byte-identical payload every time,
+    # and NEVER once recorded who or what invoked rotate_season() --
+    # exhaustive audits of every locally-stored Claude Code session
+    # transcript and the live trader.log's ENDPOINT-DUR request log found
+    # zero trace of a real invocation anywhere. caller (now a required
+    # rotate_season() argument), sys.argv, and a 3-frame stack summary are
+    # stamped into the alert so the next occurrence names itself instead
+    # of recurring as another unsolved mystery.
+    import sys, traceback
+    stack_summary = "".join(traceback.format_stack(limit=4)[:-1])  # drop this frame itself
     try:
         from engine.alert_channels import send_alert, AlertLevel
         send_alert(
@@ -174,7 +185,9 @@ def _alert_rotation_aborted(scope: dict, season: int) -> None:
                 f"{scope['active_before']} currently active "
                 f"(margin={ROTATION_REACTIVATION_MARGIN}). No DB writes were made. "
                 f"A season rotation should never multiply the active fleet — "
-                f"investigate engine/season_manager.py before the next attempt."
+                f"investigate engine/season_manager.py before the next attempt. "
+                f"caller={caller!r} argv={sys.argv!r}\n"
+                f"stack (nearest-caller-first, 3 frames):\n{stack_summary}"
             ),
             level=AlertLevel.RED_ALERT,
             alert_type="hm-season-rotation-aborted",
@@ -184,10 +197,25 @@ def _alert_rotation_aborted(scope: dict, season: int) -> None:
         console.log(f"[red]Season rotation abort-NTFY failed: {e}")
 
 
-def rotate_season() -> int | None:
+def rotate_season(caller: str) -> int | None:
     """Rotate to a new season. Returns the new season number, or None if
     the rotation was aborted by the reactivation-scope safety check (no
-    writes made in that case — safe to retry once investigated)."""
+    writes made in that case — safe to retry once investigated).
+
+    HM-FALSE-RED-ALERT-FORENSICS-2026-09-09: caller is now a REQUIRED,
+    explicit argument (e.g. "cron-sunday", "s8-manual") -- no default, no
+    silent fallback. This function has fired a false abort alert 8 times
+    with zero record of who invoked it; refusing to run anonymously, and
+    stamping the caller (plus argv and a stack summary) into the abort
+    alert, means the next occurrence identifies itself instead of adding
+    a 9th unsolved entry to docs/XO_BACKLOG.md's HM-FALSE-RED-ALERT.
+    """
+    if not caller or not isinstance(caller, str):
+        raise TypeError(
+            "rotate_season() requires an explicit caller=... argument "
+            "(e.g. 'cron-sunday', 's8-manual') -- see "
+            "HM-FALSE-RED-ALERT-FORENSICS-2026-09-09"
+        )
     ensure_tables()
     current = get_current_season()
     new_season = current + 1
@@ -204,7 +232,7 @@ def rotate_season() -> int | None:
             f"would_affect={scope['would_affect']} active_before={scope['active_before']} "
             f"margin={ROTATION_REACTIVATION_MARGIN}[/bold red]"
         )
-        _alert_rotation_aborted(scope, new_season)
+        _alert_rotation_aborted(scope, new_season, caller)
         return None
 
     # Save summary of ending season
@@ -336,7 +364,7 @@ def start_season(season_num: int):
             f"would_affect={scope['would_affect']} active_before={scope['active_before']} "
             f"margin={ROTATION_REACTIVATION_MARGIN}[/bold red]"
         )
-        _alert_rotation_aborted(scope, season_num)
+        _alert_rotation_aborted(scope, season_num, "dashboard:/api/seasons/start")
         return {"error": "aborted by reactivation-scope safety check", "scope": scope}
 
     # Save current season summary

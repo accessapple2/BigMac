@@ -192,7 +192,7 @@ class SeasonRotationReactivationScopeTests(unittest.TestCase):
             "SELECT id, halt_mode, cash, season FROM ai_players ORDER BY id"
         ).fetchall()
 
-        result = season_manager.rotate_season()
+        result = season_manager.rotate_season(caller="test")
         self.assertIsNone(result, "rotate_season() must return None on abort")
 
         after_conn = self._conn()
@@ -225,7 +225,7 @@ class SeasonRotationReactivationScopeTests(unittest.TestCase):
         # (data/trader.db, not season_manager.DB) — mock it so a "safe"
         # rotation in this test never touches the real production DB.
         with patch("engine.war_room.save_hot_take", return_value=True):
-            result = season_manager.rotate_season()
+            result = season_manager.rotate_season(caller="test")
         self.assertEqual(result, 2, "safe rotation must proceed and return the new season number")
 
         after_conn = self._conn()
