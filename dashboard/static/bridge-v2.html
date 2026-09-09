@@ -3027,15 +3027,39 @@ function renderDeskChain(data) {
   }).join('') : '<div class="desk-chain-step"><span class="desk-chain-num">·</span><div class="desk-chain-body">'
       + '<div class="desk-chain-detail" style="color:var(--tx-dim)">No gate/audit events recorded for this signal.</div></div></div>';
 
-  const canAct = status === 'PENDING';
+  // HM-DESK-CLAIM-EXT-2026-09-09: mirrors the backend claim extension in
+  // dashboard/app.py::desk_execute_signal -- a REJECTED row is also
+  // send-it-able if its latest reject verdict was the regime block
+  // specifically and it's still inside its timeframe's stale budget
+  // (same events_bus._STALE_BUDGET_S values the automated stale_signal
+  // gate uses). Any other REJECTED reason, or one past its budget, stays
+  // unactionable here -- the backend claim would refuse it anyway, but
+  // checking client-side avoids a false "SEND IT" affordance that 400s.
+  const DESK_STALE_BUDGET_S = { '0dte': 2, 'intraday': 900, 'swing': 3600, 'position': 300 };
+  function deskIsFreshRegimeReject() {
+    if (status !== 'REJECTED' || !gateEvs.length) return false;
+    const last = gateEvs[gateEvs.length - 1].detail || {};
+    const verdict = last.gate_verdict || last.reason || '';
+    if (!/^REGIME-ROUTER|^regime_mismatch/.test(verdict)) return false;
+    const budget = DESK_STALE_BUDGET_S[(sig.timeframe || 'swing').toLowerCase()];
+    if (budget == null || !sig.created_at) return false;
+    const createdMs = Date.parse(String(sig.created_at).replace(' ', 'T') + 'Z');
+    if (isNaN(createdMs)) return false;
+    return (Date.now() - createdMs) / 1000 <= budget;
+  }
+  const regimeBypassEligible = deskIsFreshRegimeReject();
+  const canAct = status === 'PENDING' || regimeBypassEligible;
   const gatedTitle = _deskExecuteEnabled ? '' : ' title="Rung 4 gated — DESK_EXECUTE_ENABLED is off"';
   const disabledAttr = _deskExecuteEnabled ? '' : ' disabled';
+  const sendItLabel = regimeBypassEligible ? 'SEND IT — REGIME BYPASS' : 'SEND IT';
   const actionsHtml = canAct
     ? '<div class="desk-actions">'
-      + '<button class="btn blue sm" id="sendit_' + data.signal_id + '"' + disabledAttr + gatedTitle
-      +   ' onclick="event.stopPropagation();deskSendIt(' + data.signal_id + ')">SEND IT</button>'
-      + '<button class="btn ghost sm" id="dismiss_' + data.signal_id + '"' + disabledAttr + gatedTitle
-      +   ' onclick="event.stopPropagation();deskDismiss(' + data.signal_id + ')">DISMISS</button>'
+      + '<button class="btn ' + (regimeBypassEligible ? 'amber' : 'blue') + ' sm" id="sendit_' + data.signal_id + '"' + disabledAttr + gatedTitle
+      +   ' onclick="event.stopPropagation();deskSendIt(' + data.signal_id + ',' + (regimeBypassEligible ? 'true' : 'false') + ')">' + sendItLabel + '</button>'
+      + (status === 'PENDING'
+          ? '<button class="btn ghost sm" id="dismiss_' + data.signal_id + '"' + disabledAttr + gatedTitle
+            +   ' onclick="event.stopPropagation();deskDismiss(' + data.signal_id + ')">DISMISS</button>'
+          : '')
       + '</div>'
     : '';
 
@@ -3065,9 +3089,12 @@ function renderDeskChain(data) {
     + actionsHtml;
 }
 
-async function deskSendIt(signalId) {
+async function deskSendIt(signalId, isRegimeBypass) {
   if (!_deskExecuteEnabled) { act('Desk execute is gated', 'DESK_EXECUTE_ENABLED is off', true); return; }
-  if (!confirm('SEND IT — this routes a real paper order through desk-manual for signal ' + signalId + '. Continue?')) return;
+  const confirmMsg = isRegimeBypass
+    ? 'REGIME BYPASS — signal ' + signalId + ' was rejected by the regime router. Sending it manually overrides that block for this signal ONLY (no automatic override exists). Routes a real Alpaca paper order through desk-manual. Continue?'
+    : 'SEND IT — this routes a real paper order through desk-manual for signal ' + signalId + '. Continue?';
+  if (!confirm(confirmMsg)) return;
   const btn = document.getElementById('sendit_' + signalId);
   if (btn) btn.disabled = true;
   try {
