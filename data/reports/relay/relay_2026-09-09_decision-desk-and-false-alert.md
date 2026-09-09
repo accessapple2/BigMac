@@ -2,7 +2,7 @@
 
 Continues [[relay 2026-09-09 30b-revert-and-think-leak]] (morning: 8B/30B/instruct-2507 saga, still live on `qwen3:30b-a3b-instruct-2507-q4_K_M`, no reverts, no threshold breaches all day).
 
-**VERDICT: Decision Desk manual regime-bypass shipped and used for real — 2 real Alpaca paper trades placed (TMO, SNPS). Found and fixed a pre-existing bug (Desk could never execute anything, ever, since the feature shipped 2026-07-05) along the way. One real gap remains open: neither position has an automated exit path. Separately, a 12-day-recurring unexplained false RED_ALERT was re-investigated, same "source unidentified" conclusion as 08-29.**
+**VERDICT (closed out end-of-day): Decision Desk manual regime-bypass shipped and used for real — 2 real Alpaca paper trades placed (TMO, SNPS), both now covered by a working hard-stop exit path (the entry-only bug and the exit-path gap were both found and fixed today). The false RED_ALERT was traced to 8 occurrences (not 2), two real leads investigated and ruled out with direct evidence, source never identified — closed off structurally instead: `rotate_season()` now refuses to run anonymously. Bigmac's local Ollama is fully retired (`com.ollama.serve` stopped+disabled, `ollama-swap-probe` retired); olliemax carries the full session, verified. See "FINAL UPDATE" below for the end-of-day state — read that section first, the middle of this doc is superseded blow-by-blow narrative.**
 
 ---
 
@@ -72,9 +72,44 @@ A RED_ALERT fired today (~12:29 MST) reporting a season-rotation abort — "31 v
 
 **Shipped, unrelated to root-causing this alert:** `alert_channels.py::_send_pushover()` now sends an explicit `timestamp` field (`int(time.time())`) — it previously sent none, leaving Pushover's own receipt-time default in control of the displayed time, one plausible (not confirmed) explanation for a ~12-day-old display. Removes a variable; doesn't explain the recurrence.
 
-**Conclusion unchanged from 08-29: source unidentified.** Two occurrences, 12 days apart, byte-identical payload, neither traceable to a live execution path on this system. Full S8 rotation sequence proposed (not executed) separately, preserving the existing margin gate and halt_mode scoping.
+**Superseded below — this was not 2 occurrences, it was 8, and the source is now closed off going forward even though it was never identified.**
+
+---
+
+## FINAL UPDATE — false-alert closed out, Desk exit-path fixed, bigmac Ollama retired
+
+### False alert: 8 occurrences found, source never identified, closed off structurally instead
+The `notifications` table (not just `docs/XO_BACKLOG.md`'s two documented entries) shows this exact byte-identical alert fired **8 times**: 2026-07-18, five times on 2026-08-29, 2026-08-30, and 2026-09-02 — then again today. Investigated two real leads, ruled both out with direct evidence:
+
+- **`POST /api/seasons/rotate`** (`dashboard/app.py`) — a second, unguarded caller of `rotate_season()` with no day-of-week check, unauthenticated for any localhost caller (`AuthMiddleware`'s documented "API routes from localhost bypass auth" carve-out). Strong circumstantial fit (random-day timestamps, not Sunday-clustered) — but `[ENDPOINT-DUR]` request logging (active since 2026-05-20) shows **zero** hits to this path in either the one surviving archive that covers the 2026-07-18 occurrence or today's fully-covered live window. No frontend ever called it either. **Ruled out and removed** (nothing legitimate used it, per the Admiral's own guard-or-remove criterion) rather than guarded.
+- **This session, and every other locally-stored Claude Code session transcript that mentions `season_manager`** (8 of 28 total sessions across 3 project roots) — audited precisely for actual `rotate_season()`/`start_season()` execution (Bash-run commands and written-and-executed scripts, not just source-code mentions, which show up constantly from reading/grepping the file). **Zero evidence of execution anywhere.** The 2026-08-29 session (`7bf19c51`) and a 2026-09-01 session (`c5d95c98`, which touched a *different*, already-closed table — `season_config` — not this bug) were both confirmed read-only by their own transcripts, not just their self-reports.
+
+**Conclusion: source never identified**, same as the original 08-29 finding, now with a much larger confirmed-clean surface (8 occurrences, not 2; every local Claude Code session checked, not just the two that happened to discuss it). Rather than keep chasing an unfindable source, closed it off structurally: `rotate_season()` now **requires** an explicit `caller` argument (`TypeError` without one — no default, no silent fallback), and the abort alert now stamps `caller`, `sys.argv`, and a 3-frame stack summary into the message. If it fires a 9th time, it names itself. (`fbf9abc`)
+
+### Decision Desk: exit-path gap closed
+This morning's `buy()` fix let the Desk enter positions past the regime block; `sell()`/`sell_partial()` still unconditionally blocked `desk-manual` as `is_human=1`, leaving TMO and SNPS with zero automated exit path (not McCoy's trailing stop, not even the generic −8% hard stop). Fixed with the same exact-`player_id` exemption pattern, **verified live** post-restart:
+- `_hard_stop_eligible_players()` includes `desk-manual` ✅
+- Guard no longer blocks `sell()`/`sell_partial()` for `desk-manual` specifically ✅
+- Every other `is_human` account (tested: `webull`) still fully blocked ✅
+- TMO (qty 0.1807 @ $605.62) and SNPS (qty 0.2728 @ $394.816) both confirmed still open, now covered by the generic hard-stop sweep
+
+(`3a984c3`)
+
+### Bigmac Ollama fully retired, olliemax carries the full session
+- `RECALL_OLLAMA_URL` repointed to olliemax in `scripts/recall_refresh_run.sh`; bge-m3 verified working **twice** (once alongside the resident 30B-instruct, once standalone after both idled out) — 1024-dim embeddings, clean 200s both times.
+- `com.ollama.serve` stopped and disabled (`sudo launchctl bootout` + `disable`) — confirmed gone from `launchctl print` and port 11434 clean on bigmac. Took two attempts; the first `bootout` didn't durably stick (unclear why — possibly a timing/shell issue on the Admiral's end) and `ollama serve` kept respawning via `KeepAlive` every time it was killed at the process level, which briefly looked like an orphan-process mystery before `launchctl dumpstate` showed the daemon was still fully registered and running the whole time.
+- `ollama-swap-probe` retired via `scripts/fleet_lifecycle.py` (dated order doc + ledger row, LaunchAgent confirmed unloaded) — its monitoring target (bigmac-local model swaps) has been obsolete since fleet inference moved to olliemax regardless of when the daemon itself actually stopped. (`61c9ee1`)
+
+### DESK_EXECUTE_ENABLED
+Died with the post-close restart as planned — confirmed via a live probe returning "DESK_EXECUTE_ENABLED is off" rather than a 404. Never persisted to `.env`.
 
 ## Code shipped (commits, pushed to exec-pipeline)
-- `59fcaeb` — Decision Desk regime bypass, human-guard fix, per-hop trace, real Alpaca paper routing.
+- `59fcaeb` — Decision Desk regime bypass, human-guard fix (buy path), per-hop trace, real Alpaca paper routing.
 - `25ac999` — Frontend SEND-IT button for regime-rejected rows.
 - `b77ddd2` — False-alert re-investigation writeup + Pushover timestamp fix.
+- `3a984c3` — `sell()`/`sell_partial()` desk-manual exemption; removed unused `seasons/rotate` endpoint; `recall_refresh_run.sh` olliemax repoint.
+- `fbf9abc` — `rotate_season()` requires explicit caller; stamps caller+argv+stack into the abort alert.
+- `61c9ee1` — `ollama-swap-probe` retirement order doc.
+
+## Open for tonight
+Bakeoff (8B vs 30B-instruct, calibration score + latency) still to run before the 05:46 MST premarket brief — default is 8B unless the bakeoff shows a clear quality edge for 30B-instruct. Today's hourly McCoy decision volume (a 393-decision spike at hour 15, zero trades) flagged by the Admiral as worth understanding first.
