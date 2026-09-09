@@ -31,7 +31,7 @@ ARCHIVE_DIR="$BACKUP_DIR/_archive"
 # offhost's 14-day target could never actually be met. At ~1GB/night
 # uncompressed, 14 days is ~14GB against 38.6GiB free on this volume (well
 # clear of the disk-full errors logged 2026-08-12/08-15/08-16/08-21).
-KEEP=14
+KEEP=7
 NTFY_TOPIC="ollietrades-admin"
 NTFY_URL="https://ntfy.sh/$NTFY_TOPIC"
 LOG="$REPO/logs/db_snapshot.log"

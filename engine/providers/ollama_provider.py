@@ -43,6 +43,24 @@ _QWEN3_ALIAS_MODEL_IDS = {
     "plutus-v1", "plutus-v1:latest", "ministral-3:3b", "qwen2.5-coder:7b",
 }
 
+# HM-OLLIE-30B-CUTOVER 2026-09-08: num_ctx was a single global constant
+# (10240, sized off qwen3:8b's p95 real-traffic token usage) applied to
+# every model regardless of size. qwen3:30b-a3b needs more headroom -- last
+# 24h actual input+output tokens across McCoy/Troi/Worf run p50=9429,
+# max=9727, so 8192 would truncate the median call outright. 16384 covers
+# the observed max with room; live-verified on olliemax at that context
+# length: 18.4GB VRAM for the model alone, ~3GB+ still free (of ~21.5GB
+# across both cards), and bge-m3 stays co-resident (77MB) rather than being
+# evicted. Per-model override, default unchanged for every other model.
+_NUM_CTX_OVERRIDES = {
+    "qwen3:30b-a3b": 16384,
+}
+_DEFAULT_NUM_CTX = 10240
+
+
+def _num_ctx_for(model_id: str) -> int:
+    return _NUM_CTX_OVERRIDES.get(model_id, _DEFAULT_NUM_CTX)
+
 # HM-MODEL-LOUD 2026-06-01: a missing/failing model must ALARM, not silently return "".
 # (How devstral-small-2 etc. went dark — _do_request swallowed the 404 to an empty string.)
 # Throttled to ONE NTFY per (model_id) per process lifetime — the fleet inference path is
@@ -119,7 +137,7 @@ class OllamaProvider(AIProvider):
                 # generating unboundedly — an acceptable trade given the
                 # goal here is predictable per-slot VRAM for 2-worker
                 # co-residency, not zero-truncation guarantees.
-                "num_ctx": 10240,
+                "num_ctx": _num_ctx_for(self.model_id),
             },
         }
         # 2026-04-27: qwen3 family streams chain-of-thought tokens before JSON,
