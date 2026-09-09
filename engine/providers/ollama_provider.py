@@ -73,6 +73,11 @@ _NO_THINK_PROMPT_MODELS = {"qwen3:30b-a3b"}
 # evicted. Per-model override, default unchanged for every other model.
 _NUM_CTX_OVERRIDES = {
     "qwen3:30b-a3b": 16384,
+    # HM-OLLIE-30B-LIVE-2026-09-09: instruct-2507 build, same context sizing
+    # rationale as the thinking build above (same real-traffic token
+    # distribution across McCoy/Troi/Worf) -- this is the tag actually live
+    # now, the thinking tag above is retired from any fleet seat.
+    "qwen3:30b-a3b-instruct-2507-q4_K_M": 16384,
 }
 _DEFAULT_NUM_CTX = 10240
 

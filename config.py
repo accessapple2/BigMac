@@ -409,7 +409,7 @@ AI_PLAYERS = [
     {"id": "ollama-deepseek", "name": "Spock R1 14B",       "provider": "ollama", "model": "deepseek-r1:14b",   "url": OLLIE_URL},  # Ollie GPU
     {"id": "ollama-qwen3",    "name": "Lt. Jadzia Dax",     "provider": "ollama", "model": "qwen3:8b",          "url": OLLIE_URL},  # Ollie GPU (model qwen3:8b here is deliberately-unsynced legacy; DB=ministral-3:3b is runtime truth per config.py:285)
     {"id": "ollama-coder",    "name": "Lt. Cmdr. Data",     "provider": "ollama", "model": "qwen2.5-coder:7b",  "url": OLLIE_URL},  # Ollie GPU — was qwen3-coder:30b
-    {"id": "ollama-plutus",   "name": "Uhura Plutus",       "provider": "ollama", "model": "plutus-v1",    "url": OLLIE_URL},  # Ollie GPU — McCoy's finance brain; HM-OLLIE-30B-REVERT 2026-09-09, queue-bound in prod (avg 38.4s, 43/55/72s rising) -- was qwen3:30b-a3b
+    {"id": "ollama-plutus",   "name": "Uhura Plutus",       "provider": "ollama", "model": "qwen3:30b-a3b-instruct-2507-q4_K_M",    "url": OLLIE_URL},  # Ollie GPU — McCoy's finance brain; HM-OLLIE-30B-LIVE 2026-09-09, instruct-2507 (non-thinking, verified 0/5 think leaks) -- was plutus-v1
     {"id": "navigator",       "name": "Ensign Chekov",       "provider": "ollama", "model": "qwen3:8b",          "url": OLLIE_URL},  # Ollie GPU — backtest routing; live uses chekov_rules()
     {"id": "neo-matrix",      "name": "Neo Matrix",          "provider": "ollama", "model": "qwen3:14b",         "url": OLLIE_URL},  # 2026-04-23: rerouted to Ollie Box, freed bigmac RAM (Ollie Box has 32GB RAM, handles qwen3:14b)
     {"id": "ollama-llama",    "name": "Llama 3.1 8B",       "provider": "ollama", "model": "llama3.1:latest"},                      # bigmac localhost fallback
@@ -424,7 +424,7 @@ AI_PLAYERS = [
     {"id": "qwen3-8b-4o",          "name": "GPT-4o",             "provider": "openai", "model": "qwen3-8b-4o",         "local_redirect": True},
     {"id": "qwen3-8b-o3",          "name": "GPT-o3",             "provider": "openai", "model": "o3",                   "local_redirect": True},
     {"id": "qwen3-14b-pro",  "name": "Dalio Macro 8B",     "provider": "ollama", "model": "qwen3:8b",         "url": OLLIE_URL},  # HM-BE: name aligned with model (was "14B"; downgraded to 8B on 2026-04-20 swap-storm cleanup)
-    {"id": "qwen3-8b-flash","name": "Worf 8B",            "provider": "ollama", "model": "qwen3:8b",          "url": OLLIE_URL},  # Ollie GPU — was gemini; HM-OLLIE-30B-REVERT 2026-09-09, queue-bound in prod -- was qwen3:30b-a3b
+    {"id": "qwen3-8b-flash","name": "Worf 8B",            "provider": "ollama", "model": "qwen3:30b-a3b-instruct-2507-q4_K_M",          "url": OLLIE_URL},  # Ollie GPU — was gemini; HM-OLLIE-30B-LIVE 2026-09-09, instruct-2507 -- was qwen3:8b
     {"id": "qwen3-14b-grok3",          "name": "ex-Grok3 14B",       "provider": "ollama", "model": "qwen3:14b",         "url": OLLIE_URL},  # Ollie GPU — retired 2026-04-16
     {"id": "deepseek-7b-grok4",          "name": "ex-Grok4 8B",        "provider": "ollama", "model": "qwen3:8b",          "url": OLLIE_URL},  # Ollie GPU — retired 2026-04-16
 ]
