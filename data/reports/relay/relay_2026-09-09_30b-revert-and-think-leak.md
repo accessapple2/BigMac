@@ -1,6 +1,8 @@
-# 30B Revert to 8B + Think-Suppression Failure Confirmed — 2026-09-09
+# 30B Revert to 8B + Think-Suppression Root Cause Confirmed — 2026-09-09
 
-**VERDICT: 8B stays production. qwen3:30b-a3b (cut over last night, commit `b1ccddf`) reverted this morning after going queue-bound in production (last 200 calls avg 38.4s, max 100s, trending up: 43/55/72s). Admiral's call after seeing both step 1 (8B) and step 3 (30B) numbers side by side: tomorrow stays on 8B.**
+**VERDICT: 8B stays production (7.74s avg, improving further with olliemax tuning — see three-column table below). qwen3:30b-a3b (cut over last night, commit `b1ccddf`) reverted this morning after going queue-bound in production (last 200 calls avg 38.4s, max 100s, trending up: 43/55/72s).**
+
+**Root cause of the think-leak found (not just confirmed-broken): `ollama show qwen3:30b-a3b` on olliemax shows `thinking` in capabilities and an `IsThinkSet` branch in the template — Ollama's `qwen3:30b-a3b` tag points at the **thinking-2507** build, which cannot be suppressed via either the API `think:false` field or the `/no_think` prompt token. Fix in flight: pulling `qwen3:30b-a3b-instruct-2507-q4_K_M` (non-thinking by design) on olliemax; 5-real-McCoy-prompt verification pending the pull landing, numbers-only, fleet not repointed.**
 
 ---
 
@@ -44,27 +46,51 @@ avg 16.93s | max 28.08s | min 12.28s
 
 `/api/ps` after load: `qwen3:30b-a3b`, 19.29GB/19.67GB VRAM = **98.1% GPU** (up from ~94% at f16 last night), `context_length=16384` confirmed.
 
-## Critical finding: think-suppression is broken for qwen3:30b-a3b, on both known mechanisms
+## Step 4 — olliemax NUM_PARALLEL=2 + queue-wait/model-time instrumentation
 
-Last night's relay flagged this as "not blocking, worth a look later" (see [[relay 2026-09-08 olliemax cutover]] item 3). Today, confirmed as a hard failure, not a stylistic quirk:
+Admiral applied `OLLAMA_NUM_PARALLEL=2` on olliemax (5GB model comfortably fits the 11GB card's KV headroom at q8_0). Next-10-call sample under real load, all McCoy, several in rapid back-to-back succession (burst behavior, consistent with 2 concurrent slots actually being used):
+```
+5.66, 10.46, 4.51, 4.38, 4.29, 4.49, 4.65, 4.41, 3.66, 4.32  (seconds)
+avg 5.08s | max 10.46s | min 3.66s
+```
 
-1. **API `think:false` field** — already sent (model_id.startswith("qwen3")), confirmed via raw `/api/generate` probe: response body has **no separate `"thinking"` key at all**; full chain-of-thought is baked directly into `"response"` on every call.
+Then shipped direct measurement of contention itself rather than inferring it: `engine/ollama_queue.py`'s `_Task` now stamps `submit_ts`/`dispatch_ts`; `OllamaQueue.submit()` takes an optional `timing` dict populated with `queue_wait_s` and `model_time_s` (backward-compatible — the one other caller, `crew_scanner.py`, omits it and is unaffected). `ollama_call` log lines now read `wall=<s>s queue_wait=<s>s model_time=<s>s`. One trader restart to deploy (pid 72280, single-writer gate passed). Confirmed live: `queue_wait=0.00s` on the first 3 post-restart calls (McCoy solo, no contention in a quiet window) — a persistent watch is running for the rest of the session and will surface any call with real (>1s) queue_wait as it happens.
+
+## Three-column summary — 8B tuning progression today
+
+| Config | n | avg | max | min |
+|---|---|---|---|---|
+| 8B, f16 KV cache (baseline, pre-step-2) | 4 | 8.64s | 9.69s | 6.72s |
+| 8B, q8_0 KV cache + keep_alive=-1 | 5 | 6.45s | 12.03s | 1.91s |
+| 8B, q8_0 + `NUM_PARALLEL=2` | 10 | 5.08s | 10.46s | 3.66s |
+| *(reference)* 30B, direct calls, not repointed | 5 | 16.93s | 28.08s | 12.28s |
+| *(reference)* 30B in production, pre-revert | ~200 | 38.4s | 100s | — |
+
+Not a controlled A/B (real production traffic, not synthetic load), but a consistent downward trend as each olliemax tuning step landed. 8B stays production regardless of what the instruct-2507 30B variant measures — this table is the "step 1 vs step 3" comparison the revert decision was made on.
+
+## Root cause confirmed: qwen3:30b-a3b is the thinking-2507 build, cannot be suppressed
+
+Last night's relay flagged the leak as "not blocking, worth a look later" (see [[relay 2026-09-08 olliemax cutover]] item 3). This morning: confirmed as a hard failure via both known suppression mechanisms —
+
+1. **API `think:false` field** — already sent (`model_id.startswith("qwen3")`), confirmed via raw `/api/generate` probe: response body has **no separate `"thinking"` key at all**; full chain-of-thought is baked directly into `"response"` on every call.
 2. **`/no_think` prompt-token** (the pattern `scout_critic.py`/`mlx_provider.py` already rely on for exactly this failure mode) — added to `ollama_provider.py` (`_NO_THINK_PROMPT_MODELS = {"qwen3:30b-a3b"}`, prepends `"/no_think\n"` to the prompt) and re-tested with a raw call. **Also failed** — full CoT monologue still generated, this time even closing with a literal `</think>` tag with no matching opening tag, before the real answer.
 
-6/6 test calls today (5 real McCoy prompts + 1 raw probe) leaked reasoning text into the visible response. This is a qwen3moe (MoE) architecture; the dense qwen3:8b/14b tags this codebase relies on elsewhere were the ones the 2026-04-27 think:false fix was originally verified against — this MoE tag apparently isn't wired the same way in this Ollama build's Modelfile/template.
+6/6 test calls that round (5 real McCoy prompts + 1 raw probe) leaked reasoning text into the visible response.
 
-**Not attempted tonight:** post-hoc stripping (splitting the response on the literal `</think>` tag when present) as a workaround, or checking whether `ollama show qwen3:30b-a3b --modelfile` declares a `thinking` capability at all. Either would need a deliberate pass before this model could be considered viable at any latency, independent of the queue-contention finding above.
+**Root cause, found via `ollama show qwen3:30b-a3b` on olliemax:** capabilities list `thinking`, and the template has an `IsThinkSet` branch — Ollama pre-fills an empty think block and the model reasons past it regardless of the `think` API field or in-prompt `/no_think` token. Cross-checked against Qwen's own repo: Ollama's `qwen3:30b-a3b` tag points at the **thinking-2507** build specifically, which has no non-thinking mode — this isn't a suppression bug, it's the wrong tag. **Fix:** pulling `qwen3:30b-a3b-instruct-2507-q4_K_M` on olliemax (non-thinking by design, no `<think>` blocks possible). Will evict the resident 8B for a couple of minutes during the pull/load — accepted, paper day. Verification (5 real McCoy prompts, zero `<think>` content, wall times, numbers only, fleet not repointed) pending the pull landing.
 
 ## Taint window — decision output is suspect
 
 **Any McCoy/Troi/Worf decision or War Room take generated by qwen3:30b-a3b between the 2026-09-08 21:18 MST cutover (commit `b1ccddf`) and the 2026-09-09 ~07:30 MST revert should be treated as suspect** — not clean in-character output, since think-suppression was silently non-functional the entire window. Do not bank any signal, take, or War Room debate result from that ~10h stretch as representative of the agents' actual reasoning quality.
 
-## Code shipped (uncommitted at time of writing, this doc + code changes ship together)
+## Code shipped
+Commits `ea1269e` (revert + failed think-suppression attempt) and `ff420ce` (queue instrumentation), pushed to `exec-pipeline`:
 - `config.py`: McCoy/Worf model fields reverted
 - `ai_players` DB: McCoy/Worf model_id reverted (Troi untouched, already correct)
 - `engine/crew_specialization.py`: Geordi advisory-pin reference reverted (inert)
-- `engine/providers/ollama_provider.py`: `_NO_THINK_PROMPT_MODELS` + prompt-prefix added for qwen3:30b-a3b (verified NOT sufficient on its own — see finding above; kept because it's the theoretically-correct mechanism and harmless, not because it currently works)
+- `engine/providers/ollama_provider.py`: `_NO_THINK_PROMPT_MODELS` + prompt-prefix added for qwen3:30b-a3b (does NOT fix the leak on the thinking-2507 tag — root cause is the tag itself, see above — kept as the theoretically-correct mechanism for any future qwen3moe model that does support it) + queue_wait/model_time split into the `ollama_call` log line
+- `engine/ollama_queue.py`: `_Task.submit_ts`/`dispatch_ts`, `OllamaQueue.submit(timing=...)` optional output dict
 
 ## Open items
-- Think-suppression for qwen3:30b-a3b remains unsolved — needs a deliberate pass (Modelfile capability check, Ollama version check, or post-hoc `</think>` stripping) before this model is reconsidered.
-- Queue-contention hypothesis (step 3 direct calls 2-3x faster than production average) is not yet proven — would need instrumentation of `OllamaQueue` wait time vs. inference time to confirm before it factors into any future re-cutover decision.
+- `qwen3:30b-a3b-instruct-2507-q4_K_M` pull in progress on olliemax — verification (5 real McCoy prompts, zero `<think>` content, wall times) pending, numbers only, fleet not repointed regardless of result.
+- Queue-contention watch is live for the rest of the session (persistent Monitor, flags any `queue_wait` > 1s) — the step-3 "2-3x faster direct vs. production average" finding is now instrumented, not just inferred; no contention observed yet in today's quiet post-close-adjacent traffic.
