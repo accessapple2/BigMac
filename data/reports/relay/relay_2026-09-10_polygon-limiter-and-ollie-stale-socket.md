@@ -388,3 +388,42 @@ regardless — it's correct defensive engineering independent of today's
 specific root cause, and materially reduces the cost of any future
 recurrence (30s vs. 180s per hit, proper logging, no pooling to go
 stale). Final cost: 70 events, 3.49 cumulative hours — see above.
+
+## Deploy-day closing numbers — tomorrow's baselines
+
+Restart landed 13:08:20 local (PID 40893). Checked ~13:20:51 local
+(~12.5 min post-restart, after-hours):
+
+- **`[OLLAMA-CANCEL]` total: 70** — unchanged since the restart, zero
+  new events. No recurrence. (Full-day final; the incident closed at
+  11:58, nothing since.)
+- **Polygon budget-exhausted (`would_fail_loud`), post-restart window
+  only: 0** (of 638 total gated calls, 327 `would_throttle`, all 327
+  served from cache as `would_serve_stale` — none needed to fail loud).
+  `process_started_at` in the shadow report confirms this is scoped
+  cleanly to post-restart (counters reset on process start, no
+  pre-restart contamination).
+
+**Important caveat, not a clean receipt yet:** `RiskManager.is_market_hours()`
+returned `post_market` for this entire window. The shadow limiter's
+fail-loud branch requires `in_market` to be true
+(`tiered_rate_limiter.py`'s `gated_call`) — it **cannot** increment
+after hours regardless of cap size. So today's 0 is confounded by
+market being closed, not yet proof the 100/min cap holds under real
+intraday load. **Today's 17,530 (pre-raise, mid-market) and today's 0
+(post-raise, after-hours) are not a like-for-like comparison** — the
+real test is tomorrow's first live market-hours reading against the new
+cap. Use tomorrow's `would_fail_loud` count (market hours only) as the
+actual regression metric, not today's post-restart number.
+
+## Offhost backup duration — check pending, not yet available
+
+`scripts/offhost_backup.sh` runs on a `20:30 MST` cron entry — has not
+run yet as of this update (13:2x local). Last night's run: **9,638s**
+(vs. ~1,065s a week prior), with `signal-center/signals.db`'s pre-
+retention 2.19 GB flagged as the likely cause (largest single DB in the
+backup set, full-rsync'd). Post-retention (this session, step 4 of the
+13:00 bundle): `signals.db` is now **180.2 MB**, a ~92% reduction.
+Expect a materially shorter run tonight if that diagnosis was right —
+not asserting a number ahead of the actual run. Will check once the
+cron has fired and update this doc with the real duration.
