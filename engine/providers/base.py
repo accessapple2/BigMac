@@ -57,6 +57,73 @@ def check_reasoning_direction_conflict(action: str, reasoning: str) -> str | Non
     return None
 
 
+# HM-XO-PLAN-2026-09 Phase 1.1: structured, required invalidation level.
+# "Non-boilerplate" alone (any non-empty text) would let a stop ABOVE the
+# entry through on a BUY -- not an invalidation at all, just noise. This
+# checks the invalidation names a price level, on the correct side of the
+# reference price, at a plausible distance from it. Observational only,
+# same posture as check_reasoning_direction_conflict below: logs, never
+# blocks or alters the decision. Acceptance is judged on McCoy only (the
+# only seat that emits Arena signals) even though the prompt/parsing change
+# is shared fleet-wide so any future seat inherits it.
+_INVALIDATION_REQUIRED_ACTIONS = frozenset({"BUY", "BUY_CALL", "BUY_PUT", "SHORT"})
+_INVALIDATION_BELOW_ACTIONS = frozenset({"BUY", "BUY_CALL"})   # stop must be BELOW ref price
+_INVALIDATION_ABOVE_ACTIONS = frozenset({"BUY_PUT", "SHORT"})  # stop must be ABOVE ref price
+_MIN_INVALIDATION_PCT = 0.005   # 0.5%
+_MAX_INVALIDATION_PCT = 0.15    # 15%
+
+
+def _extract_price_level(text: str) -> float | None:
+    """Best-effort single dollar price level from free text. Pure function,
+    no I/O -- observational use only, not authoritative. Prefers a
+    $-prefixed number; falls back to a bare number that doesn't look like a
+    volume multiplier ("5.9x") or a bare year ("2026")."""
+    if not text:
+        return None
+    m = re.search(r'\$\s*(\d{1,6}(?:\.\d{1,2})?)', text)
+    if m:
+        return float(m.group(1))
+    for m in re.finditer(r'(?<![\d.])(\d{1,6}(?:\.\d{1,2})?)(?![\d.])', text):
+        raw = m.group(1)
+        end = m.end()
+        if end < len(text) and text[end].lower() == "x":
+            continue  # "5.9x volume"
+        val = float(raw)
+        if 2020 <= val <= 2099 and "." not in raw:
+            continue  # bare year, e.g. "2026 guidance"
+        return val
+    return None
+
+
+def check_invalidation_missing(action: str, invalidation: str | None,
+                               reference_price: float | None) -> str | None:
+    """Return a short description if the invalidation is missing, has no
+    parseable price level, is on the wrong side of reference_price, or isn't
+    0.5%-15% away from it -- else None. Pure function, no I/O."""
+    if action not in _INVALIDATION_REQUIRED_ACTIONS:
+        return None
+    text = (invalidation or "").strip()
+    if not text or text.upper() in ("N/A", "NA", "NONE"):
+        return f"invalidation missing (action={action})"
+    if reference_price is None or reference_price <= 0:
+        return None  # can't judge plausibility without a reference price
+    level = _extract_price_level(text)
+    if level is None:
+        return (f"invalidation has no parseable price level "
+                f"(ref_price=${reference_price:.2f}): {text[:120]!r}")
+    pct = abs(level - reference_price) / reference_price
+    if action in _INVALIDATION_BELOW_ACTIONS and level >= reference_price:
+        return (f"invalidation ${level:.2f} is not BELOW ref_price "
+                f"${reference_price:.2f} (action={action})")
+    if action in _INVALIDATION_ABOVE_ACTIONS and level <= reference_price:
+        return (f"invalidation ${level:.2f} is not ABOVE ref_price "
+                f"${reference_price:.2f} (action={action})")
+    if not (_MIN_INVALIDATION_PCT <= pct <= _MAX_INVALIDATION_PCT):
+        return (f"invalidation ${level:.2f} is {pct*100:.2f}% from ref_price "
+                f"${reference_price:.2f} (outside 0.5-15% band)")
+    return None
+
+
 def _fetch_phase(player_id: str, symbol: str, tag: str) -> None:
     """HM-RUN-SCAN-WATCHDOG Loop 5C-A.2: quiet sub-marker inside build_prompt to
     localize which per-symbol fetch owns an `infer:{sym}:prompt` hang. Lazy import
@@ -79,6 +146,7 @@ class TradeDecision:
     expiry_date: str = ""
     sources: str = ""  # comma-separated data sources that informed the decision
     timeframe: str = "SWING"  # SCALP, SWING, or POSITION
+    invalidation: str = ""  # HM-XO-PLAN-2026-09 Phase 1.1: the price level/event that would prove the thesis wrong
 
 
 class RateLimiter:
@@ -562,7 +630,7 @@ class AIProvider(ABC):
             except Exception:
                 pass
 
-            decision = self.parse_decision(response, symbol)
+            decision = self.parse_decision(response, symbol, price=price)
 
             # Attach data sources that informed this decision
             sources_str = ",".join(dict.fromkeys(getattr(self, "_sources", [])))
@@ -1460,13 +1528,15 @@ Decision: {decision_options}
 Timeframe: SCALP or SWING or POSITION
 Confidence: [number between 0.0 and 1.0]
 Reasoning: [2-3 sentences. If BUY: state your THESIS — what is the catalyst, why now, and your exit plan. If SHORT: bearish thesis + stop loss above entry. If HOLD: why this stock doesn't fit your strategy right now.]
+Invalidation: [The specific price level that would prove this thesis wrong — a number, not a description. BUY/BUY_CALL: a price BELOW the current price (${price:.2f}). SHORT/BUY_PUT: a price ABOVE the current price. HOLD: write N/A.]
 
 Timeframe guide:
 - SCALP: short-term trade (< 1 day), based on intraday/1hr signals, momentum or news play
 - SWING: medium-term trade (2–10 days), based on daily/4hr setup, trend continuation
 - POSITION: long-term trade (10+ days), based on weekly/daily fundamentals, trend or value"""
 
-    def parse_decision(self, text: str, symbol: str) -> TradeDecision:
+    def parse_decision(self, text: str, symbol: str,
+                       price: float | None = None) -> TradeDecision:
         # Parse action - look for the Decision: line first
         action = "HOLD"
         option_type = ""
@@ -1552,11 +1622,26 @@ Timeframe guide:
         if not reasoning:
             reasoning = text.strip()
 
+        # Parse invalidation (HM-XO-PLAN-2026-09 Phase 1.1)
+        invalidation = ""
+        for line in text.split("\n"):
+            line_stripped = line.strip()
+            if line_stripped.lower().startswith("invalidation:"):
+                invalidation = line_stripped[len("invalidation:"):].strip()
+                break
+
         _direction_conflict = check_reasoning_direction_conflict(action, reasoning)
         if _direction_conflict:
             console.log(
                 f"[yellow]⚠ REASONING-DIRECTION-CONFLICT {getattr(self, 'player_id', '?')} "
                 f"{symbol}: {_direction_conflict} — reasoning: {reasoning[:200]!r}"
+            )
+
+        _invalidation_issue = check_invalidation_missing(action, invalidation, price)
+        if _invalidation_issue:
+            console.log(
+                f"[yellow]⚠ INVALIDATION-IMPLAUSIBLE {getattr(self, 'player_id', '?')} "
+                f"{symbol}: {_invalidation_issue}"
             )
 
         return TradeDecision(
@@ -1566,6 +1651,7 @@ Timeframe guide:
             symbol=symbol,
             option_type=option_type,
             timeframe=timeframe,
+            invalidation=invalidation,
         )
 
     # =========================================================================
@@ -1638,7 +1724,7 @@ Based on this research and your trading identity, form a thesis:
 
 Think carefully. Your account is your lifeline."""
 
-    def build_execute_prompt(self, symbol: str, thesis: str) -> str:
+    def build_execute_prompt(self, symbol: str, thesis: str, price: float) -> str:
         """Step 3: Final decision confirmation from thesis."""
         return f"""Final decision on {symbol}. Your thesis:
 
@@ -1647,7 +1733,8 @@ Think carefully. Your account is your lifeline."""
 Confirm your trading decision. Respond with EXACTLY this format (no extra text):
 Decision: {'BUY or BUY_CALL or BUY_PUT or SHORT or HOLD' if self._is_short_enabled() else 'BUY or BUY_CALL or BUY_PUT or HOLD'}
 Confidence: [number between 0.0 and 1.0]
-Reasoning: [2-3 sentences. Your thesis, catalyst, and exit plan.]"""
+Reasoning: [2-3 sentences. Your thesis, catalyst, and exit plan.]
+Invalidation: [The specific price level that would prove this thesis wrong — a number, not a description. BUY/BUY_CALL: a price BELOW the current price (${price:.2f}). SHORT/BUY_PUT: a price ABOVE the current price. HOLD: write N/A.]"""
 
     def analyze_chain(self, symbol: str, price: float, change_pct: float,
                       high: float, low: float, portfolio_context: dict,
@@ -1746,7 +1833,7 @@ Reasoning: [2-3 sentences. Your thesis, catalyst, and exit plan.]"""
         console.log(f"[dim]{self.player_id}: Step 2 thesis done for {symbol} ({len(thesis)} chars)")
 
         # === STEP 3: Execute (model's own API) ===
-        execute_prompt = self.build_execute_prompt(symbol, thesis)
+        execute_prompt = self.build_execute_prompt(symbol, thesis, price)
 
         self.limiter.wait()
         try:
@@ -1765,7 +1852,7 @@ Reasoning: [2-3 sentences. Your thesis, catalyst, and exit plan.]"""
         console.log(f"[dim]{self.player_id}: Step 3 execute done for {symbol}")
 
         # Parse the final decision (same parser as single-prompt)
-        decision = self.parse_decision(execution, symbol)
+        decision = self.parse_decision(execution, symbol, price=price)
 
         # Attach sources + chain metadata
         sources_str = ",".join(dict.fromkeys(getattr(self, "_sources", [])))

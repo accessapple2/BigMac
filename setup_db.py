@@ -1082,6 +1082,18 @@ def setup():
         c.execute("ALTER TABLE trades ADD COLUMN prompt_version TEXT")
     # === /HM-PROMPT-VERSIONING ==========================================
 
+    # === HM-XO-PLAN-2026-09 Phase 1.1: structured invalidation ==========
+    # invalidation = the parsed "Invalidation:" line (see providers/base.py
+    # ::parse_decision); reference_price = the price the model was shown
+    # when it wrote that invalidation (ai_brain.py's data["price"]) -- kept
+    # alongside so plausibility (side + 0.5-15% distance) can be recomputed
+    # offline without an Alpaca round-trip. See docs/XO_PLAN_2026-09.md.
+    if "invalidation" not in _sig_cols:
+        c.execute("ALTER TABLE signals ADD COLUMN invalidation TEXT")
+    if "reference_price" not in _sig_cols:
+        c.execute("ALTER TABLE signals ADD COLUMN reference_price REAL")
+    # === /HM-XO-PLAN-2026-09 Phase 1.1 ===================================
+
     # === HM-EXEC-PIPELINE Phase 0c: entry provenance columns ============
     for _col, _typ in [("grade", "TEXT"), ("voting_agents", "TEXT")]:
         try:

@@ -1303,6 +1303,8 @@ class Arena:
                 sources=decision.sources, timeframe=decision.timeframe,
                 prompt_version=f"{player_id}_v1",
                 prompt_text=getattr(provider, "_last_prompt", None),
+                invalidation=getattr(decision, "invalidation", None),
+                reference_price=data["price"],
             )
 
             # Track high-confidence BUY signals for multi-day monitoring

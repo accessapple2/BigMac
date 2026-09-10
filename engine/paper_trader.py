@@ -3925,7 +3925,8 @@ def save_signal(player_id: str, symbol: str, signal: str, confidence: float,
                 reasoning: str, asset_type: str = "stock", option_type: str = None,
                 sources: str = "", timeframe: str = "SWING",
                 prompt_version: str | None = None, force: bool = False,
-                prompt_text: str | None = None) -> int:
+                prompt_text: str | None = None, invalidation: str | None = None,
+                reference_price: float | None = None) -> int:
     """Save signal and return its rowid for status tracking. Returns -1 on error.
 
     HM-PROMPT-VERSIONING (POC Day 2b) 2026-05-22: prompt_version is optional;
@@ -3938,6 +3939,12 @@ def save_signal(player_id: str, symbol: str, signal: str, confidence: float,
     ai_brain.py fleet path currently supplies it (via provider._last_prompt).
     Other callers (dayblade.py etc.) are unaffected; their signal_emit rows
     just keep prompt_text=NULL as before.
+
+    HM-XO-PLAN-2026-09 Phase 1.1: invalidation/reference_price are optional,
+    same ai_brain.py-only path (decision.invalidation / data["price"]).
+    reference_price is the price the model was shown when it wrote the
+    invalidation — kept alongside so plausibility can be recomputed offline
+    without an Alpaca round-trip.
     """
     # HOLD signals are informational — mark as SKIPPED immediately
     _default_status = "SKIPPED" if signal == "HOLD" else "PENDING"
@@ -3992,11 +3999,11 @@ def save_signal(player_id: str, symbol: str, signal: str, confidence: float,
         cur = conn.execute(
             "INSERT INTO signals (player_id, symbol, signal, confidence, reasoning, "
             "asset_type, option_type, season, sources, timeframe, execution_status, "
-            "prompt_version) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            "prompt_version, invalidation, reference_price) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (player_id, symbol, signal, confidence, reasoning,
              asset_type, option_type, _current_season(), sources, timeframe,
-             _default_status, prompt_version)
+             _default_status, prompt_version, invalidation, reference_price)
         )
         signal_id = cur.lastrowid
         conn.commit()
