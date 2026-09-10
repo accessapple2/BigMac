@@ -35,16 +35,40 @@ missed restart costs nothing; a half-applied one costs the open.
 - [x] 4. 8/31 origin_healthcheck flapping
 - [x] 5. Verify-or-close list (4 of 6 resolved, 2 not located)
 
-### Changes (items 6-10) — NOT STARTED
-- [ ] 6. RULE #1 DELETE-side layers (CLAUDE.md rule, DB triggers +
-      startup assertion, connection-layer guard, pre-commit hook + test)
-- [ ] 7. Sentinel disk alert on the right volume
-- [ ] 8. Status page olliemax line
-- [ ] 9. Provider keep_alive override removed
+### Changes (items 6-10)
+- [x] 6. RULE #1 DELETE-side layers — DONE, committed `9a421df`, pushed.
+      All 4 layers verified live (trigger fires, authorizer blocks
+      DELETE+DROP, 20/20 tests pass under the real hook's venv).
+- [x] 7. Sentinel disk alert volume — **verified, no defect found.**
+      `shutil.disk_usage("/")` on this box's APFS container reports the
+      shared free-space pool (confirmed identical across `/`, `~`, and
+      cwd: 245GB total, ~84% used) — matches `df`'s `/System/Volumes/Data`
+      number (81%), not the misleadingly-small `/` system-volume number
+      (31%). Already targeting the right effective volume. Bonus: this
+      also fully explains item 4's 8/31 flapping — `check_disk_space()`'s
+      own docstring says "2026-08-31: the volume hit 100%
+      (~/.cache/uv had grown to 33GB unnoticed)... database is locked...
+      six service restarts" — that's the exact incident from item 4,
+      now fully root-caused (disk full → SQLite write failures → cascading
+      healthcheck restarts across both services). No code change made.
+- [x] 8. Status page olliemax line — DONE, committed `1c61588`, pushed,
+      verified live on the running status_page service (not the trader).
+- [x] 9. Provider keep_alive override removed — DONE, committed `db573a9`,
+      pushed. Live-verified default OllamaProvider sends no keep_alive
+      field; war_room.py's explicit "0s" overrides unaffected. Needs the
+      restart below to take effect live.
 - [ ] 10. Bridge: Gamma Map live-gex path, Autopilot true source, Season 6
-      label, Crew Dissent/Riker cleanup
+      label, Crew Dissent/Riker cleanup — **NOT ATTEMPTED, stopping here
+      deliberately.** Context budget is the reason, not difficulty found
+      in the work itself — four separate dashboard/app.py investigations
+      is real scope, and starting one without room to finish risks the
+      exact "half-applied" outcome the hard rules warn against. Left
+      cleanly deferred rather than half-built.
 - [ ] ONE restart, by 04:00 MST, verified live McCoy call + invalidation
-      field parsing
+      field parsing — about to do this now, to land item 9's fix while
+      the tree is in a known-clean, fully-committed state (verified via
+      `git status --short` immediately before). Item 10 stays deferred;
+      this restart does NOT wait for it.
 - [x] CLAUDE.md standing order line added (staged, not yet committed —
       see below)
 - [ ] XO_BACKLOG.md consolidation (separate section below, in progress)
