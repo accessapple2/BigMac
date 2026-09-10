@@ -59,9 +59,37 @@ jobs:
 
       - name: Check — no DROP TABLE on sacred databases
         run: |
-          if grep -rni "DROP\s\+TABLE\s\+\(IF\s\+EXISTS\s\+\)\?\(trades\|portfolio_positions\|arena\|signals\|rikers_log\|war_room\)" \
-               --include="*.py" --include="*.sql" \
-               --exclude-dir=".git" .; then
+          # HM-RULE1-DELETE-LAYERS 2026-09-09: table list expanded to match
+          # engine/db_safety.py::RULE1_TABLES (the actual current protected
+          # set) UNIONED with the original list, so nothing already covered
+          # loses coverage -- this closes a real gap (decision_audit,
+          # signals_v2, agent_ratings, desk_execution_trace, crew_decisions,
+          # notifications weren't in the original 6-table list at all).
+          #
+          # Excluded by exact path, not by loosening the pattern:
+          #   - tests/test_rule1_delete_guard.py: deliberately calls
+          #     `DROP TABLE signals` inside a temp-DB fixture to PROVE the
+          #     authorizer guard blocks it (test_authorizer_denies_drop_table)
+          #     -- the opposite of the thing this gate exists to catch.
+          #   - engine/db_safety.py, CLAUDE.md: prose describing the RULE #1
+          #     DELETE/DROP contract necessarily names "DROP TABLE" and the
+          #     protected tables together while explaining the rule, not
+          #     performing it.
+          #   - archive/salvage dirs (_archive/, backups_archive/,
+          #     scripts/_archive/, agents/_archive/, engine/_parked/): this
+          #     repo's own Archive Convention keeps retired code in place
+          #     rather than deleting it, and retired code predating a given
+          #     doctrine can legitimately contain a real DROP TABLE from
+          #     before it was forbidden.
+          if grep -rni "DROP\s\+TABLE\s\+\(IF\s\+EXISTS\s\+\)\?\(trades\|portfolio_positions\|arena\|signals\|rikers_log\|war_room\|decision_audit\|signals_v2\|agent_ratings\|desk_execution_trace\|crew_decisions\|notifications\)" \
+               --include="*.py" --include="*.sql" --include="*.md" \
+               --exclude-dir=".git" \
+               --exclude-dir="_archive" --exclude-dir="backups_archive" \
+               --exclude-dir="_parked" \
+               . \
+               | grep -vE "^(\./)?tests/test_rule1_delete_guard\.py:" \
+               | grep -vE "^(\./)?engine/db_safety\.py:" \
+               | grep -vE "^(\./)?CLAUDE\.md:"; then
             echo "❌ DROP TABLE on sacred table found — use schema migrations, not drops"
             exit 1
           fi
