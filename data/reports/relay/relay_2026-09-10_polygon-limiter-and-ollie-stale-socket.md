@@ -193,6 +193,31 @@ whatever is wedged server-side. McCoy may keep hitting this after the
 (Ollama's own logs, that model's worker/slot state) — flagged to the
 Captain live, not deferred to a backlog item, given the time-sensitivity.
 
+**CLOSED 11:58 local — root cause confirmed, cleared, no trader-side
+change involved.** Captain's diagnosis: a stuck runner slot on olliemax,
+fixed with `systemctl restart ollama`. Verified from bigmac's `.venv`
+over the tailnet: `qwen3:8b` returned 200 OK in 11.7s (cold load) where
+it had been hanging the full 180s minutes earlier.
+
+**Post-recovery check:** one `[OLLAMA-CANCEL]` at exactly 11:58:25
+(`wall=142.78s reason=ConnectionError` — shorter than the usual 180.01s
+and `ConnectionError` rather than `ReadTimeout`, consistent with being
+the in-flight call caught mid-request by the `systemctl restart` itself,
+not a new/recurring wedge). **Zero events in the ~4 minutes since**
+(11:58:25 → 12:02:28, when this check ran) — clean so far, though that's
+a short window; the real confirmation is continued silence over the next
+30-60 minutes, not asserted here as fully proven.
+
+**Final incident cost, corrected from the earlier running estimate:**
+**70** `[OLLAMA-CANCEL]` events total today (09:35:50 → 11:58:25, the
+one boundary event included), summed `wall=` time **12,563.52s ≈ 3.49
+cumulative hours** (computed precisely from each event's logged wall
+time, not assumed-uniform 180s × count — the sum exceeds the ~2h22m
+wall-clock incident duration because `OLLAMA_QUEUE_WORKERS=2` allows two
+concurrent inferences, so two separate hung calls could and did overlap
+in time). Reason breakdown: 69 `ReadTimeout`, 1 `ConnectionError` (the
+11:58:25 boundary event above).
+
 **Real scope wider than first estimated:** `decision_audit`'s 31–34 rows
 today only capture McCoy's scan-path decisions (via the
 `paper_trader.py`/`ic_squadron.py`/`regime_router.py` INSERT path). The
@@ -340,26 +365,26 @@ mysteries.
   fully resolved until confirmed post-restart.
 
 ## Status
-**Round 1 committed and pushed** — `ef321ff` on `exec-pipeline`
-(`engine/polygon_rate_limiter.py`, `engine/providers/ollama_provider.py`,
-`main.py`, `docs/XO_BACKLOG.md` roster-reconciliation item, this relay
-doc). **Round 2 + test fix staged, committing now:**
+**Round 1 committed and pushed** — `ef321ff` on `exec-pipeline`.
+**Round 2 + test fix committed and pushed** — `c9c1731`:
 - `config.py` (new `OLLAMA_GENERATE_TIMEOUT_S`, `OLLAMA_CONNECT_RETRY_TOTAL`,
   `POLYGON_LIMITER_CAP_PER_MIN`, `POLYGON_LIMITER_LIVE_RESERVED_PER_MIN`)
 - `engine/polygon_rate_limiter.py` (reads from `config`, startup log line)
 - `engine/providers/ollama_provider.py` (fresh-connection-per-call, reads
   from `config`, startup log line)
 - `main.py` (reads `OLLAMA_GENERATE_TIMEOUT_S` from `config`)
-- `docs/XO_BACKLOG.md` (round-2 backlog item: streaming/idle-timeout,
-  `/api/ps` health gate, stub-server integration test, dead-man's-switch
-  monitor class)
+- `docs/XO_BACKLOG.md` (round-2 backlog item, corrected post-incident —
+  see the `/api/ps`/`/api/tags` correction above — plus this session's
+  final closure note)
 - `tests/test_ollama_cancel_on_timeout.py` (mock target fixed for the
   no-pooling rewrite, `timing=` kwarg added to the queue stub — all 7
   tests pass deterministically)
 
-All `py_compile`/import-test clean. **NOT fully resolved as of this
-update** — see the live-verified finding above: a smoke-test just found
-the server-side qwen3:8b/plutus-v1 hang still active on olliemax right
-now, separate from and not fixed by this client-side change. Holding
-code for the 13:00 bundle in the order above; the server-side question is
-flagged to the Captain live, decision on timing is theirs.
+**Incident status: CLOSED 11:58 local**, root cause confirmed
+server-side (stuck olliemax runner slot, fixed by `systemctl restart
+ollama`, no trader-side change involved) — see the closure note above.
+Client-side fix (this relay doc, both rounds) ships in the 13:00 bundle
+regardless — it's correct defensive engineering independent of today's
+specific root cause, and materially reduces the cost of any future
+recurrence (30s vs. 180s per hit, proper logging, no pooling to go
+stale). Final cost: 70 events, 3.49 cumulative hours — see above.
