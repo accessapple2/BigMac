@@ -9,6 +9,9 @@
 # Replicates:
 #   - data/trader.db (checkpointed daily snapshot, see HM-TRADER-SNAPSHOT-HARDEN below)
 #   - signal-center/signals.db (+ -shm / -wal)
+#   - signal-center/signals_archive.db (+ -shm / -wal) -- added 2026-09-10,
+#     HM-SIGNAL-CENTER-RETENTION; the cold copy signal_history/
+#     intelligence_feed rows rotate into (scripts/signal_center_archive_rotate.py)
 #   - backups/trader_YYYY-MM-DD.db (last 14 daily snapshots)
 #
 # HM-TRADER-SNAPSHOT-HARDEN 2026-08-27: trader.db used to rsync the LIVE file
@@ -224,6 +227,13 @@ fi
 # Live DB (+ WAL/SHM if present)
 run_rsync "signals.db"     "$REPO/signal-center/signals.db" "$REPO/signal-center/signals.db-shm" "$REPO/signal-center/signals.db-wal" "$DEST_BASE/signal-center/" || true
 
+# Archive DB (HM-SIGNAL-CENTER-RETENTION 2026-09-10) -- signal_history /
+# intelligence_feed rows older than the 30-day rolling window, moved there
+# by scripts/signal_center_archive_rotate.py and never deleted (its own
+# trg_rule1_no_delete_* triggers block it). Same never-delete protection
+# as the live primaries -- gets its own offhost copy.
+run_rsync "signals_archive.db" "$REPO/signal-center/signals_archive.db" "$REPO/signal-center/signals_archive.db-shm" "$REPO/signal-center/signals_archive.db-wal" "$DEST_BASE/signal-center/" || true
+
 # Tractor (optional)
 if [ -f "$HOME/ollietrades/tractor_beam/tractor.db" ]; then
     run_rsync "tractor.db" "$HOME/ollietrades/tractor_beam/tractor.db" "$DEST_BASE/tractor/" || true
@@ -267,7 +277,7 @@ fi
 # target. Re-verifying integrity_check=ok on a file that will never change
 # again is pointless.
 echo "--- integrity check (local) ---"
-CHECK_FILES=("$DEST_BASE/data/trader.db" "$DEST_BASE/signal-center/signals.db")
+CHECK_FILES=("$DEST_BASE/data/trader.db" "$DEST_BASE/signal-center/signals.db" "$DEST_BASE/signal-center/signals_archive.db")
 while IFS= read -r f; do
     CHECK_FILES+=("$f")
 done < <(find "$DEST_BASE/backups" -maxdepth 1 -type f -name 'trader_20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].db' 2>/dev/null | sort | tail -7)
