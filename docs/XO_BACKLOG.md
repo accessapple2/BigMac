@@ -8,38 +8,50 @@
 
 ---
 
-## 🟨 CONSOLIDATED BACKLOG — 2026-09-09 overnight
+## 🟨 CONSOLIDATED BACKLOG — 2026-09-09 overnight (last touched 2026-09-10 AM)
 
 Every unfinished item from the 9/9 improvement sweep and the Day 2
 report, with owner, target date, and blocker. Per standing instruction: a
 line is removed only when confirmed done, never for being old. Detail on
 several of these lives in `data/reports/relay/relay_2026-09-09_overnight_session.md`
-and the earlier same-night relay docs it links.
+and the earlier same-night relay docs it links. 2026-09-10 AM closures/edits
+detailed in `data/reports/relay/relay_2026-09-10_morning_checkin.md`.
+
+**Closed 2026-09-10 AM (removed from table, per doctrine — confirmed done):**
+- ~~McCoy scan-path "stall"~~ — NOT a fault. 844 `decision_audit` rows in the
+  prior 8h, live calls 05:36-05:40 at 1.75-3.39s with queue_wait 0.00. Last
+  night's 64-min gap was after-hours quiet. Re-scoped as a live question,
+  see `docs/XO_PLAN_2026-09.md` Phase 1.2.
+- ~~Archive second copy~~ — rsync completed, 257GB, full Plutus lineage on
+  olliemax, integrity verified.
+- ~~Disk-alert volume (sentinel on the wrong volume)~~ — investigated 9/9
+  (relay doc §7): no defect, sentinel already reads the correct shared
+  APFS free-space pool. Was left in the table overnight without being
+  marked closed; closing now, no new work done here 9/10.
 
 | Item | Owner | Target date | Blocker |
 |---|---|---|---|
 | signals_v2 rec #2 | Scotty | after Phase 1.2 lands | Phase 1.2 not shipped yet (`docs/XO_PLAN_2026-09.md`) |
 | Un-alias leftovers (`_QWEN3_ALIAS_MODEL_IDS` etc.) | Scotty | unslotted | explicitly skipped tonight, needs its own session |
-| Polygon limiter cap raise (5/min → ~100/min) | Scotty | tomorrow, after close | Massive Stocks Starter went live tonight; limiter stays in shadow until then |
-| Polygon key rotation | Steve | after close, with a verify | none — scheduled |
-| bk_orb direct-path pagination re-scope | Scotty | tomorrow, after close | depends on the limiter cap raise landing first |
+| Polygon limiter cap raise (5/min → ~100/min) | Scotty | today, after close | Massive Stocks Starter went live 9/9 night; limiter stays in shadow until then |
+| Polygon key rotation | Steve | today, after close, with a verify | none — scheduled |
+| bk_orb direct-path pagination re-scope | Scotty | today, after close | depends on the limiter cap raise landing first |
 | GPU-watch rebuild/deploy | Scotty | unslotted | not scoped yet |
-| Bridge cosmetics (Gamma Map live-gex path, Autopilot true source, Season 6 label, Crew Dissent/Riker cleanup) | Scotty | tonight, queued behind RULE #1 layers | none — in tonight's overnight scope, item 10 |
-| Disk-alert volume (sentinel on the wrong volume) | Scotty | tonight, queued | none — in tonight's overnight scope, item 7 |
-| signals.db retention | decision | unslotted | needs a retention policy decision, not just a fix |
+| Bridge cosmetics (Gamma Map live-gex path, Autopilot true source, Season 6 label, Crew Dissent/Riker cleanup) | Scotty | today, carried over from 9/9 | deferred 9/9 for context budget, not difficulty |
+| signals.db retention | decision | unslotted | **numbers discrepancy found 9/10 AM** — Admiral's "2.19 GB" doesn't match live measurement (`signals`+`signals_v2` tables = ~118MB combined, `trader.db` total = ~1.13GB). Policy proposal blocked until the figure is reconciled — see `data/reports/relay/QUESTION_signals-db-retention-numbers.md`. |
 | Deprecation sites sweep | Scotty | unslotted | explicitly skipped tonight |
 | crew_decisions consumers | — | — | **investigated tonight** — see relay doc §2: dashboard feed panel, main.py Dr. Crusher healthcheck, crew_scanner.py internal gating. No open defect found. |
 | The 393-decision hour (9/9) | — | — | **investigated tonight** — see relay doc §3: 15:00 UTC/08:00 MST, BEAR_CROSS regime block + stale-signal + quality gates, zero trades, not a bug. Structural fix is Phase 1.2. |
 | origin_healthcheck flapping (8/31) | Scotty | unslotted | **partially investigated tonight** — see relay doc §4: one real cause confirmed (main.py down 12:10), full 3hr multi-service pattern unexplained (no surviving logs). Needs whatever additional log retention exists, if any. |
-| The 8/30 verify-or-close list (6 items) | Scotty / decision | mixed | **4 of 6 resolved tonight** (Reveille empty-output, sentinel repoint, regime_refresh rows — all verified working; see relay doc §5). **2 unresolved:** gex_collector cron fix needs a decision (deliberate retirement vs. gap — script file no longer exists, cron commented), three-popup banner UX and four Bridge LOW defects not located, need a pointer. |
-| Door1 expiry fix | decision | unslotted | awaiting Door 1 kill-gate verdict context |
+| The 8/30 verify-or-close list (6 items) | Scotty / decision | mixed | **5 of 6 resolved.** Reveille empty-output, sentinel repoint, regime_refresh rows verified working 9/9 (relay doc §5). **gex_collector — resolved 9/10 AM, was already retired 2026-08-30** (`HM-GEX-RETIRED`, crontab-documented, missed by the 9/9 pass which read docs not the live crontab) — Polygon options-chain entitlement is 403/cancelled, cron line commented with reason, data preserved in `data/flow_gex.db`. **1 unresolved:** three-popup banner UX and four Bridge LOW defects not located, need a pointer. |
+| Door1 expiry fix | decision | unslotted | Verdict context resolved (`HM-DOOR1-OLLIE-MACHINE-KILLGATE-VERDICT`, rendered 08-30) — but **no concrete spec exists to implement against**, and the target doc (`OLLIETRADES_KILL_GATE.md`) is explicitly locked ("do not edit after DAY 0"). See `data/reports/relay/QUESTION_door1-expiry-fix-scope.md` before any code/doc change. |
 | Ollie-machine review | Steve | 2026-09-29 | scheduled review date |
 | Monday-check monitors | Scotty | unslotted | several one-shot launchd entries already confirmed dead (see historical XO_BACKLOG entries below), needs a fresh sweep |
 | situation_report / ollama_prewarm | Scotty | unslotted | not scoped yet |
 | v2 redesign items | Scotty | unslotted | not scoped yet — likely overlaps signals_v2 rec #2 |
 | DexEvents set | Scotty | unslotted | not scoped yet |
 | Lite phases (ollietrades-lite) | Scotty | unslotted | not scoped yet |
-| Archive second copy | Steve | tonight | rsync running tonight per instruction — verify completion |
+| Offhost backup slowdown + DB count gap | Scotty | today, after close | 9/9 night run took 9,638s (vs ~1,065s a week ago) and backed up 9 DBs, not 10 — likely X9 rsync contention, integrity checks passed. Need: which DB is missing, and whether tonight's run returns to normal. |
 | Pushover iOS license | Steve | 2026-09-25 | renewal deadline |
 | Access session length | decision | unslotted | Cloudflare Access session-length policy decision |
 | Tailscale stale peer | Scotty | unslotted | needs a cleanup pass |
