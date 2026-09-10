@@ -87,11 +87,20 @@ LIVE_CALLERS = {
     "get_intraday_candles",  # HM-POLYGON-LIMITER-REWIRE-2026-09-01 -- see module docstring
 }
 
-# 4/min managed cap (deliberately under Polygon's real 5/min free-tier limit
-# -- see module docstring). 2 reserved exclusively for the live tier, 2
-# shared. Tune here, not by editing tiered_rate_limiter.py.
-CAP_PER_MIN = 4
-LIVE_RESERVED_PER_MIN = 2
+# HM-POLYGON-STARTER-CAP-RAISE-2026-09-10: Stocks Starter went live 9/9
+# night (unlimited REST calls per docs/SESSION_2026-04-27_POLYGON_PORT_AND_
+# BACKTEST.md:156 and market_data.py:1173) -- the prior 4/min cap was sized
+# for the free tier's real 5/min ceiling (see docstring above) and has been
+# stale since the Starter upgrade. Raised per docs/XO_BACKLOG.md:46 ("5/min
+# -> ~100/min"). Same 50% live-reserved ratio as before; shared tier scales
+# with it. Tune here, not by editing tiered_rate_limiter.py.
+#
+# NOTE: this constant is baked into the module-level `_limiter` singleton
+# below at import time -- changing it requires a process restart to take
+# effect (POLYGON_LIMITER_MODE, by contrast, is read fresh per call and
+# needs no restart).
+CAP_PER_MIN = 100
+LIVE_RESERVED_PER_MIN = 50
 
 # Options/GEX data older than this during market hours is treated as unusable
 # for the live tier -- fail loud rather than trade on it. A single blanket
