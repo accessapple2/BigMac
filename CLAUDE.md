@@ -51,6 +51,22 @@ trading via Alpaca paper account.
 - Always archive or rename instead of deleting
 - Ask before any destructive filesystem operation
 
+**RULE #1 DELETE-side enforcement (HM-RULE1-DELETE-LAYERS, 2026-09-09):**
+`trades`, `decision_audit`, `signals`, `signals_v2`, `agent_ratings`,
+`desk_execution_trace`, `crew_decisions`, and `notifications` rows are
+never deleted — only archived or marked (e.g. `status='expired'`,
+`pnl_basis_invalid=1`). Enforced at four layers, not just doctrine text:
+(1) this rule; (2) `BEFORE DELETE` triggers on all eight tables, installed
+by `setup_db.py` with a startup assertion that fails loud if any is
+missing; (3) `engine/db_safety.py`'s connection authorizer (defense-in-
+depth, also blocks `DROP TABLE` on these eight, which no trigger can
+intercept — opt-in via `guarded_connect()`, not yet wired into every
+existing connection helper); (4) `tests/test_rule1_delete_guard.py`,
+wired into `.githooks/pre-commit`, proving a DELETE raises on every real
+commit. UPDATE is not gated by any of this — see the UPDATE-path
+inventory in `data/reports/relay/relay_2026-09-09_overnight_session.md`
+for a future scoped session on that side.
+
 **Status detail per DB (HM-OLLIETRADES-FOLDER-DISPOSITION, 2026-07-06):**
 - `trader.db` — live, active, main.py-resident. The canonical DB.
 - `arena.db` (`data/arena.db`) — 0 bytes, deprecated. Kept only because the

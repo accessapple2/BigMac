@@ -49,18 +49,24 @@ missed restart costs nothing; a half-applied one costs the open.
       see below)
 - [ ] XO_BACKLOG.md consolidation (separate section below, in progress)
 
-### Open question found mid-session, not resolved
-**The "19 passed" output after every commit tonight is NOT from
-`.git/hooks/pre-commit`** — read that file directly, it's a simple bash
-script blocking staged `qwen3.5:9b` string references, contains no
-pytest invocation at all. Where the pytest run actually comes from
-(another hook, a wrapper, `core.hooksPath` override, something else) is
-**unidentified**. This matters directly for item 6d ("pre-commit hook +
-test proving a DELETE raises") — can't wire a test into "the pre-commit
-hook" confidently until the real mechanism is found. Check `git config
-core.hooksPath`, `.git/hooks/*` beyond `pre-commit`, and whether some
-other tool (an editor, a shell alias, a separate CI-ish script) is
-running `pytest` on every commit before continuing item 6.
+### Open question found mid-session — RESOLVED
+`git config core.hooksPath` = `.githooks` — a custom hooks dir, not
+`.git/hooks/`. The real pre-commit hook (`.githooks/pre-commit`) runs
+exactly `pytest -q tests/test_otasty_shadow_invariants.py
+tests/test_kirk_holdings_guard.py` (19 tests combined) — a fixed,
+narrow, always-safe subset, not the full suite. **Correction to tonight's
+earlier HM-FALSE-RED-ALERT relay entry:** it attributed the recurring
+false alerts to "the pre-commit hook runs the full suite on every
+commit" — that's not what actually happens. The real trigger is any
+manual/interactive full-suite `pytest tests/` invocation (which this
+session ran repeatedly for verification) hitting
+`test_season_rotation_reactivation_scope.py`, not an automated per-commit
+hook. **The fix already shipped is still correct and complete regardless**
+— `_under_pytest()` blocks real sends under any pytest context, hook or
+manual — only the causal narrative needs this correction, not the code.
+For item 6d: the DELETE-guard test needs to be added to
+`.githooks/pre-commit`'s explicit file list to actually run pre-commit,
+not just exist under `tests/`.
 
 ---
 

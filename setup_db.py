@@ -1,3 +1,11 @@
+# RULE #1 DELETE-side enforcement (HM-RULE1-DELETE-LAYERS, 2026-09-09):
+# trades/decision_audit/signals/signals_v2/agent_ratings/desk_execution_trace/
+# crew_decisions/notifications rows are never deleted -- only archived or
+# marked. This file installs the BEFORE DELETE triggers (see setup(), near
+# the end) with a startup assertion that fails loud if any is missing. See
+# CLAUDE.md's SACRED DATA RULES section for the full four-layer contract
+# (this file + engine/db_safety.py + tests/test_rule1_delete_guard.py wired
+# into .githooks/pre-commit).
 import sqlite3
 import os
 
@@ -1192,6 +1200,49 @@ def setup():
         "ON signals_v2(source, symbol, direction, signal_type, created_at)",
     ]:
         c.execute(_idx)
+
+    # === HM-RULE1-DELETE-LAYERS 2026-09-09 =================================
+    # RULE #1: rows in these tables are never deleted, only archived/marked.
+    # BEFORE DELETE triggers -- connection-agnostic, fire regardless of which
+    # Python code opened the connection. A live-code DELETE against any of
+    # these tables is unheard of tonight's audit (the one hit found,
+    # scripts/hm_memorial_day_local_reconcile.py, is a dormant one-off, not
+    # a live path) -- this cannot break any decision or exit path because
+    # nothing on a decision/exit path issues these DELETEs today. Presence
+    # of ANY trigger on a table also disables SQLite's whole-table "truncate
+    # optimization" for it, so a bare `DELETE FROM x` (no WHERE) is NOT
+    # fast-pathed around the trigger either.
+    _RULE1_TABLES = (
+        "trades", "decision_audit", "signals", "signals_v2", "agent_ratings",
+        "desk_execution_trace", "crew_decisions", "notifications",
+    )
+    for _t in _RULE1_TABLES:
+        c.execute(
+            f"CREATE TRIGGER IF NOT EXISTS trg_rule1_no_delete_{_t} "
+            f"BEFORE DELETE ON {_t} BEGIN "
+            f"SELECT RAISE(ABORT, 'RULE #1: {_t} rows are never deleted -- archive or mark instead'); "
+            f"END"
+        )
+
+    # Startup assertion: fail loud if any trigger is missing rather than
+    # silently running unprotected. Checked every startup (setup() runs
+    # every main.py startup per this function's docstring).
+    _installed = {
+        row[0] for row in c.execute(
+            "SELECT name FROM sqlite_master WHERE type='trigger' "
+            "AND name LIKE 'trg_rule1_no_delete_%'"
+        )
+    }
+    _expected = {f"trg_rule1_no_delete_{t}" for t in _RULE1_TABLES}
+    _missing = _expected - _installed
+    if _missing:
+        conn.rollback()
+        conn.close()
+        raise RuntimeError(
+            f"RULE #1 DELETE-guard triggers missing after install attempt: "
+            f"{sorted(_missing)} -- refusing to continue startup unprotected."
+        )
+    # === /HM-RULE1-DELETE-LAYERS ============================================
 
     conn.commit()
     conn.close()
