@@ -92,6 +92,33 @@ For item 6d: the DELETE-guard test needs to be added to
 `.githooks/pre-commit`'s explicit file list to actually run pre-commit,
 not just exist under `tests/`.
 
+### CI: Grep Gate failure on `9a421df` — found, fixed, verified on GitHub
+`.github/workflows/grep-gate.yml`'s "no DROP TABLE on sacred databases"
+step failed on item 6's commit. Reproduced the exact grep locally before
+touching anything: the **only** match, on both the original 6-table
+pattern and an expanded 12-table one, was
+`tests/test_rule1_delete_guard.py:81: conn.execute("DROP TABLE signals")`
+— `test_authorizer_denies_drop_table` deliberately performing the exact
+operation it exists to prove is blocked, inside a temp-DB fixture. No
+other false positive existed anywhere (checked the other 3 Grep Gate
+checks too — all clean). Fixed by allowlisting exact files (matching the
+workflow's own existing convention from the qwen3.5 check) —
+`tests/test_rule1_delete_guard.py`, `engine/db_safety.py`, `CLAUDE.md`
+(the latter two because their prose necessarily names "DROP TABLE" +
+table names while documenting the rule) — plus `_archive/`,
+`backups_archive/`, `_parked/` dir exclusions for this repo's own
+Archive Convention. Also expanded the protected-table list to the real
+`RULE1_TABLES` set (unioned with the original so nothing already covered
+lost coverage) — closes a real gap, the original list never covered
+`decision_audit`/`signals_v2`/`agent_ratings`/`desk_execution_trace`/
+`crew_decisions`/`notifications` at all. Hit one real bug while verifying
+locally (a `^\./` anchor that behaved inconsistently across pipe stages;
+switched to this file's own established `^(\./)?` form) before pushing.
+**Verified green on GitHub, not just locally** — `gh run list`: Grep Gate
+`completed success` on `54841ae`, and the other workflow (O-Tasty
+Invariant) unaffected, also `success`. One push, as instructed. CI-only —
+did not touch the trader, did not restart.
+
 ---
 
 ## Findings
