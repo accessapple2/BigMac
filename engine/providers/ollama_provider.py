@@ -110,14 +110,21 @@ class OllamaProvider(AIProvider):
     def __init__(self, player_id: str = "ollama-local", model: str = "qwen3:14b",
                  url: str = "http://localhost:11434",
                  timeout: int = _HM_WR_CANCEL_BUDGET_S,
-                 keep_alive: str = "10m"):
+                 keep_alive: str | None = None):
         super().__init__(player_id, f"Ollama {model}", model, rate_limit=999)
         self.url = f"{url}/api/generate"
         self.timeout = timeout
-        # HM-FORGE P1.2: per-provider keep_alive override. Default "10m" preserves
-        # the HM-WR-VRAM-THRASHING Fix-4 residency for fleet agents; the report-only
-        # WR witness passes "0s" so a non-fleet model (gemma4:12b-it-qat, 7.4GB)
-        # unloads right after its single call and never pins co-resident VRAM.
+        # HM-OLLIE-KEEPALIVE-SERVER-DEFAULT 2026-09-09: was a blanket "10m"
+        # default (HM-FORGE P1.2) sent on every single call, silently
+        # overriding the server's own OLLAMA_KEEP_ALIVE=-1 (never unload) on
+        # a per-request basis -- Ollama's API keep_alive field always wins
+        # over the server default when present. Default is now None, which
+        # omits the field entirely (see call_model()) so the server's own
+        # -1 holds for the common case. Callers that need an explicit
+        # override (e.g. the report-only WR witness's "0s", so a non-fleet
+        # model unloads right after its single call and never pins
+        # co-resident VRAM) still pass one explicitly -- that path is
+        # unchanged.
         self.keep_alive = keep_alive
         self._is_cloud = ":cloud" in model
         self._temperature = 0.6 if self._is_cloud else 0.7
@@ -146,7 +153,6 @@ class OllamaProvider(AIProvider):
             "model": self.model_id,
             "prompt": prompt,
             "stream": False,
-            "keep_alive": self.keep_alive,
             "options": {
                 "temperature": self._temperature,
                 # HM-PERF-FLEET-THROUGHPUT 2026-07-07: was uncapped (Ollama's
@@ -169,6 +175,8 @@ class OllamaProvider(AIProvider):
                 "num_ctx": _num_ctx_for(self.model_id),
             },
         }
+        if self.keep_alive is not None:
+            payload["keep_alive"] = self.keep_alive
         # 2026-04-27: qwen3 family streams chain-of-thought tokens before JSON,
         # which blew the 180s timeout for qwen3-14b-pro (Dalio, 47% timeout rate)
         # and qwen3-8b-flash (Worf, 22%). debate_engine.py was patched 04-26 but
