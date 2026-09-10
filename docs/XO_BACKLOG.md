@@ -68,8 +68,9 @@ detailed in `data/reports/relay/relay_2026-09-10_morning_checkin.md`.
 | origin_healthcheck flapping (8/31) | Scotty | unslotted | **partially investigated tonight** — see relay doc §4: one real cause confirmed (main.py down 12:10), full 3hr multi-service pattern unexplained (no surviving logs). Needs whatever additional log retention exists, if any. |
 | The 8/30 verify-or-close list (6 items) | Scotty / decision | mixed | **5 of 6 resolved.** Reveille empty-output, sentinel repoint, regime_refresh rows verified working 9/9 (relay doc §5). **gex_collector — resolved 9/10 AM, was already retired 2026-08-30** (`HM-GEX-RETIRED`, crontab-documented, missed by the 9/9 pass which read docs not the live crontab) — Polygon options-chain entitlement is 403/cancelled, cron line commented with reason, data preserved in `data/flow_gex.db`. **1 unresolved:** three-popup banner UX and four Bridge LOW defects not located, need a pointer. |
 | Ollie-machine review | Steve | 2026-09-29 | scheduled review date |
-| Monday-check monitors | Scotty | unslotted | several one-shot launchd entries already confirmed dead (see historical XO_BACKLOG entries below), needs a fresh sweep |
-| situation_report / ollama_prewarm | Scotty | unslotted | not scoped yet |
+| Monday-check monitors | Scotty | unslotted | **swept 9/10.** 3 of 4 already retired+ledgered, no drift (signals-v2-monday-check, -verify, wr-dur-monday-check). **1 stuck:** `hm-bridge-consensus-monday-check` — one-shot system LaunchDaemon, fired once successfully 2026-07-20, will never fire again (date is 7 weeks past), never retired/ledgered, not in sentinel's tracked set — needs an Admiral retire decision. |
+| situation_report | Scotty | unslotted | **investigated 9/10 — still open.** Dark since 07-22 quietdown. Its revisit-by-09-06 tag (canonical tag lives in the "STAYS DARK" section below, not duplicated here) passed with no revisit; redundancy-vs-`kirk_briefing.py` question never actually answered. Now caught going forward by `hm_ops_sentinel.py::check_doc_revisit_dates()`. Needs an Admiral call: revive, retire, or explicitly confirm redundant. |
+| ollama_prewarm | — | — | **RESOLVED 9/10** — retired (ledger row 119, `docs/orders/ORDER_2026-09-10_retire_job_ollama-prewarm.md`). Superseded by `OLLAMA_KEEP_ALIVE=-1` shipping with the olliemax migration. |
 | v2 redesign items | Scotty | unslotted | not scoped yet — likely overlaps signals_v2 rec #2 |
 | DexEvents set | Scotty | unslotted | not scoped yet |
 | Lite phases (ollietrades-lite) | Scotty | unslotted | not scoped yet |
@@ -10741,11 +10742,21 @@ first: `~/backups/cron/crontab.bak-20260830-090553-pre-revive-batch`.
 
 ### STAYS DARK, no ledger action (crontab comment refreshed for accuracy only)
 
-- **`scripts/situation_report.py`** — revisit ~2026-09-06 against
-  `kirk_briefing.py`'s live coverage before deciding if it's redundant.
-- **`scripts/ollama_prewarm.sh`** — revisit after the 2026-09-04 qwen3:8b
-  un-aliasing; `OLLAMA_KEEP_ALIVE=-1` (set 08-27) may have already mooted the
-  cold-start failure mode it exists to prevent.
+- **`scripts/situation_report.py`** — REVISIT-BY: 2026-09-06 — revisit
+  against `kirk_briefing.py`'s live coverage before deciding if it's
+  redundant. **Still open as of 2026-09-10 — the 09-06 date passed with no
+  revisit and no ledger action; caught by `hm_ops_sentinel.py`'s new
+  `check_doc_revisit_dates()` (HM-OPS-SENTINEL-DOC-REVISIT-2026-09-10)
+  going forward.** Do not silently re-date this tag to make an alert stop
+  firing — resolve the actual redundancy question (or take a ledger
+  action) and remove the tag instead.
+- **`scripts/ollama_prewarm.sh`** — RESOLVED 2026-09-10: retired.
+  `OLLAMA_KEEP_ALIVE=-1` shipped live with the olliemax hardware migration,
+  mooting the cold-start failure mode this script existed to prevent (also
+  independently stale — hardcoded the pre-migration host). Backfilled
+  ledger row 119 (`fleet_lifecycle_ledger`, cron-only target — the tool has
+  no cron apply path, see the order doc); tombstone at
+  `docs/orders/ORDER_2026-09-10_retire_job_ollama-prewarm.md`.
 
 ### AFTER: hm_ops_sentinel repoint check
 

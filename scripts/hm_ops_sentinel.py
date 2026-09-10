@@ -61,6 +61,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sqlite3
 import subprocess
 import sys
@@ -96,6 +97,21 @@ HEARTBEAT_STALE_MIN = 25
 LOCK_WINDOW_MIN = 10
 QUEUE_PENDING_WARN = 3000
 QUEUE_OLDEST_WARN_HOURS = 48
+
+# HM-OPS-SENTINEL-DOC-REVISIT-2026-09-10: docs/XO_BACKLOG.md's "STAYS DARK,
+# no ledger action" pattern (a job/script deliberately left disabled with a
+# prose "revisit ~DATE" note instead of a formal fleet_lifecycle.py pause)
+# falls outside check_fleet_lifecycle_drift()'s resume_by/review_by check
+# entirely -- that check only reads ledger rows, and these notes are
+# specifically the ones the Admiral chose NOT to ledger. Real incident that
+# prompted this: situation_report.py's "revisit ~2026-09-06" and
+# ollama_prewarm.sh's "revisit after 2026-09-04" both passed with nobody
+# re-checking for a full week -- same dead-man's-switch shape as the
+# ledger's own resume_by/review_by gap this repo already has a fix for
+# (docs/FLEET_LIFECYCLE.md), just on the doc-prose side instead. Extend
+# this list if another doc adopts the same REVISIT-BY: tag convention.
+DOC_REVISIT_PATHS = [ROOT / "docs" / "XO_BACKLOG.md"]
+_REVISIT_TAG_RE = re.compile(r"REVISIT-BY:\s*(\d{4}-\d{2}-\d{2})")
 
 # HM-ALERT-COOLDOWN (2026-09-03): per-alert-type dispatch cooldown, independent
 # of engine.alert_channels.send_alert's own rate limiter. That limiter only
@@ -986,6 +1002,48 @@ def check_fleet_lifecycle_drift(alerts: list[AlertTuple]) -> dict:
     return results
 
 
+def check_doc_revisit_dates(alerts: list[AlertTuple]) -> dict:
+    """HM-OPS-SENTINEL-DOC-REVISIT-2026-09-10: expiry check for doc-prose
+    'revisit ~DATE' notes (docs/XO_BACKLOG.md's "STAYS DARK, no ledger
+    action" pattern) -- the class of dead-man's-switch
+    check_fleet_lifecycle_drift() can't see, because these are exactly the
+    targets the Admiral chose to leave OUT of the ledger. Looks for a
+    REVISIT-BY: YYYY-MM-DD tag (see DOC_REVISIT_PATHS/_REVISIT_TAG_RE
+    above) in each configured doc and flags any date <= today. A doc line
+    with no tag is invisible to this check by design -- retrofitting one
+    IS the fix for a given note, not a side effect of running this.
+
+    Never raises -- a missing/unreadable doc just means this check finds
+    nothing for it, same posture as every other check in this file.
+    """
+    results: dict = {"overdue": []}
+    today = datetime.now(timezone.utc).date().isoformat()
+    for path in DOC_REVISIT_PATHS:
+        try:
+            text = path.read_text()
+        except Exception as e:
+            print(f"[sentinel] doc-revisit read error ({path}): {type(e).__name__}: {e}", file=sys.stderr)
+            continue
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            m = _REVISIT_TAG_RE.search(line)
+            if m and m.group(1) <= today:
+                results["overdue"].append({
+                    "path": str(path.relative_to(ROOT)), "line": lineno,
+                    "date": m.group(1), "text": line.strip()[:160],
+                })
+
+    if results["overdue"]:
+        names = [f"{o['path']}:{o['line']} (REVISIT-BY {o['date']})" for o in results["overdue"]]
+        alerts.append((
+            "warning", "sentinel_doc_revisit_overdue",
+            f"HM-OPS-SENTINEL: {len(results['overdue'])} doc-prose revisit tag"
+            f"{'s' if len(results['overdue']) != 1 else ''} past their own date, "
+            f"never re-checked: {', '.join(names)}.",
+            float(len(results["overdue"])),
+        ))
+    return results
+
+
 def check_lock_errors(alerts: list[AlertTuple]) -> dict:
     """Count "database is locked" occurrences appended since the last run.
 
@@ -1154,6 +1212,7 @@ def main() -> int:
         cron_status = check_cron_missing_scripts(alerts)
         launchd_status = check_launchd_jobs_health(alerts)
         lifecycle_drift_status = check_fleet_lifecycle_drift(alerts)
+        doc_revisit_status = check_doc_revisit_dates(alerts)
         disk_status = check_disk_space(alerts)
     except Exception as e:
         print(f"[sentinel] error running checks: {type(e).__name__}: {e}", file=sys.stderr)
@@ -1163,7 +1222,7 @@ def main() -> int:
           f"collectors={collector_status} status_page={status_page_status} "
           f"source_health={source_health_status} mlx_qwen3={mlx_qwen3_status} cron={cron_status} "
           f"launchd={launchd_status} lifecycle_drift={lifecycle_drift_status} "
-          f"disk={disk_status}")
+          f"doc_revisit={doc_revisit_status} disk={disk_status}")
 
     acks = _load_acks()
     fired = [a for a in alerts if not _is_suppressed(a[1], a[3], acks)]

@@ -137,6 +137,24 @@ written on schedule) reads the ledger too, but only to *skip* targets the
 ledger says are intentionally off — an intentionally-halted job going log
 stale is the plan working, not a finding.
 
+**Doc-prose revisit tags (HM-OPS-SENTINEL-DOC-REVISIT-2026-09-10):** the
+drift/overdue checks above only see targets that went *through* the
+ledger. `docs/XO_BACKLOG.md`'s "STAYS DARK, no ledger action" pattern is
+the opposite by design — a job deliberately left disabled with a prose
+"revisit ~DATE" note instead of a formal pause, specifically because it
+wasn't worth a full ledger entry. That note has no automated expiry check
+of its own, which is the same dead-man's-switch shape as an un-checked
+`review_by` — confirmed for real when `situation_report.py`'s "revisit
+~2026-09-06" and `ollama_prewarm.sh`'s "revisit after 2026-09-04" both
+passed a full week with nobody re-checking. Fix: tag any such note
+`REVISIT-BY: YYYY-MM-DD`; `scripts/hm_ops_sentinel.py::
+check_doc_revisit_dates` scans `DOC_REVISIT_PATHS` every cycle and fires
+`sentinel_doc_revisit_overdue` once the date passes. One tag per logical
+item — don't duplicate it into a summary table row elsewhere in the same
+doc, or the same overdue note double-counts. Resolving the finding means
+resolving the underlying question and removing the tag, not pushing the
+date out.
+
 ## What this doesn't cover (yet)
 
 - No enforcement that every state change actually goes through the tool
