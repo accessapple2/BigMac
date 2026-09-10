@@ -416,18 +416,32 @@ real test is tomorrow's first live market-hours reading against the new
 cap. Use tomorrow's `would_fail_loud` count (market hours only) as the
 actual regression metric, not today's post-restart number.
 
-**Second confound layered onto the same reading, added same day PM:**
-Polygon key rotation (Steve) landed after today's 13:08:20 restart, so
-the currently-running process is still on the OLD key — the new key only
-takes effect at the *next* restart, i.e. **tomorrow's premarket cycle**.
-That means tomorrow's first live market-hours fetch is simultaneously:
-(1) the first real intraday test of the 100/min cap, and (2) the first
-live call on the rotated key. **Confirm the new-key fetch comes back
-clean (a real 200, real candle data) before reading tomorrow's
-budget-exhausted number as a cap-raise signal** — a key-auth problem and
-a cap-too-low problem would look similar in the shadow report (calls not
-completing / falling back), and conflating them would misattribute the
-cause. Check key health first, cap behavior second.
+**Second confound found, and corrected same day PM before it could bite
+tomorrow:** Polygon key rotation (Steve) landed after the 13:08:20
+restart above, so the then-running process was still holding the OLD
+key. Initial read was "stale until next restart" — **corrected: the old
+key was already revoked at the provider**, so every Polygon call on that
+process was actively failing auth, not just running on a soon-to-expire
+credential. Market was closed, so restarted immediately rather than
+waiting for tomorrow:
+
+- Fresh backup: `data/backups/trader_pre-key-rotation-restart_20260910_134530.db`,
+  `integrity_check=ok`.
+- Restart `13:45:47`, PID **45372**, clean (single writer, orphan-free).
+- Both `[CONFIG]` lines confirmed live on the new process:
+  `[OLLAMA-PROVIDER-CONFIG] ...` at `13:45:48`,
+  `[POLYGON-LIMITER-CONFIG] ...` at `13:46:49`.
+- One direct Polygon fetch on the new key (`GET /v2/aggs/ticker/SPY/prev`):
+  **HTTP 200**, `status: OK`, real data returned (`SPY prev close $762.40`)
+  — not just a 200 with an empty/error body.
+
+**Net effect: tomorrow's premarket cycle is no longer the first live call
+on the new key — it already happened, verified clean, this afternoon.**
+The market-hours confound from the section above still stands (today's
+`would_fail_loud=0` is after-hours and not yet a cap-raise proof either
+way), but the key-auth confound is now closed. Tomorrow's first
+market-hours `would_fail_loud` reading can be attributed to cap behavior
+alone.
 
 ## Offhost backup duration — check pending, not yet available
 

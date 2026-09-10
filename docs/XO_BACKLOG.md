@@ -39,12 +39,17 @@ detailed in `data/reports/relay/relay_2026-09-10_morning_checkin.md`.
   with a real spec — not as a standing backlog line. Detail:
   `data/reports/relay/QUESTION_door1-expiry-fix-scope.md`.
 - ~~Polygon key rotation~~ — done by Steve, 2026-09-10 PM. New key live in
-  `.env`, verified HTTP 200, backup taken first; old key confirmed dead at
-  the provider. Takes effect at the next restart (already past today's
-  13:08:20 restart, so **tomorrow's premarket cycle** is the first live
-  fetch on the new key) — see the relay doc note flagging that as worth a
-  clean-fetch confirmation before trusting tomorrow's budget-exhausted
-  read.
+  `.env`, verified HTTP 200, backup taken first. **Correction, same
+  afternoon:** the running process was holding a key already revoked at
+  the provider — not "stale until next restart" but actively failing
+  auth on every Polygon call. Restarted immediately (market closed,
+  13:45:47, PID 45372) rather than waiting for tomorrow — backup taken
+  first, both `[CONFIG]` lines confirmed live, one direct Polygon fetch
+  verified `HTTP 200` on the new key (`SPY prev close`, real data, not
+  just a 200 with an error body). Tomorrow's premarket now starts on a
+  verified-good key, and its `would_fail_loud` reading is no longer
+  confounded by a key question — only the market-hours confound noted in
+  the relay doc remains.
 
 | Item | Owner | Target date | Blocker |
 |---|---|---|---|
