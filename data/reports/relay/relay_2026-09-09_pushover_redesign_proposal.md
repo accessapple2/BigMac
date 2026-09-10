@@ -22,7 +22,7 @@ I've missed the real source.
 
 - **ntfy is fully silenced** (`DECOM-SILENCE 2026-07-19`, `alert_channels.py::_send_ntfy` returns `False` before attempting delivery) — but `kirk_briefing.py` has its **own, separate, unsilenced** direct-to-ntfy.sh `push_ntfy()`, firing 4x/day (05:46, 06:59, 12:45, 13:15 MST). It never routes through `alert_channels.py`, so it was never touched by the silence decision — whether it's actually landing on the phone depends only on whether that ntfy topic is still subscribed there, independent of the deliberate platform silence.
 - **Pushover today = `RED_ALERT` lane only**, one call site (`alert_channels.py:521`), fixed `priority=1`, no per-type sound/app/cooldown, credentials from `/usr/local/etc/pushover.env` (not `.env`).
-- **`kirk_briefing.py --mode after_close` already runs at 13:15 MST, and `--mode premarket` at 05:46 MST** — 4 minutes off your requested 05:50. These are market-commentary briefings (Kirk's advisory voice), not an alerts/notifications digest — different content, near-identical timing. Flagging this before building anything at 13:15/05:50 so the new jobs don't collide with or duplicate Kirk's existing slots. Proposal below treats them as complementary and offsets by 5 min; say if you want them merged instead.
+- **`kirk_briefing.py --mode after_close` already runs at 13:15 MST, and `--mode premarket` at 05:46 MST.** These are market-commentary briefings (Kirk's advisory voice), not an alerts/notifications digest. **Decision (2026-09-09 night): merge, not offset** — see the digest section below. No new cron times; Kirk's own separate ntfy path retires and he routes through the same TradeMinds delivery as everything else.
 
 ## Inventory — last 30 days, `notifications` table (18,456 rows)
 
@@ -115,14 +115,15 @@ premarket brief through end of prior evening).
 | **T0 — Emergency** | `sentinel_main_py_down`, kill-switch fires, broker-submit hard failures | 2 (emergency, requires ack) | `siren` | TradeMinds | 0 (never suppress) | Yes |
 | **T1 — Critical** | `sentinel_launchd_mass_outage`, `sentinel_disk_space_critical`, `polygon_limiter_fail_loud`, `backup_freshness_check` fail, `hm-season-rotation-aborted` | 1 (high) | `persistent` | TradeMinds | 900s (15min) — was effectively 0 today, this is the storm-breaker's main lever | Yes |
 | **T2 — Actionable warning** | `sentinel_signals_v2_queue`, `sentinel_lifecycle_drift`, `sentinel_launchd_job_stale`, `sentinel_cron_missing_script`, `sys_scan_liveness`, `guardian_sweep_sells`, `recall_refresh_failed` | 0 (normal) | `pushover` (default) | TradeMinds | 1800s (30min) | No |
-| **T3 — Heartbeat/health, low urgency** | `source-health-watcher-stale`, `sentinel_mlx_qwen3_heartbeat_stale`, `sentinel_mlx_qwen3_unhealthy`, `sentinel_lock_errors`, `sentinel_fd_warn`, `origin_healthcheck_restart` | -1 (low, no sound/vibrate, Pushover shows quietly) | none | TradeMinds | 3600s (1hr) | No |
-| **T4 — Digest-only, never a standalone push** | `bk_avwap_bull`/`bear`, `bk_box_bull`, `bk_orb_bull`, `dyn_*` pattern hits, `long_range_sensors_whale`, `user_price_level`, `q_dissent`, `hm-i-b-item5-drift`, everything else info-level and high-volume | n/a — not pushed individually | n/a | n/a | n/a | n/a |
+| **T3 — Heartbeat/health, low urgency (silent, in-app)** | `source-health-watcher-stale`, `sentinel_mlx_qwen3_heartbeat_stale`, `sentinel_mlx_qwen3_unhealthy`, `sentinel_lock_errors`, `sentinel_fd_warn`, `origin_healthcheck_restart`, **`long_range_sensors_whale`** | -1 (low, no sound/vibrate, Pushover shows quietly) | none | TradeMinds | 3600s (1hr) | No |
+| **T4 — Digest-only, never a standalone push** | `bk_avwap_bull`/`bear`, `bk_box_bull`, `bk_orb_bull`, `dyn_*` pattern hits, `user_price_level`, `q_dissent`, `hm-i-b-item5-drift`, everything else info-level and high-volume | n/a — not pushed individually | n/a | n/a | n/a | n/a |
 
-Notes on specific reclassifications versus today:
-- `long_range_sensors_whale` is currently `critical`/pushed (74 in 30 days,
-  2.5/day) — proposed down to T4 digest-only. A whale print is
-  informational, not actionable in real time at that frequency; open to
-  keeping it T1 if there's a reason it needs to interrupt.
+**Decision (2026-09-09 night):** `long_range_sensors_whale` → **T3**, not
+T4 — still lands as its own silent, in-app entry (74 in 30 days, 2.5/day),
+just never makes a sound or interrupts. Confirmed, applied to the table
+above.
+
+Notes on remaining reclassifications versus today:
 - `hm-season-rotation-aborted` stays T1 (it's a real structural-integrity
   alarm) even though its root cause was never found — the September fix
   making `rotate_season()` refuse to run anonymously means any *future*
@@ -173,21 +174,29 @@ link to) — proposing a generic `/classic?notif=<id>` fallback that at
 minimum jumps to a notification detail view, richer linking where a
 signal/trade id is available.
 
-## Close-of-day digest (13:15 MST) + premarket summary (05:50 MST)
+## Close-of-day digest + premarket summary — merged into Kirk (decision, 2026-09-09 night)
 
-Both read `notifications` for the relevant window and send **one** T2-style
-push summarizing counts by type (not content) — exactly the mechanism that
-makes the 14,538 `bk_avwap_*` rows and similar T4 volume visible at all
-without ever interrupting in real time. Offset 5 minutes from Kirk's
-existing 05:46/13:15 slots (05:50 / 13:20) so the two are visibly distinct
-pushes rather than looking like a duplicate — open to merging them into
-one message if you'd rather Kirk's brief and the alert digest arrive
-together.
-- **Premarket (05:50 MST):** count of every alert type since the prior
-  digest, storms flagged, any T0/T1 from overnight surfaced individually
-  again in summary (so an overnight critical isn't lost if it happened
-  during a period you weren't looking at the phone).
-- **Close-of-day (13:15→13:20 MST):** same shape, window = since premarket.
+**Decision: merge, not offset.** No new 05:50/13:20 pushes. The digest
+becomes the **final paragraph** of `kirk_briefing.py`'s existing 05:46
+(`--mode premarket`) and 13:15 (`--mode after_close`) pushes — same
+content/shape as originally proposed (counts by type since the prior
+digest, storms flagged, any T0/T1 from the window surfaced again in
+summary so an overnight critical isn't lost), just appended to Kirk's
+message body instead of sent as a second push.
+
+**Kirk's own ntfy path retires.** `kirk_briefing.py::push_ntfy()` (the
+separate, direct-to-ntfy.sh function that never routed through
+`alert_channels.py` and was therefore never touched by DECOM-SILENCE)
+goes away. Kirk's 4 daily briefings (premarket/open_check/power_hour/
+after_close) instead send through the same unified TradeMinds routing as
+every other alert type here — one delivery path for everything, no more
+shadow channel whose delivery depended on whatever ntfy subscription
+state happened to still exist on the phone.
+- Premarket (05:46 MST): Kirk's brief + digest paragraph appended.
+- Open_check (06:59) / power_hour (12:45): unaffected, no digest paragraph
+  (mid-session, not a natural summary boundary) — routes through the same
+  unified path, just without the appended digest.
+- After_close (13:15 MST): Kirk's brief + digest paragraph appended.
 
 ## `scripts/alert_test.py` (proposed shape, not built)
 ```
@@ -210,11 +219,17 @@ keep the OS-level file for the admin token and add TradeMinds
 specifically to `.env` — flagging as a small decision inside the build,
 not deciding it here.
 
-## Build order (once tomorrow's RULE #1 layers are done)
-1. `alert_storm_state` table + storm-breaker logic in `alert_channels.py`.
+## Build order (unchanged: after tomorrow's RULE #1 layers, before any other data task)
+1. `alert_storm_state` table + storm-breaker logic in `alert_channels.py`,
+   as specified above.
 2. Routing table as data (a dict or a small table — leaning dict, 43 rows
-   doesn't need a DB table) replacing the current 3-bucket `AlertLevel` map.
+   doesn't need a DB table) replacing the current 3-bucket `AlertLevel` map
+   — `long_range_sensors_whale` → T3.
 3. Timestamp (already done) + Bridge URL append.
-4. Premarket/close-of-day digest jobs + cron entries (safe-edit procedure).
-5. `scripts/alert_test.py`.
-6. TradeMinds token wiring, once present in `.env`.
+4. Retire `kirk_briefing.py::push_ntfy()`; route Kirk's 4 daily calls
+   through the same unified TradeMinds delivery path as everything else.
+5. Append the digest paragraph to Kirk's premarket (05:46) and after_close
+   (13:15) sends specifically — no new cron entries, no cron edits at all
+   for this piece.
+6. `scripts/alert_test.py`.
+7. TradeMinds token wiring, once present in `.env`.
