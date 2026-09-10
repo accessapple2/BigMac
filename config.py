@@ -289,6 +289,22 @@ OLLAMA_QUEUE_WORKERS = int(os.environ.get("OLLAMA_QUEUE_WORKERS", "2"))
 # first pass happened to catch). Default OFF -- current shipped 2-worker
 # behavior is unchanged unless this is explicitly flipped on.
 OLLAMA_QUEUE_STRICT_AFFINITY = os.environ.get("OLLAMA_QUEUE_STRICT_AFFINITY", "0") == "1"
+# HM-OLLIE-STALE-SOCKET-2026-09-10: was two independently hardcoded
+# literals in two different files (engine/providers/ollama_provider.py's
+# constructor fallback, main.py's explicit override) that silently
+# diverged to 85 vs 180 for months with no single place to check which
+# was actually live -- that gap is what turned today's incident into a
+# 180s-per-hang problem instead of a 30s one. Single source of truth now;
+# both call sites read this constant, and the effective value is logged
+# at startup (main.py::initialize_arena) so "what's live?" is a log line,
+# not a two-file archaeology exercise.
+OLLAMA_GENERATE_TIMEOUT_S = int(os.environ.get("OLLAMA_GENERATE_TIMEOUT_S", "30"))
+# Connection-establish retry budget for the HTTPAdapter mounted per /api/generate
+# call (engine/providers/ollama_provider.py) -- connect-phase failures only
+# (DNS, refused, connect timeout), not read-timeouts (never auto-retried,
+# no idempotency key on /api/generate -- see that module's HM-OLLIE-STALE-
+# SOCKET-2026-09-10 comments).
+OLLAMA_CONNECT_RETRY_TOTAL = int(os.environ.get("OLLAMA_CONNECT_RETRY_TOTAL", "1"))
 MLX_URL = "http://localhost:8899"
 MLX_MODEL = "mlx-community/Qwen3-8B-4bit"
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
@@ -301,6 +317,13 @@ FINNHUB_API_KEY = os.environ.get("FINNHUB_API_KEY", "")
 ALPHA_VANTAGE_KEY = os.environ.get("ALPHA_VANTAGE_KEY", "")
 FRED_API_KEY = os.environ.get("FRED_API_KEY")
 POLYGON_API_KEY = os.environ.get("POLYGON_API_KEY", "")  # Polygon.io — activates when key is added
+# HM-POLYGON-STARTER-CAP-RAISE-2026-09-10: was a hardcoded constant in
+# engine/polygon_rate_limiter.py with no env override and no startup log
+# line -- moved here so the cap can be tuned without a code change/restart
+# cycle, and so the effective value is announced at import time (see that
+# module) instead of requiring a file read to know what's live.
+POLYGON_LIMITER_CAP_PER_MIN = int(os.environ.get("POLYGON_LIMITER_CAP_PER_MIN", "100"))
+POLYGON_LIMITER_LIVE_RESERVED_PER_MIN = int(os.environ.get("POLYGON_LIMITER_LIVE_RESERVED_PER_MIN", "50"))
 
 # Alpaca Broker — canonical APCA_* names (paper trading only)
 APCA_API_KEY_ID     = os.environ.get("APCA_API_KEY_ID", "")

@@ -103,7 +103,8 @@ def initialize_arena():
     from config import (
         OPENAI_API_KEY, OPENAI_CODEX_MODEL, OPENAI_CODEX_MINI_MODEL,
         GEMINI_API_KEY, GROK_API_KEY, GROQ_API_KEY,
-        OLLAMA_MODEL, OLLAMA_URL, OLLIE_URL, MLX_URL, MLX_MODEL
+        OLLAMA_MODEL, OLLAMA_URL, OLLIE_URL, MLX_URL, MLX_MODEL,
+        OLLAMA_GENERATE_TIMEOUT_S,
     )
     from engine.ai_brain import Arena
     from engine.risk_manager import RiskManager
@@ -121,19 +122,23 @@ def initialize_arena():
     # longer hardcodes per-agent model assignments. setup_db.py:289-322
     # still enforces canonical model_ids on startup (HM-BN doctrine); change
     # those lines in lockstep with any future runtime UPDATE.
-    # HM-OLLIE-STALE-SOCKET-2026-09-10: was 180s -- the real, live scan-path
-    # timeout (this Arena wiring is the single source of routing per the
-    # HM-CN Phase 2 comment above), NOT the 85s engine/providers/ollama_
-    # provider.py's own _HM_WR_CANCEL_BUDGET_S docstring suggested at a
-    # glance -- that constant is only the fallback for callers who don't
-    # pass an explicit timeout, and this call site always did. 180s let a
-    # single dead-pooled-socket read-timeout (see that module's HM-OLLIE-
-    # STALE-SOCKET-2026-09-10 comments) cost a full scan cycle before
-    # surfacing. Lowered to match that module's constant -- p99 real
-    # generate today is ~13s, 30s is generous headroom.
+    # HM-OLLIE-STALE-SOCKET-2026-09-10: was a bare literal 180s here --
+    # the real, live scan-path timeout (this Arena wiring is the single
+    # source of routing per the HM-CN Phase 2 comment above), NOT the 85s
+    # engine/providers/ollama_provider.py's own _HM_WR_CANCEL_BUDGET_S
+    # docstring suggested at a glance -- that constant is only the
+    # fallback for callers who don't pass an explicit timeout, and this
+    # call site always did. 180s let a single dead-pooled-socket
+    # read-timeout (see that module's HM-OLLIE-STALE-SOCKET-2026-09-10
+    # comments) cost a full scan cycle before surfacing.
+    #
+    # SECOND-OPINION REVISION (same day): now reads config.
+    # OLLAMA_GENERATE_TIMEOUT_S instead of a second independent literal --
+    # this call site and that module's own default are the same named
+    # source now, so they can't silently drift again the way 85-vs-180 did.
     providers = build_all_providers(
         default_url=OLLIE_URL,
-        default_timeout=30,
+        default_timeout=OLLAMA_GENERATE_TIMEOUT_S,
         skip_ids={"ollama-llama"},  # handled by GroqProvider when GROQ_API_KEY set
     )
     console.log(f"[green]HM-CN Phase 2 routing: {len(providers)} providers built from ai_players DB")

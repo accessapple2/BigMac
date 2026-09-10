@@ -84,38 +84,114 @@ dropped existing sockets.
   (b) no monitor currently reads it — a sentinel-check gap, not a
   logging gap (see Proposed, not applied below).
 
-**Fix shipped (`engine/providers/ollama_provider.py`, `main.py`):**
+**Fix shipped, round 1 (`engine/providers/ollama_provider.py`, `main.py`),
+committed `ef321ff`:**
 1. Shared `requests.Session` + `HTTPAdapter` with
    `Retry(total=1, connect=1, read=0, status=0, allowed_methods=frozenset({"POST"}))`,
-   replacing a bare `requests.post()` against the module-level default
-   pool. Lets urllib3 proactively detect+discard a cleanly-closed pooled
-   connection before writing to it. **`allowed_methods` is a required
+   replacing a bare `requests.post()`. **`allowed_methods` was a required
    addition, not in the original spec** — urllib3 2.x's `Retry` excludes
    POST from its default allowlist (non-idempotent); without it,
    `connect=1` would silently never fire for this module's only verb and
-   the whole mount would be a no-op. Confirmed via `.venv` import test.
+   the whole mount would be a no-op.
 2. Read timeout cut 180s→30s at the real live call site (`main.py:126`),
-   plus the `_HM_WR_CANCEL_BUDGET_S` fallback 85→30 for consistency (no
-   other caller of that fallback — `engine/shadow_csp.py` — needs more
-   than 30s; p99 real generate today is ~13s). One true number now
+   plus the `_HM_WR_CANCEL_BUDGET_S` fallback 85→30. One true number
    instead of a documented-85/live-180 split.
-3. On a caught `ReadTimeout`, `_session.close()` (discard pooled
-   connections) then re-raise — **not** an app-level retry-and-resend of
-   the same failed call. Deliberate: `read=0` in the Retry config was
-   explicitly to avoid silently resending a genuinely slow generate
-   (`/api/generate` has no idempotency key — a read-timeout is
-   indistinguishable client-side from "dead socket" vs. "still
-   generating," so auto-resending risks firing a second real generation
-   on top of one that may still be in flight). Confirmed with the
-   Captain: this reading (discard-not-resend) is correct and matches the
-   `read=0` intent.
+3. On a caught `ReadTimeout`, discard the pooled connection then re-raise
+   — **not** an app-level retry-and-resend (`/api/generate` has no
+   idempotency key; a read-timeout can't be told apart client-side from
+   "dead socket" vs. "still generating," so resending risks firing a
+   second real generation on top of one that may still be in flight).
 4. `[OLLAMA-CANCEL]` log line enriched with the actual exception text
-   (was `type(e).__name__` only), so a log-only reader doesn't need to
-   cross-reference `decision_audit` to see the underlying detail.
+   (was `type(e).__name__` only).
 
-All changes `py_compile`-clean and import-tested live under `.venv`
-(Python 3.14, the actual trader interpreter) — session/retry/adapter
-construction confirmed to not error at import time.
+**Round 2 — second-opinion review, same day, three more accepted for the
+13:00 bundle (not yet committed):**
+1. **Don't pool at all for `/api/generate`.** The round-1 fix mounted a
+   *shared, persistent* `Session` — which, on reflection, reintroduces
+   exactly the class of bug this incident exposed (a keep-alive
+   connection sitting idle across calls, vulnerable to being silently
+   killed server-side between uses). Replaced with a fresh
+   `requests.Session()` + `HTTPAdapter` constructed and closed inside
+   `_do_request()` for every single call, plus an explicit
+   `Connection: close` header. At this call volume (a handful of
+   calls/min fleet-wide) a fresh TCP handshake costs nothing next to
+   multi-second generation time, and this removes the failure class
+   structurally rather than mitigating it. The `Retry(connect=1, ...)`
+   mount stays — for genuine connect-phase failures *within* one call
+   (DNS, refused, connect timeout) — but there's no longer a persistent
+   pool for it to protect across calls. The discard-on-`ReadTimeout` step
+   from round 1 is now moot (nothing persists to discard) and was
+   removed.
+2. **Timeout, retry count, and the Polygon cap moved to `config.py`**
+   (env-backed, same `os.environ.get(...)` pattern the rest of that file
+   already uses): `OLLAMA_GENERATE_TIMEOUT_S` (30), `OLLAMA_CONNECT_RETRY_TOTAL`
+   (1), `POLYGON_LIMITER_CAP_PER_MIN` (100), `POLYGON_LIMITER_LIVE_RESERVED_PER_MIN`
+   (50). `main.py` and `ollama_provider.py` both now import
+   `OLLAMA_GENERATE_TIMEOUT_S` from the same place — the 85-vs-180 split
+   was two independent literals with no single source; that can't recur
+   structurally now.
+3. **Effective values logged at startup**, one line each, confirmed
+   firing on import under `.venv`:
+   `[OLLAMA-PROVIDER-CONFIG] generate_timeout=30s connect_timeout=5s connect_retry_total=1 pooling=disabled (fresh connection per call)`
+   and
+   `[POLYGON-LIMITER-CONFIG] cap_per_min=100 live_reserved_per_min=50 mode=shadow (env POLYGON_LIMITER_MODE=shadow)`.
+   "What's live?" is now a log line, which is the whole thing today's
+   85-vs-180 confusion cost.
+
+All changes (both rounds) `py_compile`-clean and import-tested live under
+`.venv` (Python 3.14, the actual trader interpreter) — session/retry/
+adapter construction and both startup log lines confirmed firing at
+import time, no errors.
+
+**`tests/test_ollama_cancel_on_timeout.py` — fixed properly, not just the
+reported symptom.** The Captain's diagnosis (`_StubQueue.submit()` missing
+the `timing=` kwarg, added by HM-OLLIE-QUEUE-CONTENTION-2026-09-09 after
+this stub was last updated) was correct but not sufficient: applying only
+that fix took 4 failures → 3, with the 4th now passing *by accident* (a
+real `ConnectionError` from `localhost:11434` refusing the connection
+happened to match the expected exception type). Root cause of the other
+3: round 2's no-pooling rewrite replaced the module-level `requests.post()`
+call with a fresh `Session().post()` per call, so
+`patch("...requests.post")` no longer intercepts anything and the tests
+fell through to real (unmocked) network calls. Fixed by moving the patch
+target to `requests.Session.post` in all four tests, which applies to
+every ad-hoc `Session` `_do_request()` constructs. Also added an
+assertion pinning the new `Connection: close` header. **All 7 tests in
+the file pass now, deterministically** — confirmed with a second run.
+
+**Live smoke-test finding, verified just now — an unresolved, ongoing,
+server-side condition, separate from and not fixed by today's client-side
+change:** the first smoke call used a literal `192.168.1.168` (not
+sourced from config, and moot regardless — `config.OLLIE_URL`/
+`OLLAMA_URL` are both already `http://100.95.195.20:11434` live, no LAN
+address in the loop at all). The second call used the real Tailscale
+address, `100.95.195.20`, and also failed — not a routing/sandbox
+artifact. Isolated with three follow-up checks:
+- `GET /api/ps` on `100.95.195.20:11434` → 200 OK in 0.01s, `gemma3:4b`
+  and `qwen3:8b` both shown resident.
+- `POST /api/generate` with `gemma3:4b` → succeeded in 0.19s.
+- `POST /api/generate` with `qwen3:8b` (raw, no pooling, no queue,
+  brand-new connection) → hung the full 60s given, zero response.
+
+Cross-checked against live production: `decision_audit` shows the same
+`Read timed out (read timeout=180)` pattern still firing at 18:48:53 and
+18:51:59 UTC (minutes before this check) — **the incident is still
+actively happening**, not resolved on its own since this morning. Every
+one of today's 67 `[OLLAMA-CANCEL]` events is `model=plutus-v1` — zero on
+any other model — and `plutus-v1`/`qwen3:8b` are the same underlying
+weights (HM-OLLAMA-ALIAS-2026-08-27). Sampled across the full day
+(09:58→11:51 local): continuous, unbroken, still ongoing.
+
+**Conclusion: this is not a network/routing/pooling problem at all — the
+host and every other model respond instantly; something specific to
+`qwen3:8b`/`plutus-v1`'s serving path on olliemax has been stuck since
+09:35 this morning and still is.** Today's client-side fix (fresh
+connection per call, 30s timeout, proper logging) reduces the cost of
+each hit from ~180s to ~30s and makes it observable — it does not address
+whatever is wedged server-side. McCoy may keep hitting this after the
+13:00 restart, just cheaper per-hit. Needs attention on olliemax itself
+(Ollama's own logs, that model's worker/slot state) — flagged to the
+Captain live, not deferred to a backlog item, given the time-sensitivity.
 
 **Real scope wider than first estimated:** `decision_audit`'s 31–34 rows
 today only capture McCoy's scan-path decisions (via the
@@ -166,6 +242,43 @@ this check gets built it should key off `trader_error.log`'s
 alone (which misses witness/War Room path cancellations) — noted for
 whoever picks this up.
 
+**Generalized by the second-opinion review** into its own backlog item
+(below) — a reusable dead-man's-switch monitor class, not just this one
+check.
+
+## Filed to `docs/XO_BACKLOG.md` — Ollama connection-reuse hardening,
+## round 2 (after-close, not today)
+Four follow-ups from the second-opinion review, explicitly kept out of
+the 13:00 bundle:
+1. **Streaming with an idle-timeout** instead of wall-clock on
+   `/api/generate` — a wall-clock budget kills a call that's genuinely
+   still producing tokens slowly (cold model load); an idle-timeout (no
+   bytes for N seconds) only kills calls actually stuck. Needs
+   `stream=True` + incremental NDJSON reading — a bigger structural
+   change than this incident's fix.
+2. **A cheap `/api/ps` health gate before each scan cycle** — confirm the
+   target model is resident/responsive before committing a full cycle to
+   it, so a hang degrades to "skip this cycle" instead of eating a full
+   timeout per affected call.
+3. **An integration test that hangs a stub server** (accepts the
+   connection, never responds) and asserts the pool doesn't hand back the
+   dead socket for a later call — real regression coverage for the
+   failure class itself, not just the cancel-and-log behavior already
+   covered.
+4. **Highest value: a reusable dead-man's-switch monitor class** for
+   `scripts/hm_ops_sentinel.py` — alert when expected work does NOT
+   happen, not just when something errors loudly. Three of this week's
+   real findings were silence, not errors (McCoy's decision rate
+   silently dropping — this incident; Worf producing zero decisions
+   despite active+configured — roster item above; the general shape of
+   "a periodic job that just... doesn't run, no exception anywhere").
+   The `check_ollama_decision_health()` draft above is a first instance;
+   this item generalizes it into a configurable class (table/column,
+   "was active" floor, window) instead of a one-off.
+
+Owner Scotty, target "after close." Full detail in `docs/XO_BACKLOG.md`'s
+consolidated table.
+
 ## Filed to `docs/XO_BACKLOG.md` — roster reconciliation (separate from the
 ## Ollama connection fix, not folded in)
 Found while triaging the timeout cluster: `qwen3-8b-flash` (Worf) is
@@ -181,6 +294,17 @@ row in the `docs/XO_BACKLOG.md` consolidated table, owner Scotty,
 unslotted. Needs: audit all active `ai_players` rows against
 `config.AI_PLAYERS` membership, diagnose Worf's silence, decide per seat
 (re-wire or formally retire).
+
+**Possible connection, not confirmed:** Worf's model (`qwen3-8b-flash` →
+`qwen3:8b`) is the *same underlying weights* the live smoke-test found
+stuck on olliemax (`plutus-v1` is an alias of `qwen3:8b`, HM-OLLAMA-ALIAS
+2026-08-27). If that server-side wedge is per-model rather than
+per-alias-name, Worf's calls would hang the same way McCoy's do. Doesn't
+fully explain Worf's silence on its own — today's 67 `[OLLAMA-CANCEL]`
+events are all logged as `model=plutus-v1`, none as `model=qwen3:8b`,
+suggesting Worf isn't even attempting calls rather than attempting and
+timing out — but worth checking together rather than as two unrelated
+mysteries.
 
 ## Also verified this session, no action needed
 - **Invalidation fill, post-deploy window (McCoy, restart boundary
@@ -209,15 +333,33 @@ unslotted. Needs: audit all active `ai_players` rows against
   Polygon/GEX cache link (timeouts are against the Ollama host, not
   Polygon — mechanically unrelated). **Do not move the 65% LOW_CONVICTION
   threshold on today's data** — the underlying issue was McCoy's Ollama
-  backend, not signal quality, and that's now fixed pending the 13:00
-  restart.
+  backend, not signal quality. **Update, later same session:** the
+  client-side fix reduces the cost of each hit (30s vs. 180s) but a live
+  smoke-test found the server-side condition itself still active as of
+  this update (see the live-verified finding above) — don't treat this as
+  fully resolved until confirmed post-restart.
 
 ## Status
-Four changes staged this session, all `py_compile`/import-test clean,
-none committed, none restarted:
-- `engine/polygon_rate_limiter.py`
-- `engine/providers/ollama_provider.py`
-- `main.py`
-- `docs/XO_BACKLOG.md` (docs-only, roster reconciliation item)
+**Round 1 committed and pushed** — `ef321ff` on `exec-pipeline`
+(`engine/polygon_rate_limiter.py`, `engine/providers/ollama_provider.py`,
+`main.py`, `docs/XO_BACKLOG.md` roster-reconciliation item, this relay
+doc). **Round 2 + test fix staged, committing now:**
+- `config.py` (new `OLLAMA_GENERATE_TIMEOUT_S`, `OLLAMA_CONNECT_RETRY_TOTAL`,
+  `POLYGON_LIMITER_CAP_PER_MIN`, `POLYGON_LIMITER_LIVE_RESERVED_PER_MIN`)
+- `engine/polygon_rate_limiter.py` (reads from `config`, startup log line)
+- `engine/providers/ollama_provider.py` (fresh-connection-per-call, reads
+  from `config`, startup log line)
+- `main.py` (reads `OLLAMA_GENERATE_TIMEOUT_S` from `config`)
+- `docs/XO_BACKLOG.md` (round-2 backlog item: streaming/idle-timeout,
+  `/api/ps` health gate, stub-server integration test, dead-man's-switch
+  monitor class)
+- `tests/test_ollama_cancel_on_timeout.py` (mock target fixed for the
+  no-pooling rewrite, `timing=` kwarg added to the queue stub — all 7
+  tests pass deterministically)
 
-Holding for the 13:00 bundle in the order above.
+All `py_compile`/import-test clean. **NOT fully resolved as of this
+update** — see the live-verified finding above: a smoke-test just found
+the server-side qwen3:8b/plutus-v1 hang still active on olliemax right
+now, separate from and not fixed by this client-side change. Holding
+code for the 13:00 bundle in the order above; the server-side question is
+flagged to the Captain live, decision on timing is theirs.

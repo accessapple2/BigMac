@@ -73,9 +73,17 @@ an explicit env var, per the module design above.
 """
 from __future__ import annotations
 
+import logging
+import os
 from pathlib import Path
 
 from engine.tiered_rate_limiter import TieredRateLimiter, BudgetExhausted  # noqa: F401 (re-exported)
+
+# Root logger defaults to WARNING in this codebase (see ollama_provider.py's
+# _latency_logger for the same pattern) -- raise to INFO so the startup
+# config-announce line below actually emits.
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 LIVE_CALLERS = {
     "gamma_context",
@@ -93,14 +101,18 @@ LIVE_CALLERS = {
 # for the free tier's real 5/min ceiling (see docstring above) and has been
 # stale since the Starter upgrade. Raised per docs/XO_BACKLOG.md:46 ("5/min
 # -> ~100/min"). Same 50% live-reserved ratio as before; shared tier scales
-# with it. Tune here, not by editing tiered_rate_limiter.py.
+# with it.
 #
-# NOTE: this constant is baked into the module-level `_limiter` singleton
-# below at import time -- changing it requires a process restart to take
-# effect (POLYGON_LIMITER_MODE, by contrast, is read fresh per call and
-# needs no restart).
-CAP_PER_MIN = 100
-LIVE_RESERVED_PER_MIN = 50
+# SECOND-OPINION REVISION (same day): now env/config-backed
+# (config.POLYGON_LIMITER_CAP_PER_MIN / _LIVE_RESERVED_PER_MIN) instead of
+# a bare literal -- tune via env, not a code edit + restart cycle. Still
+# baked into the module-level `_limiter` singleton below at IMPORT time,
+# so a running process only picks up a changed env value on its next
+# restart (POLYGON_LIMITER_MODE, by contrast, is read fresh per call and
+# needs no restart). Effective value logged below so "what's live?" is a
+# log line, not a code read.
+from config import POLYGON_LIMITER_CAP_PER_MIN as CAP_PER_MIN
+from config import POLYGON_LIMITER_LIVE_RESERVED_PER_MIN as LIVE_RESERVED_PER_MIN
 
 # Options/GEX data older than this during market hours is treated as unusable
 # for the live tier -- fail loud rather than trade on it. A single blanket
@@ -121,6 +133,13 @@ _limiter = TieredRateLimiter(
     live_max_stale_secs=LIVE_MAX_STALE_SECS,
     cache_path=CACHE_PATH,
     mode_env_var=MODE_ENV_VAR,
+)
+
+logger.info(
+    "[POLYGON-LIMITER-CONFIG] cap_per_min=%s live_reserved_per_min=%s "
+    "mode=%s (env %s=%s)",
+    CAP_PER_MIN, LIVE_RESERVED_PER_MIN, _limiter.mode.value,
+    MODE_ENV_VAR, os.environ.get(MODE_ENV_VAR, "off"),
 )
 
 

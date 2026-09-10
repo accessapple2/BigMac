@@ -28,14 +28,17 @@ _latency_logger.setLevel(logging.INFO)
 # it was NOT the live production value despite reading as if it were. The
 # real scan-path Arena (main.py::initialize_arena -> build_all_providers)
 # passed default_timeout=180 explicitly, overriding this. That 180s was the
-# actual budget behind today's stale-pooled-socket incident (49 [OLLAMA-
+# actual budget behind today's stale-pooled-socket incident (52 [OLLAMA-
 # CANCEL] cancellations, all wall~180.01s, logs/trader_error.log) and cost
-# a full scan cycle per hang. Both lowered together to 30s (p99 real
-# generate today is ~13s per live decision_audit/queue-timing data — 30s
-# is generous headroom, not a tight fit) so there's one true number instead
-# of a documented-85/live-180 split. See main.py's own comment at the
-# Arena wiring site for the other half of this fix.
-_HM_WR_CANCEL_BUDGET_S = 30
+# a full scan cycle per hang.
+#
+# SECOND-OPINION REVISION (same day): both this and main.py's call site now
+# read config.OLLAMA_GENERATE_TIMEOUT_S -- one named source instead of two
+# independently-hardcoded literals that silently drifted (85 vs 180) with
+# no single place to check which was live. See config.py's comment and
+# main.py's Arena wiring for the other half.
+from config import OLLAMA_GENERATE_TIMEOUT_S as _HM_WR_CANCEL_BUDGET_S
+from config import OLLAMA_CONNECT_RETRY_TOTAL as _CONNECT_RETRY_TOTAL
 
 # HM-BRIDGE-WEDGE-2 2026-06-11: explicit (connect, read) timeout. A bare float
 # bounds both, but a tight CONNECT budget makes an unreachable Ollie Max
@@ -49,33 +52,41 @@ _HM_OLLAMA_CONNECT_TIMEOUT_S = 5
 # the dead socket didn't error immediately, so the call just blocked in
 # recv() for the full read-timeout budget with nothing ever coming back
 # (mechanism: HTTPConnectionPool(host='100.95.195.20', port=11434): Read
-# timed out). A shared Session + HTTPAdapter lets urllib3's own pool
-# hygiene proactively detect and discard a connection the peer has already
-# cleanly closed (FIN observed) BEFORE writing to it -- the common case for
-# a graceful service restart -- instead of a bare requests.post() picking
-# a fresh connection from the module-level default pool with no such
-# check. Retry(connect=1) covers genuine new-connection failures (DNS,
-# refused, connect timeout). read=0 is deliberate and load-bearing, NOT an
+# timed out).
+#
+# SECOND-OPINION REVISION (same day): the first cut of this fix mounted a
+# SHARED, persistent Session -- which reintroduces exactly the class of bug
+# this incident exposed (a keep-alive connection sitting idle across calls,
+# vulnerable to being silently killed server-side between uses). Don't pool
+# at all for /api/generate: at this call volume (a handful of calls/min
+# across the whole fleet) a fresh TCP handshake per call costs nothing next
+# to multi-second generation time, and removes the failure class
+# structurally instead of mitigating it. _RETRY_ADAPTER_FACTORY below is
+# still mounted per call -- for genuine connect-phase failures WITHIN that
+# one call (DNS, refused, connect timeout), never for reuse across calls,
+# which no longer happens. read=0 is deliberate and load-bearing, NOT an
 # oversight: a read-timeout is indistinguishable, from the client side,
 # between "the pooled socket was already dead" and "the model is just
 # genuinely slow this call" -- /api/generate has no idempotency key, so
-# auto-resending on a read-timeout risks firing a second real generation
-# for one that may still be in flight server-side. status=0/total=1 keep
-# this narrowly scoped to the connection-reuse failure mode, not a
-# general retry-everything policy.
+# auto-retrying a read-timeout risks firing a second real generation for
+# one that may still be in flight server-side. status=0/total=connect_total
+# keep this narrowly scoped to the connect-failure case, not a general
+# retry-everything policy.
 #
 # urllib3 2.x's Retry defaults `allowed_methods` to the idempotent-only set
 # (GET/HEAD/PUT/DELETE/OPTIONS/TRACE) -- POST is excluded by design. Without
-# explicitly re-including it here, connect=1 above would silently never
+# explicitly re-including it here, connect=N above would silently never
 # fire for this module's only verb and the whole mount would be a no-op.
 _retry = Retry(
-    total=1, connect=1, read=0, status=0,
+    total=_CONNECT_RETRY_TOTAL, connect=_CONNECT_RETRY_TOTAL, read=0, status=0,
     allowed_methods=frozenset({"POST"}),
 )
-_adapter = HTTPAdapter(max_retries=_retry)
-_session = requests.Session()
-_session.mount("http://", _adapter)
-_session.mount("https://", _adapter)
+
+_latency_logger.info(
+    "[OLLAMA-PROVIDER-CONFIG] generate_timeout=%ss connect_timeout=%ss "
+    "connect_retry_total=%s pooling=disabled (fresh connection per call)",
+    _HM_WR_CANCEL_BUDGET_S, _HM_OLLAMA_CONNECT_TIMEOUT_S, _CONNECT_RETRY_TOTAL,
+)
 
 # HM-OLLAMA-ALIAS 2026-08-27: plutus-v1, ministral-3:3b, and (added
 # 2026-08-27 ~7:50, manually `ollama cp qwen3:8b qwen2.5-coder:7b`)
@@ -237,12 +248,20 @@ class OllamaProvider(AIProvider):
             payload["think"] = False
 
         def _do_request() -> str:
-            # HM-OLLIE-STALE-SOCKET-2026-09-10: was a bare requests.post()
-            # (module-level default pool, no reuse hygiene). _session gets
-            # urllib3's proactive dropped-connection check on reuse -- see
-            # the Retry/_session setup above.
-            r = _session.post(self.url, json=payload,
-                              timeout=(_HM_OLLAMA_CONNECT_TIMEOUT_S, self.timeout))
+            # HM-OLLIE-STALE-SOCKET-2026-09-10 (second-opinion revision):
+            # fresh Session + HTTPAdapter per call, closed immediately after
+            # -- no cross-call connection reuse, so there's no pooled socket
+            # left around for a later call to inherit in a dead state. See
+            # the module-level comment above for why this replaced the
+            # earlier shared-Session revision. Connection: close is sent
+            # explicitly too, so Ollama itself doesn't hold the socket open
+            # expecting a reuse that will never come.
+            with requests.Session() as _s:
+                _s.mount("http://", HTTPAdapter(max_retries=_retry))
+                _s.mount("https://", HTTPAdapter(max_retries=_retry))
+                r = _s.post(self.url, json=payload,
+                            headers={"Connection": "close"},
+                            timeout=(_HM_OLLAMA_CONNECT_TIMEOUT_S, self.timeout))
             # STRUCTURAL: do NOT swallow a missing/failing model to "". A 404 (model not on
             # the host) or an {"error":...} body must alarm + raise, not return empty.
             try:
@@ -271,29 +290,27 @@ class OllamaProvider(AIProvider):
             # queue slot freed before WR's outer 90s budget tripped.
             # HM-OLLIE-STALE-SOCKET-2026-09-10: this line already reaches
             # trader_error.log today (stdlib logger -> Logging Sink Split,
-            # docs/runbooks/logging.md) -- 49 of these on 2026-09-10, all
+            # docs/runbooks/logging.md) -- 52 of these on 2026-09-10, all
             # traceable to the dead-pooled-socket incident. Was logging only
             # type(e).__name__; added the actual exception text (%s on e)
             # so a log-only reader (a sentinel check, a human grepping
             # trader_error.log) doesn't have to cross-reference decision_audit
             # to see the underlying "Read timed out" / host:port detail.
+            #
+            # SECOND-OPINION REVISION (same day): no pool-discard step here
+            # anymore -- _do_request() no longer holds a connection across
+            # calls at all (fresh Session per call, closed immediately after
+            # use), so there's nothing left to discard. Still deliberately
+            # NOT a retry-and-resend of THIS failed call on a read-timeout:
+            # a read-timeout can't be told apart, client-side, from a
+            # genuinely slow in-flight generate, and /api/generate has no
+            # idempotency key -- resending risks firing a second real
+            # generation on top of one that may still be running
+            # server-side.
             _latency_logger.warning(
                 "[OLLAMA-CANCEL] model=%s agent=%s wall=%.2fs reason=%s detail=%s",
                 self.model_id, self.player_id, time.time() - t0, type(e).__name__, e,
             )
-            if isinstance(e, requests.exceptions.ReadTimeout):
-                # Discard this session's pooled connections so the NEXT,
-                # separate call doesn't inherit whatever socket state
-                # produced this timeout. Deliberately NOT a retry-and-resend
-                # of THIS failed call -- see the read=0 rationale above: a
-                # read-timeout can't be told apart, client-side, from a
-                # genuinely slow in-flight generate, so resending risks
-                # firing a second real generation on top of one that may
-                # still be running server-side.
-                try:
-                    _session.close()
-                except Exception:
-                    pass
             raise
         _qw = _timing.get("queue_wait_s")
         _mt = _timing.get("model_time_s")

@@ -56,7 +56,7 @@ def test_agent_routing_default_timeout_matches_cancel_budget() -> None:
 class _StubQueue:
     """Pass-through queue stub — calls fn() directly. The queue is not under test."""
 
-    def submit(self, fn, model_id: str = ""):
+    def submit(self, fn, model_id: str = "", timing: dict | None = None):
         return fn()
 
 
@@ -66,8 +66,13 @@ def test_call_model_logs_cancel_on_read_timeout(caplog) -> None:
 
     p = OllamaProvider(player_id="test-agent", model="ministral-3:3b", timeout=1)
 
+    # HM-OLLIE-STALE-SOCKET-2026-09-10 (round 2): _do_request() no longer
+    # calls the module-level requests.post() -- it opens a fresh
+    # requests.Session() per call (see that module's no-pooling comment)
+    # and calls Session.post() on it. Patch the class method so it applies
+    # to every ad-hoc Session the code under test constructs.
     with patch("engine.providers.ollama_provider.get_queue", return_value=_StubQueue()), \
-         patch("engine.providers.ollama_provider.requests.post") as mock_post:
+         patch("engine.providers.ollama_provider.requests.Session.post") as mock_post:
         mock_post.side_effect = requests.exceptions.ReadTimeout("read timed out")
         with caplog.at_level(logging.WARNING, logger="ollama_provider"):
             with pytest.raises(requests.exceptions.ReadTimeout):
@@ -89,7 +94,7 @@ def test_call_model_logs_cancel_on_connection_error(caplog) -> None:
     p = OllamaProvider(player_id="test-agent", model="ministral-3:3b", timeout=1)
 
     with patch("engine.providers.ollama_provider.get_queue", return_value=_StubQueue()), \
-         patch("engine.providers.ollama_provider.requests.post") as mock_post:
+         patch("engine.providers.ollama_provider.requests.Session.post") as mock_post:
         mock_post.side_effect = requests.exceptions.ConnectionError("connection lost")
         with caplog.at_level(logging.WARNING, logger="ollama_provider"):
             with pytest.raises(requests.exceptions.ConnectionError):
@@ -109,7 +114,7 @@ def test_call_model_no_cancel_log_on_normal_response(caplog) -> None:
     mock_resp.json.return_value = {"response": "hello world"}
 
     with patch("engine.providers.ollama_provider.get_queue", return_value=_StubQueue()), \
-         patch("engine.providers.ollama_provider.requests.post", return_value=mock_resp):
+         patch("engine.providers.ollama_provider.requests.Session.post", return_value=mock_resp):
         with caplog.at_level(logging.WARNING, logger="ollama_provider"):
             result = p.call_model("test prompt")
 
@@ -119,7 +124,7 @@ def test_call_model_no_cancel_log_on_normal_response(caplog) -> None:
 
 
 def test_requests_post_receives_self_timeout() -> None:
-    """The READ half of the timeout tuple we pass to requests.post matches
+    """The READ half of the timeout tuple we pass to Session.post matches
     self.timeout — not a hard-coded value.
 
     HM-TEST-STALE-2026-08-29: this asserted a bare scalar timeout; the code
@@ -129,6 +134,13 @@ def test_requests_post_receives_self_timeout() -> None:
     a regression. Test updated to match, and now also pins the connect
     half to the documented constant so this stays meaningful rather than
     just loosely passing.
+
+    HM-OLLIE-STALE-SOCKET-2026-09-10 (round 2): mock target moved from
+    requests.post to requests.Session.post -- _do_request() now opens a
+    fresh Session per call instead of using the module-level function (see
+    that module's no-pooling comment). Also pins the Connection: close
+    header, added in the same round-2 change so Ollama doesn't hold the
+    socket open expecting a reuse that will never come.
     """
     from engine.providers.ollama_provider import OllamaProvider, _HM_OLLAMA_CONNECT_TIMEOUT_S
 
@@ -137,9 +149,10 @@ def test_requests_post_receives_self_timeout() -> None:
     mock_resp.json.return_value = {"response": "ok"}
 
     with patch("engine.providers.ollama_provider.get_queue", return_value=_StubQueue()), \
-         patch("engine.providers.ollama_provider.requests.post", return_value=mock_resp) as mock_post:
+         patch("engine.providers.ollama_provider.requests.Session.post", return_value=mock_resp) as mock_post:
         p.call_model("prompt")
 
     connect_timeout, read_timeout = mock_post.call_args.kwargs["timeout"]
     assert connect_timeout == _HM_OLLAMA_CONNECT_TIMEOUT_S
     assert read_timeout == 42
+    assert mock_post.call_args.kwargs["headers"] == {"Connection": "close"}
