@@ -3861,6 +3861,7 @@ def _write_decision_audit(
     raw_confidence: float | None = None,
     meta_confidence: float | None = None,
     confidence_modifier: float | None = None,
+    prompt_text: str | None = None,
 ) -> None:
     """Write a single decision_audit row. Crash-safe — never raises.
 
@@ -3872,6 +3873,15 @@ def _write_decision_audit(
     raw_confidence (LLM emit), meta_confidence (post-learning_engine downgrade),
     and confidence_modifier (model_adjustments.confidence_modifier) so the
     24-point downgrade math (e.g. deepseek 0.85 × 0.72 = 0.61) is queryable.
+
+    HM-DECISION-AUDIT-PROMPT 2026-09-09: prompt_text stores the exact LLM
+    input (build_prompt() output) for signal_emit rows, threaded through from
+    provider._last_prompt (see providers/base.py::analyze()). Prior to this,
+    decision_audit only kept a 300-char snippet of the model's OUTPUT
+    reasoning — the actual input prompt was never persisted anywhere,
+    discovered during the 2026-09-09 McCoy 8B-vs-30B bakeoff when a literal
+    prompt replay turned out to be impossible. Fixes that gap going forward
+    so a future bakeoff is byte-for-byte replayable.
     """
     try:
         snap = _capture_decision_snapshot()
@@ -3882,8 +3892,8 @@ def _write_decision_audit(
                 "INSERT INTO decision_audit "
                 "(event_type, player_id, symbol, signal_id, trade_id, "
                 " regime, spy_change, vix, confidence, gate_verdict, reasoning_snippet, "
-                " raw_confidence, meta_confidence, confidence_modifier) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " raw_confidence, meta_confidence, confidence_modifier, prompt_text) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     event_type,
                     player_id,
@@ -3899,6 +3909,7 @@ def _write_decision_audit(
                     raw_confidence,
                     meta_confidence,
                     confidence_modifier,
+                    prompt_text,
                 ),
             )
             _ac.commit()
@@ -3913,7 +3924,8 @@ def _write_decision_audit(
 def save_signal(player_id: str, symbol: str, signal: str, confidence: float,
                 reasoning: str, asset_type: str = "stock", option_type: str = None,
                 sources: str = "", timeframe: str = "SWING",
-                prompt_version: str | None = None, force: bool = False) -> int:
+                prompt_version: str | None = None, force: bool = False,
+                prompt_text: str | None = None) -> int:
     """Save signal and return its rowid for status tracking. Returns -1 on error.
 
     HM-PROMPT-VERSIONING (POC Day 2b) 2026-05-22: prompt_version is optional;
@@ -3921,6 +3933,11 @@ def save_signal(player_id: str, symbol: str, signal: str, confidence: float,
     default tag. Bump the tag at the call site when the agent's prompt
     template changes (e.g. v1 → v2), so the learning loop can compare
     WR/expectancy across prompt revisions.
+
+    HM-DECISION-AUDIT-PROMPT 2026-09-09: prompt_text is optional — only the
+    ai_brain.py fleet path currently supplies it (via provider._last_prompt).
+    Other callers (dayblade.py etc.) are unaffected; their signal_emit rows
+    just keep prompt_text=NULL as before.
     """
     # HOLD signals are informational — mark as SKIPPED immediately
     _default_status = "SKIPPED" if signal == "HOLD" else "PENDING"
@@ -3992,6 +4009,7 @@ def save_signal(player_id: str, symbol: str, signal: str, confidence: float,
             signal_id=signal_id,
             confidence=confidence,
             reasoning_snippet=reasoning,
+            prompt_text=prompt_text,
         )
         # HM-EVENTS-BUS-FOUNDATION 2026-05-22: drop a row in the canonical
         # events bus + a normalized signals_v2 row. Fail-safe — bus errors

@@ -705,6 +705,15 @@ def setup():
         reasoning_snippet TEXT,
         created_at TEXT DEFAULT (datetime('now'))
     )''')
+    # HM-DECISION-AUDIT-PROMPT 2026-09-09: the exact LLM input (build_prompt()
+    # output) for signal_emit rows — see engine.paper_trader._write_decision_audit.
+    # Previously only a 300-char OUTPUT reasoning snippet was kept; no raw prompt
+    # was ever persisted, discovered during the 2026-09-09 McCoy 8B-vs-30B bakeoff.
+    try:
+        c.execute("ALTER TABLE decision_audit ADD COLUMN prompt_text TEXT")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
     c.execute("CREATE INDEX IF NOT EXISTS idx_decision_audit_player_ts ON decision_audit(player_id, created_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_decision_audit_symbol_ts ON decision_audit(symbol, created_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_decision_audit_event ON decision_audit(event_type, created_at)")

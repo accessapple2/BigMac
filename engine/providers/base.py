@@ -546,6 +546,10 @@ class AIProvider(ABC):
             already_holds_stock=symbol in held_stock_symbols,
             held_options=held_options,
         )
+        # HM-DECISION-AUDIT-PROMPT 2026-09-09: stash the exact prompt so the
+        # ai_brain.py call site can thread it into save_signal(prompt_text=...)
+        # -> decision_audit. Byte-for-byte replay was impossible before this.
+        self._last_prompt = prompt
         try:
             if _sp:
                 _sp(f"player:{self.player_id}:infer:{symbol}:model", quiet=True)

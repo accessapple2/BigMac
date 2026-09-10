@@ -1302,6 +1302,7 @@ class Arena:
                 decision.reasoning, option_type=decision.option_type,
                 sources=decision.sources, timeframe=decision.timeframe,
                 prompt_version=f"{player_id}_v1",
+                prompt_text=getattr(provider, "_last_prompt", None),
             )
 
             # Track high-confidence BUY signals for multi-day monitoring
