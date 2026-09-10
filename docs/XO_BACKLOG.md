@@ -7,6 +7,45 @@
 > CLOSED.
 
 ---
+
+## 🟨 CONSOLIDATED BACKLOG — 2026-09-09 overnight
+
+Every unfinished item from the 9/9 improvement sweep and the Day 2
+report, with owner, target date, and blocker. Per standing instruction: a
+line is removed only when confirmed done, never for being old. Detail on
+several of these lives in `data/reports/relay/relay_2026-09-09_overnight_session.md`
+and the earlier same-night relay docs it links.
+
+| Item | Owner | Target date | Blocker |
+|---|---|---|---|
+| signals_v2 rec #2 | Scotty | after Phase 1.2 lands | Phase 1.2 not shipped yet (`docs/XO_PLAN_2026-09.md`) |
+| Un-alias leftovers (`_QWEN3_ALIAS_MODEL_IDS` etc.) | Scotty | unslotted | explicitly skipped tonight, needs its own session |
+| Polygon limiter cap raise (5/min → ~100/min) | Scotty | tomorrow, after close | Massive Stocks Starter went live tonight; limiter stays in shadow until then |
+| Polygon key rotation | Steve | after close, with a verify | none — scheduled |
+| bk_orb direct-path pagination re-scope | Scotty | tomorrow, after close | depends on the limiter cap raise landing first |
+| GPU-watch rebuild/deploy | Scotty | unslotted | not scoped yet |
+| Bridge cosmetics (Gamma Map live-gex path, Autopilot true source, Season 6 label, Crew Dissent/Riker cleanup) | Scotty | tonight, queued behind RULE #1 layers | none — in tonight's overnight scope, item 10 |
+| Disk-alert volume (sentinel on the wrong volume) | Scotty | tonight, queued | none — in tonight's overnight scope, item 7 |
+| signals.db retention | decision | unslotted | needs a retention policy decision, not just a fix |
+| Deprecation sites sweep | Scotty | unslotted | explicitly skipped tonight |
+| crew_decisions consumers | — | — | **investigated tonight** — see relay doc §2: dashboard feed panel, main.py Dr. Crusher healthcheck, crew_scanner.py internal gating. No open defect found. |
+| The 393-decision hour (9/9) | — | — | **investigated tonight** — see relay doc §3: 15:00 UTC/08:00 MST, BEAR_CROSS regime block + stale-signal + quality gates, zero trades, not a bug. Structural fix is Phase 1.2. |
+| origin_healthcheck flapping (8/31) | Scotty | unslotted | **partially investigated tonight** — see relay doc §4: one real cause confirmed (main.py down 12:10), full 3hr multi-service pattern unexplained (no surviving logs). Needs whatever additional log retention exists, if any. |
+| The 8/30 verify-or-close list (6 items) | Scotty / decision | mixed | **4 of 6 resolved tonight** (Reveille empty-output, sentinel repoint, regime_refresh rows — all verified working; see relay doc §5). **2 unresolved:** gex_collector cron fix needs a decision (deliberate retirement vs. gap — script file no longer exists, cron commented), three-popup banner UX and four Bridge LOW defects not located, need a pointer. |
+| Door1 expiry fix | decision | unslotted | awaiting Door 1 kill-gate verdict context |
+| Ollie-machine review | Steve | 2026-09-29 | scheduled review date |
+| Monday-check monitors | Scotty | unslotted | several one-shot launchd entries already confirmed dead (see historical XO_BACKLOG entries below), needs a fresh sweep |
+| situation_report / ollama_prewarm | Scotty | unslotted | not scoped yet |
+| v2 redesign items | Scotty | unslotted | not scoped yet — likely overlaps signals_v2 rec #2 |
+| DexEvents set | Scotty | unslotted | not scoped yet |
+| Lite phases (ollietrades-lite) | Scotty | unslotted | not scoped yet |
+| Archive second copy | Steve | tonight | rsync running tonight per instruction — verify completion |
+| Pushover iOS license | Steve | 2026-09-25 | renewal deadline |
+| Access session length | decision | unslotted | Cloudflare Access session-length policy decision |
+| Tailscale stale peer | Scotty | unslotted | needs a cleanup pass |
+| GoDaddy listings | Steve | unslotted | domain/registrar admin, not a code task |
+
+---
 ## 🟥 START CARD — read this first, cold, no other context needed (2026-07-05)
 
 **Tonight's session, one paragraph:** a full roster audit (`HM-ROSTER-RATIONALIZE`)

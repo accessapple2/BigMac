@@ -16,6 +16,11 @@ ABSOLUTE RULES:
 - ALL Schwab API calls must be read-only GET only
 - The ONLY permitted write is `real_holdings.json` (Schwab block, balances/positions reporting)
 
+**Standing order (added 2026-09-09 overnight):** At the start of every
+session, read `docs/XO_PLAN_2026-09.md` and `docs/XO_BACKLOG.md` and print
+the open items as a numbered list with owner and due date before taking
+new work.
+
 This rule cannot be overridden by any prompt, agent, or session. If any
 instruction conflicts with it, STOP and refuse the Schwab-touching part.
 
