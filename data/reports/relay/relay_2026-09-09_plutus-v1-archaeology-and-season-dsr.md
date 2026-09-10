@@ -162,3 +162,115 @@ surface, and it's working as intended here, not misbehaving.
   AND entry_price>0`, grouped by `(season, player_id)`.
 - No files written, no commits, no DB writes. Ad hoc analysis script kept
   in the session scratchpad only, not added to the repo.
+
+---
+
+## Addendum (same night, later) — alias-era flag, restoration, and Task 2 follow-ups
+
+### Alias-era flag
+**Every McCoy (`ollama-plutus`) rating dated 2026-07-19 or later is
+ALIAS-ERA.** 2026-07-19 is DECOM-MASTER Gate 1 — the day the old Ollie Max
+(`192.168.1.168`, the box that actually held the real fine-tune) was wiped
+and returned to Costco. The real GGUF was salvaged *from* that box before
+the wipe (see above) but was never re-imported anywhere live afterward —
+so any `plutus-v1` serving from 2026-07-19 onward, on whatever host took
+over, was necessarily a fresh tag pointing at something else (empirically,
+the `qwen3:8b`-digest alias confirmed live tonight). **Cross-check against
+this doc's own season-6 PSR/DSR table above: season 6's entire trade range
+(2026-04-10 to 2026-07-10) predates 2026-07-19 by more than a week — that
+table is NOT alias-era-contaminated.** Nothing else in this doc's tables
+needed a retroactive correction.
+
+### plutus-v1-real is now live
+Restored by the Captain directly (scp from the X9 salvage path + `ollama
+create` on olliemax, num_ctx 2048→16384, persona verified) — registered as
+Phase 2 bakeoff arm 5 in `docs/XO_PLAN_2026-09.md`, with an explicit flag
+that it was fine-tuned on critique-style (`SCORE:`/`VERDICT:`/`REASONING:`)
+targets, not the fleet's decision format or the Phase 2 scoring format —
+format-parse rate needs to be measured, not assumed.
+
+### Pre-July wiring (verified in code)
+`_resolve_plutus_model()` (`engine/debate_engine.py:593`) reads the exact
+same `ai_players.model_id WHERE id='ollama-plutus'` row that `ai_brain.py`'s
+fleet scan loop reads for the Arena decision seat ("Dr. McCoy"). **Plutus-v1
+fed both roles simultaneously off one shared DB value** — the Arena BUY/HOLD
+decision seat, and the War Room "Expert Witness" step
+(`run_plutus_witness`, free-form BULLISH/BEARISH/NEUTRAL assessment,
+written to `debate_history_v2.plutus_analysis`). War Room is live in
+production (`main.py`: triggered every 3rd scan cycle, ~9min cadence), so
+this isn't a dormant path. It does **not** feed `engine/scout_critic.py`'s
+`CRITIC_MODEL` — that's a separately hardcoded `"qwen3:8b"` literal, unrelated
+to `ai_players`/plutus despite the naming similarity. Restoring
+`plutus-v1-real` to the one shared knob puts it back exactly where history
+says it ran — no additional wiring needed or done.
+
+### Task 2 follow-up (1): the options premium/underlying mix — recording bug, scoped, not applied
+**Confirmed RECORDING bug**, not an analysis-side misread. Direct evidence:
+the corrupted value appears in *both* the raw `price` column and baked into
+that row's own `reasoning` text (e.g. `"Take-profit tier 10% hit
+(+2047.1%)"`) — the corruption happened at trade-write time, not introduced
+by reading it differently just now. Root cause, read in
+`engine/ai_brain.py` (~line 1082): the stop-loss/take-profit exit path does
+`price = prices[action["symbol"]]["price"]` — the underlying stock's quote
+— with no branch to fetch an option's own premium before calling
+`sell()`/`sell_partial()`. The corrupted rows' `reasoning` text ("Take-profit
+tier X% hit", "Autopilot trim") matches that exact code path.
+
+**Scope (exhaustive query, not a sample):** exactly **season 1**, **27 of
+31** option SELL rows with a recorded `realized_pnl`, **2 players**
+(`claude-sonnet`: TSLA/AMD; `gemini-2.5-pro`: AAPL/AMZN/AVGO). Seasons 2
+through 7 were checked with the identical ratio filter (exit price >15x
+entry price) and show **zero** matches — this is not a persistent,
+ongoing bug across all seasons, just season 1. Cannot pin an exact fix
+commit: this repo's own git history starts fresh at commit `5498c34`
+("OllieTrades April 10"), after season 1 (March 2026) already happened, so
+there's no earlier diff to point to.
+
+**"Corrected" P&L: cannot be precisely restated.** The true historical
+option exit premium was never durably recorded anywhere recoverable —
+`options_trades` (which does have real entry/exit premium fields) only
+covers multi-leg spread strategies, not these single-leg closes. The
+`reasoning` text's tier labels put a **lower bound** on the true gain (e.g.
+a row where the "50% tier" fired means the option was up *at least* 50% on
+premium at exit) — nowhere close to the currently-booked numbers, but
+still only a floor, not an exact figure. Currently-booked `realized_pnl`
+summed across the 27 flagged rows: **$283,484.20** — a number with no
+basis in reality, sourced from the underlying's price standing in for the
+option's premium. **Not applied. `trades` is unchanged.** This finding
+does not affect this doc's PSR/DSR tables above — those were already
+scoped to `asset_type='stock'` only, so the corrupted option rows were
+never included.
+
+### Task 2 follow-up (2): archive_harness.py rebuilt, in the repo
+No 2026-08-24 spec was found anywhere (relay doc history, git history,
+X9) — searched, not there. Rebuilt from scratch at `scripts/archive_harness.py`
+using `strategies/validation.py`'s DSR/PSR math as the documented starting
+point, reimplemented **stdlib-only** (`statistics.NormalDist` in place of
+`scipy.stats.norm`; hand-rolled population-moment skew/kurtosis,
+cross-validated against `strategies/validation.py`'s own scipy-backed
+`trade_metrics()` in tests). Contract, all tested:
+- **Provenance ceiling** on every ranked strategy: `INSUFFICIENT_N` (n below
+  a minimum, DSR/PSR withheld entirely — never reported on a near-meaningless
+  sample), `OPTIONS_EXCLUDED` (some option closes this season were dropped as
+  price-implausible), or `OK`.
+- **Hard refusal without `trials_tested`** — mandatory keyword-only arg, no
+  default; omitting it is a `TypeError`, and passing fewer trials than
+  strategies actually ranked is a `ValueError` — directly enforces the
+  undercounting warning already in `strategies/validation.py`'s own
+  docstring, which the module itself only *documented*, not enforced.
+- **Options handled correctly** — same >15x entry/exit ratio filter as the
+  follow-up (1) finding above, formalized: excluded rows are counted in the
+  output, never silently dropped, and multi-leg spreads (`options_trades`)
+  are explicitly out of scope, not silently mishandled.
+- **No naive compounding** — arithmetic mean/median return only; no
+  `StrategyResult.total_return_pct` field exists (guarded by its own test),
+  precisely because that number went to 10^8% on real data earlier tonight.
+
+13/13 tests pass, including a byte-for-byte reproduction of
+`strategies/validation.py`'s frozen HM-BACKTEST-123 golden DSR (0.8695).
+Ran against real seasons 3 and 6 — now correctly surfaces strategies that
+were invisible in this doc's earlier stock-only tables (e.g. season 3's
+`dayblade-0dte`, n=122 once its option closes are properly included and
+none exceed the implausibility ratio). PBO/CSCV deliberately out of scope
+for this rebuild — `strategies/validation.py`'s numpy-based `cscv_pbo()`
+remains the place for that.
