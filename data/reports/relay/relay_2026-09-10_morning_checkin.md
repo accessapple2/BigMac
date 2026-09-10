@@ -94,3 +94,37 @@ guess):
 Unchanged from last night's order: Phase 1.1 acceptance read → Polygon
 limiter cap raise → Polygon key rotation → bk_orb re-scope → Bridge
 cosmetics, then the new offhost-backup investigation above.
+
+---
+
+## Update — same morning, three follow-up answers
+
+### gex_collector — closed, no further action
+Confirmed correct.
+
+### signals.db — resolved, was `signal-center/signals.db`, not `trader.db`
+Admiral's "2.19 GB" was right — just a different DB than first checked.
+`/Users/bigmac/autonomous-trader/signal-center/signals.db` = 2,208,968,704
+bytes, the standalone DB behind the :9000 Signal Center. 99.6% of it is
+one table, `signal_history` (207,178 rows, 2.04 GB, `raw_data` JSON blobs
+averaging 9.7 KB). Found something worth flagging on its own: a 30-day
+rolling archive policy was already designed and half-built on 2026-04-26
+(`signal-center/signals_archive.db` + `archive_metadata` table, documented
+in `docs/SUNDAY_DRYDOCK_2026-04-26_FINAL.md` item E1) — the archive DB and
+schema exist, but the actual mover job was never written, so it's archived
+zero rows in four-plus months while the live table grew unbounded.
+Proposal to finish it (script + cron, one-time backfill ~2.19GB → ~350-
+400MB, steady-state after) written up in
+`data/reports/relay/QUESTION_signals-db-retention-numbers.md`, along with
+a plausible link to today's offhost-backup slowdown item (same DB is the
+single largest thing that script rsyncs). Not built — awaiting go-ahead.
+
+### Door1 expiry fix — closed as unactionable
+Agreed: one sentence in a memo isn't a spec, and `OLLIETRADES_KILL_GATE.md`
+is append-only by design. Closed in `docs/XO_BACKLOG.md`'s consolidated
+table with the reasoning recorded; comes back only as a fresh proposal
+with a real spec if it matters later.
+
+Nothing else queued before the open. After-close list unchanged from this
+morning's ordering, plus signals.db retention now sitting in that queue
+pending approval.

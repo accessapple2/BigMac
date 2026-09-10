@@ -28,6 +28,16 @@ detailed in `data/reports/relay/relay_2026-09-10_morning_checkin.md`.
   (relay doc §7): no defect, sentinel already reads the correct shared
   APFS free-space pool. Was left in the table overnight without being
   marked closed; closing now, no new work done here 9/10.
+- ~~Door1 expiry fix~~ — **closed as unactionable, not built.** The only
+  text anywhere describing it is one prescriptive sentence in
+  `docs/HM-DOOR1-KEEP-CONSEQUENCE-MEMO-2026-08-30.md` about *future* gates
+  needing an explicit data-freshness clause — no N, no mechanism, no
+  target file. `OLLIETRADES_KILL_GATE.md`, the obvious target, is
+  explicitly append-only/locked ("do not edit after DAY 0") by design,
+  and reconstructing a spec from memory isn't a substitute for one. Per
+  Admiral: if the underlying idea matters, it returns as a new proposal
+  with a real spec — not as a standing backlog line. Detail:
+  `data/reports/relay/QUESTION_door1-expiry-fix-scope.md`.
 
 | Item | Owner | Target date | Blocker |
 |---|---|---|---|
@@ -38,20 +48,19 @@ detailed in `data/reports/relay/relay_2026-09-10_morning_checkin.md`.
 | bk_orb direct-path pagination re-scope | Scotty | today, after close | depends on the limiter cap raise landing first |
 | GPU-watch rebuild/deploy | Scotty | unslotted | not scoped yet |
 | Bridge cosmetics (Gamma Map live-gex path, Autopilot true source, Season 6 label, Crew Dissent/Riker cleanup) | Scotty | today, carried over from 9/9 | deferred 9/9 for context budget, not difficulty |
-| signals.db retention | decision | unslotted | **numbers discrepancy found 9/10 AM** — Admiral's "2.19 GB" doesn't match live measurement (`signals`+`signals_v2` tables = ~118MB combined, `trader.db` total = ~1.13GB). Policy proposal blocked until the figure is reconciled — see `data/reports/relay/QUESTION_signals-db-retention-numbers.md`. |
+| signals.db retention | Scotty (build) / decision (approve) | unslotted | **Number confirmed 9/10 AM: `signal-center/signals.db` (the :9000 service's own DB, not `trader.db`), 2.19 GB exactly, 99.6% one table (`signal_history`, 207K rows).** A 30-day rolling archive policy was already designed and scaffolded 2026-04-26 (`signal-center/signals_archive.db` + `archive_metadata`) but the mover job was never built — zero rows ever archived in 4+ months. Full proposal (script + numbers: one-time backfill shrinks live DB ~2.19GB → ~350-400MB, likely also explains the offhost-backup slowdown row below) drafted in `data/reports/relay/QUESTION_signals-db-retention-numbers.md` — awaiting go-ahead to build. |
 | Deprecation sites sweep | Scotty | unslotted | explicitly skipped tonight |
 | crew_decisions consumers | — | — | **investigated tonight** — see relay doc §2: dashboard feed panel, main.py Dr. Crusher healthcheck, crew_scanner.py internal gating. No open defect found. |
 | The 393-decision hour (9/9) | — | — | **investigated tonight** — see relay doc §3: 15:00 UTC/08:00 MST, BEAR_CROSS regime block + stale-signal + quality gates, zero trades, not a bug. Structural fix is Phase 1.2. |
 | origin_healthcheck flapping (8/31) | Scotty | unslotted | **partially investigated tonight** — see relay doc §4: one real cause confirmed (main.py down 12:10), full 3hr multi-service pattern unexplained (no surviving logs). Needs whatever additional log retention exists, if any. |
 | The 8/30 verify-or-close list (6 items) | Scotty / decision | mixed | **5 of 6 resolved.** Reveille empty-output, sentinel repoint, regime_refresh rows verified working 9/9 (relay doc §5). **gex_collector — resolved 9/10 AM, was already retired 2026-08-30** (`HM-GEX-RETIRED`, crontab-documented, missed by the 9/9 pass which read docs not the live crontab) — Polygon options-chain entitlement is 403/cancelled, cron line commented with reason, data preserved in `data/flow_gex.db`. **1 unresolved:** three-popup banner UX and four Bridge LOW defects not located, need a pointer. |
-| Door1 expiry fix | decision | unslotted | Verdict context resolved (`HM-DOOR1-OLLIE-MACHINE-KILLGATE-VERDICT`, rendered 08-30) — but **no concrete spec exists to implement against**, and the target doc (`OLLIETRADES_KILL_GATE.md`) is explicitly locked ("do not edit after DAY 0"). See `data/reports/relay/QUESTION_door1-expiry-fix-scope.md` before any code/doc change. |
 | Ollie-machine review | Steve | 2026-09-29 | scheduled review date |
 | Monday-check monitors | Scotty | unslotted | several one-shot launchd entries already confirmed dead (see historical XO_BACKLOG entries below), needs a fresh sweep |
 | situation_report / ollama_prewarm | Scotty | unslotted | not scoped yet |
 | v2 redesign items | Scotty | unslotted | not scoped yet — likely overlaps signals_v2 rec #2 |
 | DexEvents set | Scotty | unslotted | not scoped yet |
 | Lite phases (ollietrades-lite) | Scotty | unslotted | not scoped yet |
-| Offhost backup slowdown + DB count gap | Scotty | today, after close | 9/9 night run took 9,638s (vs ~1,065s a week ago) and backed up 9 DBs, not 10 — likely X9 rsync contention, integrity checks passed. Need: which DB is missing, and whether tonight's run returns to normal. |
+| Offhost backup slowdown + DB count gap | Scotty | today, after close | 9/9 night run took 9,638s (vs ~1,065s a week ago) and backed up 9 DBs, not 10 — integrity checks passed. **Likely candidate found 9/10 AM:** `scripts/offhost_backup.sh` full-rsyncs `signal-center/signals.db`, which is 2.19GB (the exact DB flagged in the retention item above) — by far the largest single DB in the backup set. Worth re-checking after the retention job (if approved) shrinks it to ~350-400MB, rather than assuming a separate cause. |
 | Pushover iOS license | Steve | 2026-09-25 | renewal deadline |
 | Access session length | decision | unslotted | Cloudflare Access session-length policy decision |
 | Tailscale stale peer | Scotty | unslotted | needs a cleanup pass |
