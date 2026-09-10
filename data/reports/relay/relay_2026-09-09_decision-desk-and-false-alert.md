@@ -113,3 +113,56 @@ Died with the post-close restart as planned — confirmed via a live probe retur
 
 ## Open for tonight
 Bakeoff (8B vs 30B-instruct, calibration score + latency) still to run before the 05:46 MST premarket brief — default is 8B unless the bakeoff shows a clear quality edge for 30B-instruct. Today's hourly McCoy decision volume (a 393-decision spike at hour 15, zero trades) flagged by the Admiral as worth understanding first.
+
+---
+
+## CLOSED, ROOT CAUSE ACTUALLY FOUND — HM-FALSE-RED-ALERT (2026-09-09, later that night)
+
+**Corrects "source never identified" above.** It was identified — the FINAL
+UPDATE section's own conclusion was wrong, not just incomplete.
+
+**Root cause:** `tests/test_season_rotation_reactivation_scope.py::test_rotate_season_aborts_and_writes_nothing_when_unsafe`
+legitimately calls `season_manager.rotate_season(caller="test")` to verify
+the abort path is safe — by design, that's exactly what it should test.
+But it never mocked the alert dispatch, so `_alert_rotation_aborted()` ran
+all the way through to a **real** `send_alert(RED_ALERT, ...)` — real
+Pushover push, real ntfy attempt, real DB row — every single time. Since
+the pre-commit hook runs the full suite on **every commit**, every commit
+fired this. Confirmed directly from the instrumented abort payload added
+earlier tonight (`fbf9abc`'s caller/argv/stack stamp): `caller='test'`,
+`argv=['.../pytest/__main__.py', 'tests/', '-q', ...]`, stack trace
+terminating in that exact test. The historical "~12-day cadence"
+(2026-07-18, five times 2026-08-29, 2026-08-30, 2026-09-02) lines up with
+commit days, not any real production trigger — confirmed by checking
+`POLYGON_LIMITER_MODE=shadow` in the live process's actual environment,
+which structurally **cannot** reach the real alert dispatch (the
+SHADOW-mode code path in `engine/tiered_rate_limiter.py` only logs; only
+the ENFORCE branch calls the real alert function) — so
+`polygon_limiter_fail_loud`'s co-occurring fires (both today's alerts hit
+at 19:19 MST, same commit) are explained the same way, via
+`tests/test_tiered_rate_limiter.py`'s fail-loud test constructing an
+ENFORCE-mode limiter directly.
+
+**Fixed:** `engine/alert_channels.py` gained `_under_pytest()` (checks
+`PYTEST_CURRENT_TEST`, set automatically by pytest for every test, or an
+explicit `OT_ALERTS_DISABLED` opt-in) — guarded at the top of
+`_send_ntfy`, `_send_pushover`, `_send_email`, and public `send_email`,
+before any network call, not just inside `send_alert()`'s dispatcher
+(those functions have other callers too). `tests/conftest.py` sets
+`OT_ALERTS_DISABLED=1` at import time (covers module-collection-time
+side effects, not just the per-test call window `PYTEST_CURRENT_TEST`
+covers). New `tests/test_alert_channels_pytest_guard.py` (5 tests) proves
+a RED_ALERT raised under pytest reaches no channel — `urllib.request.urlopen`
+and `smtplib.SMTP` mocked and asserted never called. `notifications` DB
+writes are **unaffected** — RULE #1 (routing only) — the table still gets
+a durable row for every alert regardless of pytest context; only the
+external send is suppressed. Full suite re-run after the fix: same 26
+pre-existing/unrelated failures as before the fix (vectorbt missing,
+`engine.riker_synthesis` retired, ntfy-ipv6 env-dependent, date-dependent
+"today" tests — none touch alert_channels), 1226 passed, zero
+`"pushover sent"`/`"ntfy sent"` log lines anywhere in the run.
+
+**Genuinely closed now** — this isn't "closed off structurally without
+finding the source" like the FINAL UPDATE above; the source was found,
+confirmed, and the fix is verified to eliminate it at every real send
+path in the module. (commit follows this entry)

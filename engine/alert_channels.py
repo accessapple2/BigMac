@@ -63,6 +63,23 @@ ALERTS_EMAIL_ENABLED = os.environ.get("ALERTS_EMAIL_ENABLED", "False").lower() i
 ALERTS_EMAIL_TO      = os.environ.get("ALERTS_EMAIL_TO", "") or ALERT_EMAIL_TO
 
 
+def _under_pytest() -> bool:
+    """HM-FALSE-RED-ALERT 2026-09-09: root cause of the recurring false
+    RED_ALERT (season-rotation-abort, polygon-limiter-fail-loud) was
+    confirmed from the instrumented abort payload: caller='test', argv is
+    pytest, stack traces into tests/test_season_rotation_reactivation_scope.py
+    -- the pre-commit hook's own test run was firing real Pushover/ntfy/email
+    sends every commit (the historical ~12-day recurrence cadence matches
+    commit days exactly). `PYTEST_CURRENT_TEST` is set automatically by
+    pytest for the duration of every test, no conftest wiring needed for
+    that half; `OT_ALERTS_DISABLED` is an explicit opt-in for any other
+    context (interactive scripts, etc.) that wants the same guarantee.
+    Checked first, before any network call, in every real send function
+    below -- not just the send_alert() dispatcher, since _send_pushover/
+    _send_ntfy/_send_email have other callers too."""
+    return bool(os.environ.get("PYTEST_CURRENT_TEST") or os.environ.get("OT_ALERTS_DISABLED"))
+
+
 class AlertLevel:
     INFO      = "info"
     WARNING   = "warning"
@@ -289,6 +306,9 @@ def _ipv4_only_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
 
 def _send_ntfy(title: str, message: str, priority: str = "default", tags: str = "ollietrades", topic: str = "") -> bool:
     """Push via ntfy.sh (iPhone / Android / browser). topic overrides NTFY_TOPIC."""
+    if _under_pytest():
+        logger.info("ntfy suppressed (pytest/OT_ALERTS_DISABLED): [%s] %s", title, message[:80])
+        return False
     # DECOM-SILENCE 2026-07-19 — all ntfy pushes silenced ahead of Gate 2
     # full removal (Admiral wants phone quiet immediately). Single choke
     # point: everything through engine/ntfy.py and every direct
@@ -330,6 +350,9 @@ def _send_pushover(title: str, message: str, priority: int = 0) -> bool:
     silenced per DECOM-SILENCE 2026-07-19; this restores delivery for
     critical alerts alone. Creds from /usr/local/etc/pushover.env.
     Priority 2 is reserved for GPU buy alerts and never used here."""
+    if _under_pytest():
+        logger.info("pushover suppressed (pytest/OT_ALERTS_DISABLED): %s", title[:80])
+        return False
     import urllib.parse, urllib.request
     env = {}
     try:
@@ -370,6 +393,9 @@ def _send_pushover(title: str, message: str, priority: int = 0) -> bool:
 
 def _send_email(subject: str, body: str, to: str = "") -> bool:
     """Send email via SMTP. Requires SMTP_HOST, SMTP_USER, SMTP_PASS in .env."""
+    if _under_pytest():
+        logger.info("email suppressed (pytest/OT_ALERTS_DISABLED): %s", subject[:80])
+        return False
     to_addr = to or ALERT_EMAIL_TO
     if not all([SMTP_HOST, SMTP_USER, SMTP_PASS, to_addr]):
         return False
@@ -406,6 +432,9 @@ def push_ntfy(topic: str, title: str, body: str, priority: str = "default", tags
 def send_email(subject: str, html_body: str, to: str | None = None) -> bool:
     """HM-UHURA-HAILS — HTML email via Gmail SMTP. Honors ALERTS_EMAIL_ENABLED.
     Never logs the app password."""
+    if _under_pytest():
+        logger.info("email suppressed (pytest/OT_ALERTS_DISABLED): %s", subject[:80])
+        return False
     if not ALERTS_EMAIL_ENABLED:
         return False
     to_addr = to or ALERTS_EMAIL_TO

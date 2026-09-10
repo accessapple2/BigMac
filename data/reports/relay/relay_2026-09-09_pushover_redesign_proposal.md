@@ -22,7 +22,7 @@ I've missed the real source.
 
 - **ntfy is fully silenced** (`DECOM-SILENCE 2026-07-19`, `alert_channels.py::_send_ntfy` returns `False` before attempting delivery) — but `kirk_briefing.py` has its **own, separate, unsilenced** direct-to-ntfy.sh `push_ntfy()`, firing 4x/day (05:46, 06:59, 12:45, 13:15 MST). It never routes through `alert_channels.py`, so it was never touched by the silence decision — whether it's actually landing on the phone depends only on whether that ntfy topic is still subscribed there, independent of the deliberate platform silence.
 - **Pushover today = `RED_ALERT` lane only**, one call site (`alert_channels.py:521`), fixed `priority=1`, no per-type sound/app/cooldown, credentials from `/usr/local/etc/pushover.env` (not `.env`).
-- **`kirk_briefing.py --mode after_close` already runs at 13:15 MST, and `--mode premarket` at 05:46 MST.** These are market-commentary briefings (Kirk's advisory voice), not an alerts/notifications digest. **Decision (2026-09-09 night): merge, not offset** — see the digest section below. No new cron times; Kirk's own separate ntfy path retires and he routes through the same TradeMinds delivery as everything else.
+- **`kirk_briefing.py --mode after_close` already runs at 13:15 MST, and `--mode premarket` at 05:46 MST.** These are market-commentary briefings (Kirk's advisory voice), not an alerts/notifications digest. **Decision (2026-09-09 night): merge, not offset** — see the digest section below. No new cron times; Kirk's own separate ntfy path retires and he routes through the same OllieTrades delivery as everything else.
 
 ## Inventory — last 30 days, `notifications` table (18,456 rows)
 
@@ -103,7 +103,7 @@ Keyed by normalized alert type (or a sensible group where types clearly
 share a risk profile — no reason to hand-tune 43 rows individually when
 most fall into one of five natural buckets). `priority`/`sound` are
 Pushover's own vocabulary (-2..2, and Pushover's named sounds); `app`
-is which Pushover application token delivers it (see the TradeMinds
+is which Pushover application token delivers it (see the OllieTrades
 token note below); `cooldown` matches `alert_channels.RATE_LIMIT_SECS`'s
 existing per-`alert_type` mechanism, just tuned per row instead of one
 global 300s; `quiet-hours bypass` = fires even during whatever quiet-hours
@@ -112,10 +112,10 @@ premarket brief through end of prior evening).
 
 | Tier | Alert types (examples) | Priority | Sound | App | Cooldown | Quiet-hours bypass |
 |---|---|---|---|---|---|---|
-| **T0 — Emergency** | `sentinel_main_py_down`, kill-switch fires, broker-submit hard failures | 2 (emergency, requires ack) | `siren` | TradeMinds | 0 (never suppress) | Yes |
-| **T1 — Critical** | `sentinel_launchd_mass_outage`, `sentinel_disk_space_critical`, `polygon_limiter_fail_loud`, `backup_freshness_check` fail, `hm-season-rotation-aborted` | 1 (high) | `persistent` | TradeMinds | 900s (15min) — was effectively 0 today, this is the storm-breaker's main lever | Yes |
-| **T2 — Actionable warning** | `sentinel_signals_v2_queue`, `sentinel_lifecycle_drift`, `sentinel_launchd_job_stale`, `sentinel_cron_missing_script`, `sys_scan_liveness`, `guardian_sweep_sells`, `recall_refresh_failed` | 0 (normal) | `pushover` (default) | TradeMinds | 1800s (30min) | No |
-| **T3 — Heartbeat/health, low urgency (silent, in-app)** | `source-health-watcher-stale`, `sentinel_mlx_qwen3_heartbeat_stale`, `sentinel_mlx_qwen3_unhealthy`, `sentinel_lock_errors`, `sentinel_fd_warn`, `origin_healthcheck_restart`, **`long_range_sensors_whale`** | -1 (low, no sound/vibrate, Pushover shows quietly) | none | TradeMinds | 3600s (1hr) | No |
+| **T0 — Emergency** | `sentinel_main_py_down`, kill-switch fires, broker-submit hard failures | 2 (emergency, requires ack) | `siren` | OllieTrades | 0 (never suppress) | Yes |
+| **T1 — Critical** | `sentinel_launchd_mass_outage`, `sentinel_disk_space_critical`, `polygon_limiter_fail_loud`, `backup_freshness_check` fail, `hm-season-rotation-aborted` | 1 (high) | `persistent` | OllieTrades | 900s (15min) — was effectively 0 today, this is the storm-breaker's main lever | Yes |
+| **T2 — Actionable warning** | `sentinel_signals_v2_queue`, `sentinel_lifecycle_drift`, `sentinel_launchd_job_stale`, `sentinel_cron_missing_script`, `sys_scan_liveness`, `guardian_sweep_sells`, `recall_refresh_failed` | 0 (normal) | `pushover` (default) | OllieTrades | 1800s (30min) | No |
+| **T3 — Heartbeat/health, low urgency (silent, in-app)** | `source-health-watcher-stale`, `sentinel_mlx_qwen3_heartbeat_stale`, `sentinel_mlx_qwen3_unhealthy`, `sentinel_lock_errors`, `sentinel_fd_warn`, `origin_healthcheck_restart`, **`long_range_sensors_whale`** | -1 (low, no sound/vibrate, Pushover shows quietly) | none | OllieTrades | 3600s (1hr) | No |
 | **T4 — Digest-only, never a standalone push** | `bk_avwap_bull`/`bear`, `bk_box_bull`, `bk_orb_bull`, `dyn_*` pattern hits, `user_price_level`, `q_dissent`, `hm-i-b-item5-drift`, everything else info-level and high-volume | n/a — not pushed individually | n/a | n/a | n/a | n/a |
 
 **Decision (2026-09-09 night):** `long_range_sensors_whale` → **T3**, not
@@ -188,7 +188,7 @@ message body instead of sent as a second push.
 separate, direct-to-ntfy.sh function that never routed through
 `alert_channels.py` and was therefore never touched by DECOM-SILENCE)
 goes away. Kirk's 4 daily briefings (premarket/open_check/power_hour/
-after_close) instead send through the same unified TradeMinds routing as
+after_close) instead send through the same unified OllieTrades routing as
 every other alert type here — one delivery path for everything, no more
 shadow channel whose delivery depended on whatever ntfy subscription
 state happened to still exist on the phone.
@@ -210,14 +210,24 @@ of pushing (it's never a standalone push by design). Bypasses cooldown and
 storm-breaker state (test sends must never get swallowed by the mechanism
 being tested).
 
-## TradeMinds app token — blocked on you
-Trader pushes move to the TradeMinds Pushover application token once it's
-in `.env` — not done, waiting on that addition. Current Pushover creds
-live in `/usr/local/etc/pushover.env`, outside `.env` entirely; the
-redesign should also decide whether to consolidate both into `.env` or
-keep the OS-level file for the admin token and add TradeMinds
-specifically to `.env` — flagging as a small decision inside the build,
-not deciding it here.
+## OllieTrades app token — landed, precedence decided (2026-09-09 night)
+
+`PUSHOVER_TOKEN` / `PUSHOVER_USER` (the OllieTrades application) are now
+in `.env`. Decided: `alert_channels.py` reads them from the trader's
+environment **first**, falling back to `/usr/local/etc/pushover.env`
+**only if absent** — not a replacement of that file, the GPU daemons keep
+reading it as-is, unaffected. Concretely: `_send_pushover()`'s credential
+resolution becomes `tok, usr = os.environ.get("PUSHOVER_TOKEN"),
+os.environ.get("PUSHOVER_USER")`, then only opens
+`/usr/local/etc/pushover.env` if either is still `None` after that —
+env-first, file-fallback, not the reverse and not env-only.
+
+**Push titles say "OllieTrades"**, not the "TradeMinds" phrasing used
+elsewhere in this doc's earlier draft (corrected throughout, including
+the routing table's "App" column) and not literally what `send_alert()`'s
+current title fallback produces today (`f"{prefix} TradeMinds
+{level...}"` — that string needs the same correction in the build, it
+wasn't just this doc's wording).
 
 ## Build order (unchanged: after tomorrow's RULE #1 layers, before any other data task)
 1. `alert_storm_state` table + storm-breaker logic in `alert_channels.py`,
@@ -227,9 +237,13 @@ not deciding it here.
    — `long_range_sensors_whale` → T3.
 3. Timestamp (already done) + Bridge URL append.
 4. Retire `kirk_briefing.py::push_ntfy()`; route Kirk's 4 daily calls
-   through the same unified TradeMinds delivery path as everything else.
+   through the same unified OllieTrades delivery path as everything else.
 5. Append the digest paragraph to Kirk's premarket (05:46) and after_close
    (13:15) sends specifically — no new cron entries, no cron edits at all
    for this piece.
 6. `scripts/alert_test.py`.
-7. TradeMinds token wiring, once present in `.env`.
+7. `_send_pushover()` credential resolution: `PUSHOVER_TOKEN`/`PUSHOVER_USER`
+   from `.env` first (now present), fall back to
+   `/usr/local/etc/pushover.env` only if absent — GPU daemons keep reading
+   that file untouched. Push titles: `"OllieTrades"`, fixing
+   `send_alert()`'s current fallback title too, not just new copy.
