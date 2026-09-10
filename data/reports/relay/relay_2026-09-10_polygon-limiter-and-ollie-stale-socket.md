@@ -416,6 +416,19 @@ real test is tomorrow's first live market-hours reading against the new
 cap. Use tomorrow's `would_fail_loud` count (market hours only) as the
 actual regression metric, not today's post-restart number.
 
+**Second confound layered onto the same reading, added same day PM:**
+Polygon key rotation (Steve) landed after today's 13:08:20 restart, so
+the currently-running process is still on the OLD key — the new key only
+takes effect at the *next* restart, i.e. **tomorrow's premarket cycle**.
+That means tomorrow's first live market-hours fetch is simultaneously:
+(1) the first real intraday test of the 100/min cap, and (2) the first
+live call on the rotated key. **Confirm the new-key fetch comes back
+clean (a real 200, real candle data) before reading tomorrow's
+budget-exhausted number as a cap-raise signal** — a key-auth problem and
+a cap-too-low problem would look similar in the shadow report (calls not
+completing / falling back), and conflating them would misattribute the
+cause. Check key health first, cap behavior second.
+
 ## Offhost backup duration — check pending, not yet available
 
 `scripts/offhost_backup.sh` runs on a `20:30 MST` cron entry — has not
