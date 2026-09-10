@@ -137,7 +137,72 @@ it.
 
 ---
 
-## Not done in this pass
+## Re-scoped 2026-09-10 PM — cap raised 4→100/min, does the original
+## "don't ship (a) without (b)" recommendation still hold?
+
+Context: `CAP_PER_MIN` 4→100, `LIVE_RESERVED_PER_MIN` 2→50 shipped and
+deployed today (`ef321ff`/`c9c1731`, restart `13:08:20`) — see
+`relay_2026-09-10_polygon-limiter-and-ollie-stale-socket.md`. Live-verified
+today: `run_bk_orb_scan` is enabled (`ORB_CONFIRMATORY_VOTE_ENABLED=True`),
+scheduled every 3 min, self-gated to the 09:46–12:00 ET window
+(`main.py:4764`). `UNIVERSE_SIZE=150`, `FETCH_DAYS=40`,
+`TRAIL_SESSIONS=20` — unchanged from the 09-04 read.
+
+**(a) Pagination gap — completely unaffected by the cap raise.** The
+500-bar-per-request ceiling on `get_intraday_candles`'s Polygon path has
+nothing to do with token budget; it's a correctness gap regardless of cap
+size. Still a hard prerequisite before bk_orb can be pointed at the shared
+function at all — unchanged conclusion from 09-04.
+
+**(b) Budget starvation — substantially de-risked, not eliminated.**
+Redone the math with the new cap: bk_orb needs up to 150 `gated_call`
+invocations per 3-min cycle. Old cap (4/min, 2 reserved): a 3-min window
+supplied only ~6 reserved tokens against a 150-token need — nightmare-case
+correctly diagnosed 09-04. New cap (100/min, 50 reserved): a 3-min window
+now supplies ~150 reserved tokens — matches bk_orb's own per-cycle need
+almost exactly *if it had the reserved lane to itself*, but it's one of 7
+`LIVE_CALLERS` sharing that lane (the other six include the
+`get_intraday_candles` alias covering 14+ additional real callers). 25x
+more headroom than 09-04's math, genuinely plausible now rather than a
+near-certain collapse — but "plausible, needs a live trial" is different
+from "safe," and this wasn't re-verified against real concurrent
+production contention today (out of scope for this pass).
+
+**The staleness-TTL mismatch is architecturally unchanged.** A single
+global `LIVE_MAX_STALE_SECS=30` still can't distinguish bk_orb's
+mostly-static 40-day history from live options quotes. The cap raise
+means *fewer* calls fall through to the cache-serve path (more succeed on
+a direct token grant instead), so this failure mode now affects a smaller
+slice of bk_orb's traffic than 09-04's worst case — but it's not fixed,
+and nothing here fixes it. Per-caller TTL override is still the correct
+fix, still not built.
+
+**New fact that changes the actual urgency, independent of the cap
+math: `POLYGON_LIMITER_MODE` is still `shadow` today** (confirmed live,
+`[POLYGON-LIMITER-CONFIG] ... mode=shadow`). Shadow mode never blocks a
+real call — the starvation and staleness risks above only bite once/if
+someone flips the mode to `enforce`, which is not on today's bundle and
+not proposed here. That means: **(a) alone could ship now with zero live
+risk** — wiring bk_orb through the paginated `get_intraday_candles` today
+would only improve shadow-report telemetry accuracy (closing the
+"structurally blind to bk_orb's entire volume" gap flagged 09-04), not
+create any real starvation, because shadow mode can't starve anything.
+
+**Verdict:** build (a) now if there's a session for it — it's safe today
+regardless of (b), and it closes a real telemetry blind spot. Do **not**
+flip `POLYGON_LIMITER_MODE` to `enforce` with bk_orb wired in until (b)
+(per-caller TTL override) ships too — the cap raise makes that transition
+far less likely to be catastrophic than 09-04 feared, but "far less
+likely" isn't "verified safe," and there's no live trial data to point to
+yet either way.
+
+## Not done in this pass (09-04 original)
 
 No code changed. Both the pagination change and the per-caller TTL/budget
 design are scoped but not built — Monday, per instruction.
+
+## Not done in this pass (09-10 re-scope)
+
+No code changed here either — this is a re-analysis of the existing
+scope against today's new cap, not an implementation session. (a) is
+still buildable in a future session per the verdict above.
