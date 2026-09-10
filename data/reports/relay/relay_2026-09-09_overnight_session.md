@@ -1,13 +1,18 @@
 # Relay — Overnight session, 2026-09-09 night → 2026-09-10
 
 ## VERDICT
-**In progress, checkpointed mid-session (context pressure).** Read-only
-audit (items 1-5) mostly done, findings below. Code changes (items 6-10)
-**not yet started** except the CLAUDE.md standing-order line (done, staged
-below). No restart has happened this session. Next session: re-read this
-doc's checklist, then continue in the stated order — RULE #1 DELETE-side
-layers, disk-alert volume, status page olliemax line, keep_alive override,
-Bridge fixes — committing after each, restart only if the tree state is
+**Items 6-9 shipped, committed, pushed. Item 10 deliberately deferred.
+The restart happened and the process is healthy — but the required
+"verified live McCoy call" is NOT confirmed, and that gap is real, not a
+timing fluke. Read this doc's "Restart verification" section before
+touching anything else next session — that's the top-priority open item,
+ahead of item 10.**
+
+Read-only audit (items 1-5): done, findings below. Code changes: items
+6-9 done and pushed (`9a421df`, `1c61588`, `db573a9`, plus the Grep Gate
+CI fix `54841ae`/`d0fda53`); item 10 (Bridge cosmetics) not attempted,
+deferred by choice, not by failure. One restart performed at 20:43:35
+MST — see verification section for what is and isn't confirmed about it.
 certain (see hard rule below).
 
 **RULE #1 held throughout:** every finding below is read-only; the one
@@ -118,6 +123,58 @@ switched to this file's own established `^(\./)?` form) before pushing.
 `completed success` on `54841ae`, and the other workflow (O-Tasty
 Invariant) unaffected, also `success`. One push, as instructed. CI-only —
 did not touch the trader, did not restart.
+
+---
+
+## Restart verification — NOT clean, flag for first thing next session
+
+Restart itself was mechanically clean: `trader_restart.sh` reported
+"RESTART OK — single trader pid=76047 bound :8080 (orphan-free)" at
+20:43:35 MST. Process confirmed alive and healthy 40+ minutes later
+(same PID, active heartbeats, actively scanning other symbols/functions,
+zero errors around the startup window — specifically checked for a
+`setup_db.setup()` failure given tonight's new hard-raising trigger
+assertion, found none).
+
+**But the hard rule's actual requirement — "a verified live McCoy call
+with the invalidation field still parsing" — could not be confirmed.**
+McCoy (`ollama-plutus`) produced its last pre-restart decision at
+`2026-09-10 03:42:52 UTC` (39 seconds before the restart) and has
+produced **zero** `decision_audit`/`signals` activity in the 40+ minutes
+since, despite:
+- A scan pass covering McCoy's tier (`_SCAN_TIER2` in `main.py`,
+  "DeptHeads", 2-hour interval) firing almost immediately post-restart
+  (`"Market scan triggered [T1:BridgeCrew + T2:DeptHeads] — 3 agents"`).
+- The process otherwise healthy and actively doing other work.
+
+**Ruled out as causes, with direct evidence, not assumption:**
+- Tonight's `setup_db.py` trigger-assertion change: would raise loudly
+  and visibly (wrapped in `main.py`'s own FATAL retry-loop) — checked the
+  log at the exact startup window, nothing.
+- Tonight's `keep_alive` removal (item 9): tested live in isolation
+  earlier tonight, confirmed working (`call_model()` succeeded, no
+  `keep_alive` field sent) — a working standalone call doesn't prove the
+  live scan path is unaffected, but there's no positive evidence pointing
+  at this change either.
+
+**Not fully resolved:** while investigating, found that `ollama-qwen3`
+(the *other* Tier-2/"DeptHeads" member) last fired **2026-08-29** — 12
+days ago, long before tonight. McCoy's actual observed pre-restart
+cadence (many calls per minute all evening) is far more frequent than a
+2-hour tier interval would produce on its own, so there must be a
+separate, more direct scan path driving McCoy specifically that this
+session did not locate. That gap in understanding — not just tonight's
+restart — is why this can't be waved off as "just wait for the next
+2-hour tier window."
+
+**Deliberately not debugged further tonight** — per the hard rule
+("anything uncertain gets written up, not done") and the explicit
+instruction to stop touching code once item 10 was deferred. **First
+thing next session, before item 10 or anything else:** confirm whether
+McCoy has resumed on its own, and if not, trace the actual live scan path
+(not just the `_SCAN_TIER1/2/3` mechanism in `main.py`, which doesn't by
+itself explain McCoy's real observed frequency) to find where it's
+stalled.
 
 ---
 
