@@ -20,6 +20,17 @@ import urllib.request
 PORT = 8090
 TRADER_URL = "http://localhost:8080/api/status"
 
+# HM-STATUSPAGE-OLLIEMAX-LINE 2026-09-09: the module docstring has claimed
+# "bigmac, Ollie Max, trader service, and the cloudflared tunnel" since this
+# file was written, but no olliemax check ever existed -- _build_status()
+# only ever computed bigmac/trader/tunnel. Docstring corrected by adding the
+# line it always claimed to have, not by softening the claim.
+try:
+    from config import OLLIE_URL as _OLLIE_URL
+except Exception:
+    _OLLIE_URL = "http://100.95.195.20:11434"
+OLLIEMAX_URL = f"{_OLLIE_URL}/api/tags"
+
 # HM-STATUS-HEARTBEAT (2026-08-29, HM-STATUSPAGE-FREEZE-2026-08-29 follow-up):
 # _build_status()/do_GET() only ever compute "checked_at" AT REQUEST TIME --
 # there was no independent heartbeat at all. During a Fri 21:54 -> Sat 09:25
@@ -76,10 +87,12 @@ def _build_status() -> dict:
     bigmac_up = True
     trader_up = _check_http(TRADER_URL)
     tunnel_up = _check_tunnel()
+    olliemax_up = _check_http(OLLIEMAX_URL)
     return {
         "bigmac": bigmac_up,
         "trader": trader_up,
         "tunnel": tunnel_up,
+        "olliemax": olliemax_up,
         "checked_at": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
     }
 
@@ -97,6 +110,7 @@ def _render_html(status: dict) -> str:
     rows = (
         row("bigmac (Mac Mini)", status["bigmac"])
         + row("Trader service", status["trader"])
+        + row("Ollie Max (GPU inference)", status.get("olliemax", False))
         + row("Cloudflare Tunnel", status["tunnel"])
     )
     return f"""<!doctype html><html><head><meta charset="utf-8">
