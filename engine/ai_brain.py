@@ -1079,7 +1079,18 @@ class Arena:
         )
         for action in sl_tp_actions:
             from engine.paper_trader import sell, sell_partial
-            price = prices[action["symbol"]]["price"]
+            # HM-OPTIONS-EXIT-PRICE-FIX 2026-09-09: prefer the action's own
+            # price (the option's estimated premium for asset_type='option',
+            # set by risk_manager.check_stop_loss_take_profit) over the
+            # underlying's raw stock quote. Falling back to the stock quote
+            # for an option exit was a confirmed live bug — see
+            # relay_2026-09-09_plutus-v1-archaeology-and-season-dsr.md
+            # addendum. Falls back to the stock quote only if the action
+            # didn't carry a price (e.g. premium estimate failed) — same
+            # as the old unconditional behavior, now a fallback not the norm.
+            price = action.get("price")
+            if price is None:
+                price = prices[action["symbol"]]["price"]
             if action["action"] == "SELL_PARTIAL":
                 _exit_res = sell_partial(
                     player_id, action["symbol"], price,

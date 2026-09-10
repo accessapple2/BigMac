@@ -48,10 +48,20 @@ OUT = REPO / "data" / "bm_critiques_v1.jsonl"
 GEN_URL = f"{OLLIE_URL}/api/generate"
 
 # ── Candidate set ───────────────────────────────────────────────────────────
-# plutus-v1 = incumbent McCoy finance brain (config.py ollama-plutus → plutus-v1)
-# qwen3:8b  = current live engine/scout_critic.py CRITIC_MODEL
-# qwen3:14b = larger challenger (original spec candidate; Captain-confirmed 2026-06-05)
-CANDIDATES = ["plutus-v1:latest", "qwen3:8b", "qwen3:14b"]
+# plutus-v1        = CORRECTION 2026-09-09: this tag is a qwen3:8b alias on
+#                     bigmac's local Ollama (confirmed by digest), NOT the
+#                     real HM-PLUTUS-V5-WIN fine-tune despite the name. Kept
+#                     as a candidate anyway so the alias vs real-weights gap
+#                     is visible side by side in results.
+# plutus-v1-real   = the actual fine-tune, restored 2026-09-09 from X9
+#                     salvage onto olliemax (see relay_2026-09-09_plutus-v1-
+#                     archaeology-and-season-dsr.md). Its training corpus IS
+#                     this exact SCORE:/VERDICT:/REASONING: critique format
+#                     (trade_critique category) -- this is the natural test
+#                     for it, more so than the fleet decision-format bakeoff.
+# qwen3:8b         = current live engine/scout_critic.py CRITIC_MODEL
+# qwen3:14b        = larger challenger (original spec candidate; Captain-confirmed 2026-06-05)
+CANDIDATES = ["plutus-v1:latest", "plutus-v1-real", "qwen3:8b", "qwen3:14b"]
 
 SEED = 42
 CRITIC_TIMEOUT = 90          # per-critique HTTP timeout (s)

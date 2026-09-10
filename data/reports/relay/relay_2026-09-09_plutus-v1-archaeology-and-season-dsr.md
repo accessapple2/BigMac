@@ -274,3 +274,131 @@ were invisible in this doc's earlier stock-only tables (e.g. season 3's
 none exceed the implausibility ratio). PBO/CSCV deliberately out of scope
 for this rebuild — `strategies/validation.py`'s numpy-based `cscv_pbo()`
 remains the place for that.
+
+---
+
+## Addendum 2 (same night, later still) — season 1 remediation, options-exit fix, Plutus follow-ups
+
+**RULE #1 honored throughout — no existing `trades` row value was ever
+changed.** Every action below is additive (new columns, a new view, new
+code guarding a *future* write) or a live-code fix to how *new* rows get
+written; the 27 historical rows are byte-for-byte what they always were.
+
+### (1) Flag column — done
+Added `trades.pnl_basis_invalid` (INTEGER, default 0) and
+`trades.pnl_basis_invalid_reason` (TEXT) — new columns, live DB +
+`setup_db.py`. Flagged exactly the same 27 rows identified in Addendum 1
+by id: `100,101,102,103,117,118,136,137,140,142,143,145,146,147,155,156,
+157,159,160,163,165,166,179,180,181,182,183`. Spot-verified row 100's
+`entry_price`/`price`/`realized_pnl` are unchanged after the update
+(11.9 / 255.51 / 1443.73 — identical to Addendum 1's numbers).
+
+### (2) Consumer trace — none ingest it unflagged
+- **`agent_ratings` (table):** zero rows for `claude-sonnet` or
+  `gemini-2.5-pro`, any period. Never touched.
+- **Current `ai_players.cash` for both:** flat `$7,000.00` — the reset
+  default, not a windfall-inflated figure. Their `halt_reason` text records
+  "guarded return 2.67%" / "guarded honest return 7.06%" (HM-FLEET-REBASELINE
+  2026-07-04) — single-digit percentages, nothing resembling a $283K-driven
+  return.
+- **Bridge lifetime P&L (`dashboard.app._fleet_lifetime_pnl`), the two
+  `/api/agents/scoreboard` and `/api/scoreboard/live` endpoints, and every
+  other `SUM(realized_pnl)` rollup found in `dashboard/app.py`:** all filter
+  through `engine/trades_filter.py`'s `CLEAN_TRADES_WHERE`
+  (`executed_at >= '2026-05-14 07:37:44'`) — a pre-existing floor from
+  **HM-TRACKING-AGGREGATOR (2026-05-30)**, built for a closely-related
+  pre-S5 mispricing problem that its own docstring names
+  **`gemini-2.5-pro` by name, "+$225K"** (same player, same era, almost
+  certainly the same underlying phenomenon by a different count/window).
+  Season 1 (March 2026) is comfortably before that floor — every one of
+  these consumers already excludes it, not because of anything done
+  tonight, but as a side effect of that May 2026 fix.
+- **`scorecard_snapshots`:** one baseline row (2026-06-07, "post-contam-fix")
+  mentions both players — with **negative** total_pnl (-$3,629 / -$11,030)
+  and an explicit `"pnl_suspect": false` field, consistent with that
+  generator also respecting the same floor.
+- **Net finding: no currently-live rating, scorecard, or lifetime-P&L
+  figure reflects the $283,484.20.** The only place it's visible at all is
+  the raw `trades` table itself (now flagged) — e.g. a raw trade-history
+  browser that reads `trades` directly without going through any of the
+  above.
+
+### (3) `trades_restated` view — built
+```sql
+CREATE VIEW trades_restated AS
+SELECT t.*,
+  CASE
+    WHEN t.pnl_basis_invalid=1 AND INSTR(t.reasoning,'tier ')>0 THEN
+      t.entry_price * t.qty * (tier_pct_parsed_from_reasoning / 100.0)
+    WHEN t.pnl_basis_invalid=1 THEN NULL
+    ELSE t.realized_pnl
+  END AS pnl_restated,
+  CASE
+    WHEN t.pnl_basis_invalid=1 AND INSTR(t.reasoning,'tier ')>0 THEN 'lower_bound_from_tier_label'
+    WHEN t.pnl_basis_invalid=1 THEN 'unbounded_flagged'
+    ELSE 'true_pnl'
+  END AS pnl_restated_basis
+FROM trades t
+```
+For the 25 "tier X% hit" rows, `pnl_restated` is the guaranteed-minimum
+gain implied by the tier that fired (e.g. row 100: $1,443.73 booked →
+**$7.05** restated). The 2 "Autopilot trim" rows (117, 118, 179) carry no
+tier percentage to parse and restate to `NULL`/`unbounded_flagged` rather
+than guess. Live, tested against the real 27 rows (see values above) —
+not yet wired into any consumer; that's a separate migration decision.
+
+### (4) Options exit-price fix — done, plus the live/reachability answer
+**Root cause, precisely located:** `engine/risk_manager.py`'s
+`check_stop_loss_take_profit()` correctly computes an option's *own*
+premium estimate (`current`, via `estimate_option_price()`) for every
+decision it makes — but never included that value in the actions it
+returns. Both real consumers (`engine/ai_brain.py`'s Arena sweep,
+`engine/guardian_sweep.py`'s exit-only-agent sweep) then unconditionally
+used `prices[symbol]["price"]` — the underlying's raw stock quote — for
+the actual exit fill, discarding the correct premium that had already been
+computed one function up. **Fixed at the source:** every action dict
+`check_stop_loss_take_profit()` returns now carries `"price"` (the
+correct value already in scope at that point — the option premium
+estimate for options, the stock price for stocks); both consumers now
+prefer `action.get("price")` and fall back to the raw quote only if it's
+absent. 75/75 relevant tests pass (`test_conviction_stop_shadow.py`,
+`test_options_stop_conviction_scale.py`, `test_troi_csp_cap_gate.py`,
+`test_fleet_trail_conviction_scale.py`, `test_csp_wheel_scan_log.py`,
+`test_earnings_guard.py`), no regressions found on a full-suite diff
+against a clean tree.
+
+**Is it still live?** Yes — this exact code path is unconditionally called
+every scan cycle for every position, and nothing gates options out of it.
+
+**Could 0DTE hit it tomorrow? No — verified empirically, not just by
+code-reading.** `dayblade-0dte` has **zero** historical trades with any of
+this sweep's reasoning text ("Options stop-loss triggered", "Take-profit
+tier", "Stop-loss at", "Fleet trailing stop", "Options expiry auto-close").
+It has its own dedicated exit path (`engine/dayblade.py`, `sell_position()`
+called with `estimate_option_price()`'s correct result directly) that has
+handled 100% of its exits historically — this shared sweep has never fired
+for it.
+
+**Could the wheel hit it tomorrow? Yes — it already has.** "The wheel" =
+`options-sosnoff` (Troi, `engine/wheel_strategy.py`). One historical row
+(id 1779, GOOGL, 2026-04-25, "Options expiry auto-close") shows this exact
+shared sweep firing for a wheel position. That one row's numbers happen to
+look plausible (entry $11.30 → exit $33.82, ~3x, under the 15x flag), so it
+may or may not have actually been correct — but the *mechanism* it went
+through carried no price at all before tonight's fix, making it
+structurally exposed regardless of that one outcome. This path is real and
+reachable for wheel positions; tonight's fix closes it going forward.
+
+### Plutus follow-ups
+- **`CRITIC_MODEL` today:** `engine/scout_critic.py:25` — `"qwen3:8b"`,
+  hardcoded, unchanged. Not touched — the ask was to add a second *test*,
+  not flip the live critic.
+- **Second test registered:** `scripts/run_bm_bakeoff.py`'s `CANDIDATES`
+  now includes `plutus-v1-real` alongside the existing `plutus-v1:latest`
+  (corrected in-comment to note it's the qwen3:8b alias, not the real
+  fine-tune), `qwen3:8b`, `qwen3:14b`. This harness's `SCORE:`/`VERDICT:`/
+  `REASONING:` prompt format is the *native* format plutus-v1-real was
+  fine-tuned to produce (trade_critique corpus) — a more natural test than
+  the McCoy-Rank bakeoff format, run separately, not yet executed.
+- **v7:** confirmed staying queued behind the bakeoff, as recorded in
+  Addendum 1 / `docs/XO_PLAN_2026-09.md` — no change.

@@ -977,6 +977,24 @@ class RiskManager:
                     expiry = datetime.strptime(pos["expiry_date"], "%Y-%m-%d").date()
                     days_left = (expiry - datetime.now().date()).days
                     if days_left <= OPTIONS_AUTO_CLOSE_DTE:
+                        # HM-OPTIONS-EXIT-PRICE-FIX 2026-09-09: estimate the option's
+                        # own premium here — do NOT leave "price" absent. A caller
+                        # that falls back to current_prices[symbol]["price"] gets the
+                        # UNDERLYING's stock quote, not the premium (confirmed live
+                        # bug, see relay_2026-09-09_plutus-v1-archaeology-and-season-
+                        # dsr.md addendum). Fail-safe to None (unpriced) rather than
+                        # guessing if the underlying quote isn't available either.
+                        _epx_price = None
+                        _epx_data = current_prices.get(pos["symbol"])
+                        if _epx_data and _epx_data.get("price"):
+                            try:
+                                from engine.paper_trader import estimate_option_price
+                                _epx_price = estimate_option_price(
+                                    pos.get("option_type"), pos.get("strike_price"),
+                                    _epx_data["price"], pos["avg_price"], pos.get("expiry_date")
+                                )
+                            except Exception:
+                                _epx_price = None
                         actions.append({
                             "symbol": pos["symbol"],
                             "action": "SELL",
@@ -984,6 +1002,7 @@ class RiskManager:
                             "reason": f"Options expiry auto-close ({days_left}d left, exp {pos['expiry_date']})",
                             "asset_type": "option",
                             "option_type": pos.get("option_type"),
+                            "price": _epx_price,
                         })
                         continue
                 except Exception:
@@ -1046,6 +1065,7 @@ class RiskManager:
                         "reason": f"Options stop-loss triggered: premium down {((pos['avg_price'] - current) / pos['avg_price'] * 100):.0f}% (limit: -{opt_sl_pct*100:.0f}%)",
                         "asset_type": "option",
                         "option_type": pos.get("option_type"),
+                        "price": current,
                     })
                     continue
             else:
@@ -1097,6 +1117,7 @@ class RiskManager:
                         ),
                         "asset_type": pos.get("asset_type", "stock"),
                         "option_type": pos.get("option_type"),
+                        "price": current,
                     })
                     continue
                 elif _eg_action == "reduce_size":
@@ -1109,6 +1130,7 @@ class RiskManager:
                             "reason": _eg.get("reason", "Earnings guard: reduce size before event"),
                             "asset_type": pos.get("asset_type", "stock"),
                             "option_type": pos.get("option_type"),
+                            "price": current,
                         })
                     # Trimmed to risk-tolerance; no stop enforcement this cycle.
                     # Guard re-evaluates on next scan with updated position qty.
@@ -1171,6 +1193,7 @@ class RiskManager:
                         ),
                         "asset_type": pos.get("asset_type", "stock"),
                         "option_type": pos.get("option_type"),
+                        "price": current,
                     })
                     continue
 
@@ -1215,6 +1238,7 @@ class RiskManager:
                     "reason": f"Stop-loss at {pnl_pct:.1%}",
                     "asset_type": pos.get("asset_type", "stock"),
                     "option_type": pos.get("option_type"),
+                    "price": current,
                 })
                 continue
 
@@ -1236,6 +1260,7 @@ class RiskManager:
                             "asset_type": pos.get("asset_type", "stock"),
                             "option_type": pos.get("option_type"),
                             "tier": tier_pct,
+                            "price": current,
                         })
                         remaining_qty -= sell_qty
                         hit_tiers.add(tier_pct)

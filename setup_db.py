@@ -1082,6 +1082,47 @@ def setup():
         c.execute("ALTER TABLE trades ADD COLUMN prompt_version TEXT")
     # === /HM-PROMPT-VERSIONING ==========================================
 
+    # === HM-SEASON1-OPTIONS-PNL-FLAG 2026-09-09 =========================
+    # RULE #1 (never rewrite rows): additive columns only, no existing value
+    # ever changes. Flags trades rows whose realized_pnl was computed against
+    # the UNDERLYING's stock price instead of the option's own premium at
+    # exit (confirmed recording bug, isolated to season 1 -- see
+    # relay_2026-09-09_plutus-v1-archaeology-and-season-dsr.md addendum).
+    _trd_cols2 = {row[1] for row in c.execute("PRAGMA table_info(trades)")}
+    if "pnl_basis_invalid" not in _trd_cols2:
+        c.execute("ALTER TABLE trades ADD COLUMN pnl_basis_invalid INTEGER DEFAULT 0")
+    if "pnl_basis_invalid_reason" not in _trd_cols2:
+        c.execute("ALTER TABLE trades ADD COLUMN pnl_basis_invalid_reason TEXT")
+
+    # trades_restated: reporting should read this VIEW, not `trades` directly,
+    # once a consumer needs a season-1-safe P&L figure. pnl_restated is the
+    # raw realized_pnl for every unflagged row (unchanged); for flagged rows
+    # it's a LOWER BOUND parsed from the "tier X% hit" reasoning label where
+    # present (guaranteed_gain = entry_price * qty * tier_pct/100), else NULL
+    # ("Autopilot trim" rows carry no tier text to bound from). Never an
+    # exact restatement -- the true exit premium is unrecoverable, see the
+    # relay doc. `trades` itself is untouched; this is purely additive.
+    c.execute("""
+        CREATE VIEW IF NOT EXISTS trades_restated AS
+        SELECT
+          t.*,
+          CASE
+            WHEN t.pnl_basis_invalid = 1 AND INSTR(t.reasoning, 'tier ') > 0 THEN
+              t.entry_price * t.qty *
+              (CAST(SUBSTR(t.reasoning, INSTR(t.reasoning,'tier ')+5,
+                    INSTR(SUBSTR(t.reasoning, INSTR(t.reasoning,'tier ')+5), '%')-1) AS REAL) / 100.0)
+            WHEN t.pnl_basis_invalid = 1 THEN NULL
+            ELSE t.realized_pnl
+          END AS pnl_restated,
+          CASE
+            WHEN t.pnl_basis_invalid = 1 AND INSTR(t.reasoning, 'tier ') > 0 THEN 'lower_bound_from_tier_label'
+            WHEN t.pnl_basis_invalid = 1 THEN 'unbounded_flagged'
+            ELSE 'true_pnl'
+          END AS pnl_restated_basis
+        FROM trades t
+    """)
+    # === /HM-SEASON1-OPTIONS-PNL-FLAG ====================================
+
     # === HM-XO-PLAN-2026-09 Phase 1.1: structured invalidation ==========
     # invalidation = the parsed "Invalidation:" line (see providers/base.py
     # ::parse_decision); reference_price = the price the model was shown

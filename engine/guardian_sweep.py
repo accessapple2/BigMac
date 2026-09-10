@@ -95,8 +95,15 @@ def _sweep_agent(player_id: str) -> dict:
 
     for action in actions:
         sym = action["symbol"]
-        pdata = prices.get(sym) or {}
-        px = pdata.get("price")
+        # HM-OPTIONS-EXIT-PRICE-FIX 2026-09-09: prefer the action's own price
+        # (option premium estimate for asset_type='option') over the
+        # underlying's raw stock quote — same fix as ai_brain.py's sweep
+        # consumer, same confirmed bug. See relay_2026-09-09_plutus-v1-
+        # archaeology-and-season-dsr.md addendum.
+        px = action.get("price")
+        if px is None:
+            pdata = prices.get(sym) or {}
+            px = pdata.get("price")
         if px is None:
             console.log(f"[yellow][guardian] no price for {sym} — skipping {action.get('action')} ({player_id})")
             continue
