@@ -87,6 +87,43 @@ chain-of-thought — neither model_id matches `OllamaProvider`'s
 inference behavior, not a suppressed leak. `py_compile` clean on both new
 files.
 
+## Follow-up (same day) — reasoning tokens tracked separately, suppression confirmed real
+
+Captain's follow-up after the initial ship: score M3's reasoning cost
+separately from visible-output cost, test whether `reasoning_content` can
+actually be suppressed (vs. qwen3:30b-a3b's unsuppressible CoT), and log a
+sample of the reasoning itself since it's the one arm in the bakeoff whose
+thinking is observable at all.
+
+- **Suppression is real and verified live** — unlike qwen3:30b-a3b,
+  `"thinking": {"type": "disabled"}` genuinely turns reasoning off for M3:
+  a call dropped from 25 completion tokens (23 reasoning) to 2, with
+  `reasoning_content` absent from the response entirely. `MiniMaxProvider`
+  now takes `thinking_mode: str | None` (default `None` = thinking on, the
+  API's own default) — pass `"disabled"` per-instance to run the
+  cheaper/faster path for comparison. Confirmed both ends live.
+- **Reasoning tokens now tracked separately from visible-output tokens** —
+  `usage.completion_tokens_details.reasoning_tokens` read per call;
+  `total_reasoning_tokens` / `total_visible_output_tokens` accumulate
+  alongside the existing `total_cost_usd`. Both are billed at the same
+  output rate (no separate MiniMax price tier for reasoning vs. visible
+  tokens), so this is a cost-*attribution* split, not a different rate.
+  **Live magnitude, 3 trivial one-word-reply calls:** 199 total output
+  tokens, 194 of them (97.5%) reasoning — a 1-2 token visible answer
+  routinely cost 12-156 reasoning tokens underneath it. Worth watching at
+  Phase 2 scale: the visible answer length says almost nothing about the
+  real per-decision cost for this arm.
+- **`reasoning_content` sampling added** — `reasoning_sample_every` (default
+  5) keeps the full `reasoning_content` + `content` pair for every Nth call
+  in `self.reasoning_samples`, and logs a 500-char preview at INFO for
+  sampled calls only (unsampled calls stay cheap to log). Live-verified the
+  captured text is genuine chain-of-thought (e.g., call 2's sample: *"The
+  user is asking me to reply with exactly one word... I need to think
+  about this more carefully..."* before answering `TWO`) — reads exactly
+  like the qualitative signal the Captain was after, not a summary.
+  Confirmed the field is correctly absent (empty string via `.get()`, not a
+  KeyError) when `thinking_mode="disabled"`.
+
 ## NOT done — by design, per the directive
 
 - **Bakeoff itself not run.** No screened-list iteration, no `-5..+5`
