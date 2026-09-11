@@ -20,6 +20,19 @@ OLLAMA_URL = os.getenv("ADVISORY_OLLAMA_URL",
              os.getenv("OLLAMA_BASE_URL", _OLLIE_URL))
 OLLAMA_MODEL = os.getenv("CREWAI_MODEL", "qwen3:8b")  # 2026-04-20: qwen3:8b → qwen3:8b on Ollie GPU
 
+# HM-LEARNING-COVERAGE-GAP-FOLLOWUP-2026-09-11: players whose real day-to-day
+# output lives in portfolio_advice (advisor column) rather than signals --
+# _flag_no_trade_active_players() below checks this as a fallback activity
+# source so a seat like Worf, alive and posting real advice every day, isn't
+# read as dormant just because its output never lands in `signals`. Extend
+# this map if another advisor-path player is found stuck the same way (see
+# docs/XO_BACKLOG.md's "options-sosnoff / Troi absent from config.AI_PLAYERS
+# entirely" -- a distinct, separately-tracked bug, deliberately NOT added
+# here since Troi can't produce ANY output right now regardless of this map).
+_ADVISOR_PLAYER_MAP = {
+    "qwen3-8b-flash": "worf",  # Lt. Cmdr. Worf
+}
+
 
 def _conn():
     c = sqlite3.connect(DB, check_same_thread=False, timeout=30)
@@ -160,6 +173,18 @@ def _flag_no_trade_active_players(traded_ids: set) -> int:
     for a seat that's actually alive and producing (rejected) signals every
     day. `data_window` marks these rows so they're never confused with a
     real LLM-graded review.
+
+    HM-LEARNING-COVERAGE-GAP-FOLLOWUP-2026-09-11: the original fix above
+    landed with an explicitly noted gap -- "Worf's real activity is in
+    portfolio_advice (Advisory Team path), not signals -- this fix doesn't
+    cover him, noted not overclaimed." Live-confirmed same day: model_scores
+    for qwen3-8b-flash (Worf) is still frozen at 2026-07-10 while grok/troi
+    both post fresh portfolio_advice rows today, i.e. Worf IS alive and
+    producing real advisory output every day, the freshness check just
+    can't see it. _ADVISOR_PLAYER_MAP closes this specific, evidenced gap by
+    checking portfolio_advice for players whose real output lives there
+    instead of (or in addition to) signals -- not a blanket assumption that
+    every active player has one of these two activity shapes.
     """
     conn = _conn()
     try:
@@ -177,6 +202,13 @@ def _flag_no_trade_active_players(traded_ids: set) -> int:
                 (pid, today),
             ).fetchone()
             if not has_activity:
+                advisor = _ADVISOR_PLAYER_MAP.get(pid)
+                if advisor:
+                    has_activity = conn.execute(
+                        "SELECT 1 FROM portfolio_advice WHERE advisor=? AND date(created_at)=? LIMIT 1",
+                        (advisor, today),
+                    ).fetchone()
+            if not has_activity:
                 continue  # genuinely dormant today (e.g. a human-operated seat) -- nothing to flag
             last = conn.execute(
                 "SELECT win_rate, avg_pnl, sharpe, max_drawdown, regime_alignment, "
@@ -188,6 +220,15 @@ def _flag_no_trade_active_players(traded_ids: set) -> int:
                 "SELECT COUNT(*) AS n FROM signals WHERE player_id=? AND date(created_at)=?",
                 (pid, today),
             ).fetchone()["n"]
+            advisor = _ADVISOR_PLAYER_MAP.get(pid)
+            if advisor:
+                n_advice = conn.execute(
+                    "SELECT COUNT(*) AS n FROM portfolio_advice WHERE advisor=? AND date(created_at)=?",
+                    (advisor, today),
+                ).fetchone()["n"]
+                activity_note = f"{n_signals} signals, {n_advice} portfolio_advice rows (advisor={advisor})"
+            else:
+                activity_note = f"{n_signals} signals"
             conn.execute(
                 "INSERT INTO model_scores (player_id, period, date, win_rate, avg_pnl, sharpe, "
                 "max_drawdown, regime_alignment, thesis_accuracy, confidence_calibration, "
@@ -202,7 +243,7 @@ def _flag_no_trade_active_players(traded_ids: set) -> int:
                     last["thesis_accuracy"] if last else None,
                     last["confidence_calibration"] if last else None,
                     last["overall_score"] if last else None,
-                    f"no-trade-day, {n_signals} signals, carried forward from prior score",
+                    f"no-trade-day, {activity_note}, carried forward from prior score",
                 ),
             )
             flagged += 1
