@@ -11142,3 +11142,48 @@ real content including two new files with genuine `DROP TABLE` statements
 flagged since their table names are variables, not literal protected-table
 names). No further action needed — already fixed, already enabled,
 verified live rather than just re-asserted.
+
+## IDENTIFIED 2026-09-11 — orphaned git stash, safe but stale, not this session's
+
+`git stash list` shows one entry: `stash@{0}: WIP on hm-conviction-denorm-
+and-stop-wire: 51650ad test(stops): HM-CONVICTION-TIER-BOUNDARY-
+CALIBRATION Opt 1 — mid-tier 0.15 -> 0.13 (compress)`. Found today when a
+routine `git stash && test && git stash pop` (checking whether dry-dock
+changes caused some test failures) popped THIS instead of stashing
+anything new — the tree was already clean (everything committed), so
+`git stash` had nothing to save, and `pop` grabbed this pre-existing
+entry, producing merge conflicts in 4 files. Recovered cleanly via `git
+reset --hard HEAD` (everything from today's session was already
+committed, so nothing was at risk) — the stash itself is untouched and
+still sitting at `stash@{0}`.
+
+**What it is**: stashed 2026-05-25 07:40:06 -0700 (~3.5 months old), on
+top of commit `51650ad` ("Opt 1" of a stop-loss conviction-tier
+calibration experiment). The stash itself is an uncommitted "Opt 2"
+variant (mid-tier stop 0.13→0.14, gentler compression) plus a
+`config.py` `STOP_LOSS_PCT` 0.05→0.08 change, bundled with what looks
+like unrelated generated/cache noise (`data/bull_bear_cache.json` LLM
+bull/bear-case regeneration, `data/backtest_comprehensive_90d.json`
+re-run output, one auto-appended `docs/OPS_LOG.md` backup-log line, one
+auto-appended `trading_rules.txt` strategy-lab entry) — likely just
+whatever was sitting in the working tree when the stash was taken, not
+all deliberate.
+
+**Branch `hm-conviction-denorm-and-stop-wire` no longer exists** —
+checked local (`git branch --list`) and remote (`git branch -r --list`),
+both empty. Commit `51650ad` itself is still reachable (real commit
+object, `git log` resolves it) but isn't on any current branch tip.
+
+**Confirmed obsolete, not applied here**: live `engine/stops.py` today
+uses a completely different conviction-tier scheme (0.90→0.50,
+0.80→0.40, <0.80→0.30) — nothing like the stash's 0.13/0.14/0.18/0.12
+values. Live `config.py`'s `STOP_LOSS_PCT` is `0.05`, not the stash's
+`0.08`. Whatever this experiment concluded, the codebase moved on to a
+different stop-loss design after it — this stash predates that and has
+no current relevance.
+
+**Not dropped.** Only flagged and documented, per standing doctrine
+(never destroy data without explicit instruction) — this is safe,
+inert, and now impossible to confuse with live work by accident. If it's
+confirmed genuinely dead, `git stash drop stash@{0}` is the Admiral's
+call, not mine to make unilaterally.
