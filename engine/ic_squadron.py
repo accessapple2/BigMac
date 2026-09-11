@@ -722,7 +722,9 @@ def _fire_ic_post_mortem(*, proposal_id: int, symbol: str,
         try:
             import os
             import requests
-            ollie_url = os.getenv("OLLIE_URL", "http://192.168.1.166:11434")
+            ollie_url = os.getenv("OLLIE_URL")
+            if not ollie_url:
+                raise RuntimeError("OLLIE_URL not set -- no fallback permitted (HM-HARDCODED-HOST-FIX-2026-09-11)")
             prompt = (
                 f"IC closed: {symbol} reason={close_reason} "
                 f"credit=${credit:.2f} width=${width:.2f}\n"

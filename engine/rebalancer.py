@@ -37,8 +37,9 @@ import requests
 # Config
 # ---------------------------------------------------------------------------
 
-OLLAMA_BASE = os.getenv("ADVISORY_OLLAMA_URL",
-              os.getenv("OLLAMA_BASE_URL", "http://192.168.1.166:11434"))  # 2026-04-20: route to Ollie
+OLLAMA_BASE = os.getenv("ADVISORY_OLLAMA_URL") or os.getenv("OLLAMA_BASE_URL")
+if not OLLAMA_BASE:
+    raise RuntimeError("ADVISORY_OLLAMA_URL/OLLAMA_BASE_URL not set -- no fallback permitted (HM-HARDCODED-HOST-FIX-2026-09-11)")
 TRADER_DB = "data/trader.db"
 DEFAULT_MODEL = "qwen3:8b"  # 2026-04-20: qwen3:8b → qwen3:8b (swap storm risk)
 

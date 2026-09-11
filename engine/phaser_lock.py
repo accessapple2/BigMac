@@ -57,7 +57,10 @@ FLEET_NORM        = 4          # distinct families that saturate fleet_agreement
 try:
     from config import OLLIE_URL as _OLLIE_URL
 except Exception:  # pragma: no cover
-    _OLLIE_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
+    # HM-HARDCODED-HOST-FIX-2026-09-11: no localhost fallback -- fail loud.
+    _OLLIE_URL = os.environ.get("OLLAMA_URL")
+    if not _OLLIE_URL:
+        raise RuntimeError("OLLAMA_URL not set -- no fallback permitted (HM-HARDCODED-HOST-FIX-2026-09-11)")
 OLLAMA_URL    = os.getenv("ADVISORY_OLLAMA_URL", os.getenv("OLLAMA_BASE_URL", _OLLIE_URL))
 PHASER_MODEL  = os.getenv("PHASER_LOCK_MODEL", "plutus-v1")
 

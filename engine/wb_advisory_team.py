@@ -18,8 +18,9 @@ import requests
 logger = logging.getLogger("wb_advisory_team")
 
 DB = "data/trader.db"
-OLLAMA_BASE_URL = os.getenv("ADVISORY_OLLAMA_URL",
-                             os.getenv("OLLAMA_BASE_URL", "http://192.168.1.166:11434"))
+OLLAMA_BASE_URL = os.getenv("ADVISORY_OLLAMA_URL") or os.getenv("OLLAMA_BASE_URL")
+if not OLLAMA_BASE_URL:
+    raise RuntimeError("ADVISORY_OLLAMA_URL/OLLAMA_BASE_URL not set -- no fallback permitted (HM-HARDCODED-HOST-FIX-2026-09-11)")
 
 # Troi uses a lighter model — fast sentiment pass
 TROI_MODEL = os.getenv("TROI_MODEL", os.getenv("CREWAI_CODE_MODEL", "qwen2.5-coder:7b"))

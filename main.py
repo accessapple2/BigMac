@@ -36,8 +36,19 @@ load_dotenv(override=True)
 # Hoist Ollie Box URL to module scope so all scheduled jobs and initialize_dayblade()
 # can reference it directly. Previously only imported inside initialize_arena() (local
 # scope), causing NameError in the first scan cycle of every restart. P8 fix 2026-04-21.
-OLLIE_URL = os.getenv("OLLIE_URL", "http://192.168.1.166:11434")
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
+def _require_env(name: str) -> str:
+    # HM-HARDCODED-HOST-FIX-2026-09-11: no localhost/stale-IP fallback --
+    # a silent fallback is exactly what caused the repeat partial-migration
+    # bugs this fix retires (docs/XO_BACKLOG.md, "Repo-wide hardcoded-Ollama-
+    # host sweep"). Missing env = refuse to start, not guess an address.
+    v = os.getenv(name)
+    if not v:
+        raise RuntimeError(f"{name} not set in environment -- no fallback permitted (HM-HARDCODED-HOST-FIX-2026-09-11)")
+    return v
+
+
+OLLIE_URL = _require_env("OLLIE_URL")
+OLLAMA_URL = _require_env("OLLAMA_URL")
 
 # Monkey-patch sqlite3.connect to always use a 30s busy timeout.
 # This prevents "database is locked" errors when 13+ AI models write concurrently.
@@ -6351,7 +6362,7 @@ if __name__ == "__main__":
         ]
         # Check which models are installed on Ollie Max (.168)
         _installed: set[str] = set()
-        _ollie_url = os.getenv("OLLIE_URL", "http://192.168.1.166:11434")
+        _ollie_url = _require_env("OLLIE_URL")
         try:
             _tags = _req.get(f"{_ollie_url}/api/tags", timeout=10).json()
             _installed |= {m["name"].split(":")[0] for m in _tags.get("models", [])}

@@ -324,7 +324,7 @@ def _record_witness(debate_id: str, symbol: str, price_data: dict,
         try:
             from engine.providers.ollama_provider import OllamaProvider
             import config as _cfg
-            _url = getattr(_cfg, "OLLAMA_URL", "http://192.168.1.168:11434")
+            _url = _cfg.OLLAMA_URL  # HM-HARDCODED-HOST-FIX-2026-09-11: no stale-IP fallback
             if witness_model == "plutus-v1:latest" and "ollama-plutus" in providers:
                 # Reuse McCoy's live, already-resident provider — do NOT unload it.
                 witness_prov = providers["ollama-plutus"]
@@ -399,7 +399,7 @@ def _record_shadow_witness(debate_id, symbol: str, price_data: dict,
         try:
             from engine.providers.ollama_provider import OllamaProvider
             import config as _cfg, json as _json
-            _url = getattr(_cfg, "OLLAMA_URL", "http://192.168.1.168:11434")
+            _url = _cfg.OLLAMA_URL  # HM-HARDCODED-HOST-FIX-2026-09-11: no stale-IP fallback
             v1_prov = providers.get("ollama-plutus") or OllamaProvider(
                 player_id="wr-shadow-v1", model="plutus-v1:latest",
                 url=_url, timeout=120, keep_alive="0s")

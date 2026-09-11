@@ -55,7 +55,13 @@ SIGNAL_CENTER_URL = "http://127.0.0.1:9000/"
 # bigmac-local instance — config.py routes ALL live inference to OLLIE_URL),
 # so the watchdog spammed "Ollama Down" for a host nothing actually calls.
 # Point it at the real inference host (olliemax, config.py OLLIE_URL).
-OLLAMA_URL        = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434") + "/api/tags"
+# HM-HARDCODED-HOST-FIX-2026-09-11: no localhost fallback -- fail loud rather
+# than silently re-introduce the exact "checking a host nothing calls" bug
+# the 2026-06-14 fix above already retired once.
+_OLLAMA_HOST = os.environ.get("OLLAMA_URL")
+if not _OLLAMA_HOST:
+    raise RuntimeError("OLLAMA_URL not set -- no fallback permitted (HM-HARDCODED-HOST-FIX-2026-09-11)")
+OLLAMA_URL        = _OLLAMA_HOST + "/api/tags"
 NTFY_TOPIC        = os.environ.get("NTFY_ADMIN_TOPIC", "ollietrades-admin")  # subscribe in ntfy app on iPhone
 
 DAILY_SNAPSHOT_HOUR_ET = 16   # 4 PM ET

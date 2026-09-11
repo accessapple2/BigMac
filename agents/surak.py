@@ -31,7 +31,9 @@ import requests
 # Config
 # ---------------------------------------------------------------------------
 _DB = "data/trader.db"
-_OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://192.168.1.166:11434")  # Ollie GPU — 2026-04-23 bigmac RAM fix
+_OLLAMA_URL = os.environ.get("OLLAMA_URL")  # Ollie GPU — 2026-04-23 bigmac RAM fix
+if not _OLLAMA_URL:
+    raise RuntimeError("OLLAMA_URL not set -- no fallback permitted (HM-HARDCODED-HOST-FIX-2026-09-11)")
 _MODEL = "gemma3:4b"
 _HORIZON_YEARS = 20
 _AGENT = "surak"

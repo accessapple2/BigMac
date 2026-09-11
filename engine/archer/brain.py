@@ -21,7 +21,10 @@ from engine import ticker_names as _names  # FIX-4: verified ticker→company na
 
 logger = logging.getLogger(__name__)
 
-OLLAMA = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434") + "/api/generate"
+_OLLAMA_URL = os.environ.get("OLLAMA_URL")
+if not _OLLAMA_URL:
+    raise RuntimeError("OLLAMA_URL not set -- no fallback permitted (HM-HARDCODED-HOST-FIX-2026-09-11)")
+OLLAMA = _OLLAMA_URL + "/api/generate"
 MODEL = "plutus-v1"   # resident, non-retiring tag (ruling #1) — NOT 0xroyce/plutus
 
 PERSONA = (

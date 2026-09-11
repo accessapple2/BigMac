@@ -276,9 +276,21 @@ DALIO_BOND_SYMBOLS = {"TLT", "IEF"}  # stored as asset_type='bond' in paper_trad
 
 # AI Provider Keys
 OLLAMA_MODEL = "phi3:mini"
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")          # Ollie Box (all heavy inference — 2026-04-24 routing fix; HM-OLLIE-REMOTE-WIRE 2026-09-08: now env-backed, was a hardcoded literal that .env's migration never reached)
-OLLAMA_LOCAL_URL = "http://localhost:11434"        # bigmac residents only (phi3/gemma3/mistral) — retained for reference, do not reuse (see CLAUDE.md)
-OLLIE_URL  = os.environ.get("OLLIE_URL", "http://localhost:11434")          # Ollie Max — RTX 5080 16GB VRAM + 32GB sys RAM (Admiral-confirmed 2026-05-30; was mislabeled "RTX 5060"); HM-OLLIE-REMOTE-WIRE 2026-09-08: now env-backed
+def _require_ollama_env(name: str) -> str:
+    # HM-HARDCODED-HOST-FIX-2026-09-11: no localhost/stale-IP fallback --
+    # OLLAMA_URL/OLLIE_URL both route to a REMOTE box (Ollie Max); a
+    # "localhost" fallback here is never correct and is exactly the disease
+    # docs/XO_BACKLOG.md's "Repo-wide hardcoded-Ollama-host sweep" retires.
+    # Missing env = refuse to start, not silently infer a wrong address.
+    v = os.environ.get(name)
+    if not v:
+        raise RuntimeError(f"{name} not set in environment -- no fallback permitted (HM-HARDCODED-HOST-FIX-2026-09-11)")
+    return v
+
+
+OLLAMA_URL = _require_ollama_env("OLLAMA_URL")          # Ollie Box (all heavy inference — 2026-04-24 routing fix; HM-OLLIE-REMOTE-WIRE 2026-09-08: now env-backed, was a hardcoded literal that .env's migration never reached)
+OLLAMA_LOCAL_URL = "http://localhost:11434"        # bigmac residents only (phi3/gemma3/mistral) — retained for reference, do not reuse (see CLAUDE.md) — genuinely local, not part of HM-HARDCODED-HOST-FIX
+OLLIE_URL  = _require_ollama_env("OLLIE_URL")          # Ollie Max — RTX 5080 16GB VRAM + 32GB sys RAM (Admiral-confirmed 2026-05-30; was mislabeled "RTX 5060"); HM-OLLIE-REMOTE-WIRE 2026-09-08: now env-backed
 # HM-PERF-FLEET-THROUGHPUT 2026-07-07: Ollie Max co-resides TWO 7-8B-class
 # models (~10-12GB together, live /api/ps-confirmed) with server-side
 # NUM_PARALLEL=2 -- the client-side queue (engine/ollama_queue.py) was still

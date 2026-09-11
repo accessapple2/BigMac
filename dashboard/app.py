@@ -5930,7 +5930,9 @@ def news_go_deeper(data: dict = None):
     symbol = data.get("symbol", "")
     try:
         import requests as req
-        ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+        ollama_url = os.getenv("OLLAMA_BASE_URL")
+        if not ollama_url:
+            raise RuntimeError("OLLAMA_BASE_URL not set -- no fallback permitted (HM-HARDCODED-HOST-FIX-2026-09-11)")
         prompt = (
             f"Given this market news about {symbol}:\n"
             f"Headline: {headline}\n"
@@ -8182,7 +8184,8 @@ def war_room_post(data: dict = None):
 
             from engine.providers.ollama_provider import OllamaProvider
             from config import OLLIE_URL as _ollie_url, OLLAMA_URL as _bigmac_url
-            # Models hosted on Ollie Box (192.168.1.166:11434)
+            # Models hosted on Ollie Max -- see config.OLLIE_URL for the live
+            # address (stale IP comment corrected HM-HARDCODED-HOST-FIX-2026-09-11)
             _OLLIE_MODELS = {
                 'qwen3:8b', 'qwen3:14b', 'qwen2.5-coder:7b', 'deepseek-r1:14b',
                 'phi3:mini', 'llama3.1:latest', 'llama3.2:3b', '0xroyce/plutus:latest',
@@ -20644,6 +20647,10 @@ def _ollama_chat(message: str, system_prompt: str, history: list, model: str = "
     """Chat via local Ollama using whichever model is ALREADY loaded (no swap = no RAM spike).
     Falls back to llama3.1 / gemma3 only if nothing is loaded."""
     import requests as _req
+    # HM-HARDCODED-HOST-FIX-2026-09-11: was a raw "http://localhost:11434"
+    # literal -- the retired bigmac-local Ollama instance this function's own
+    # docstring says was retired 2026-06-24. Route to the real live host.
+    from config import OLLAMA_URL as _chat_ollama_url
     # Prefer the already-loaded model to avoid a model swap that can spike RAM
     if not model:
         model = _get_loaded_ollama_model() or "llama3.1:latest"
@@ -20667,7 +20674,7 @@ def _ollama_chat(message: str, system_prompt: str, history: list, model: str = "
     for m in ordered:
         try:
             r = _req.post(
-                "http://localhost:11434/api/chat",
+                f"{_chat_ollama_url}/api/chat",
                 json={"model": m, "messages": messages, "stream": False,
                       "options": {"temperature": 0.3, "num_predict": 400}},
                 timeout=40,

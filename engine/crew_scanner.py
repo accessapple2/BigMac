@@ -810,10 +810,15 @@ def _get_ollama_base_url() -> str:
         from config import OLLIE_URL
         _OLLAMA_URL_CACHE = OLLIE_URL.rstrip("/")
     except Exception:
-        _OLLAMA_URL_CACHE = os.environ.get(
-            "OLLIE_URL",
-            os.environ.get("OLLAMA_URL", "http://192.168.1.166:11434")
-        ).rstrip("/")
+        # HM-HARDCODED-HOST-FIX-2026-09-11: no stale-IP fallback -- if config
+        # import failed AND neither env var is set, fail loud, don't guess.
+        _url = os.environ.get("OLLIE_URL") or os.environ.get("OLLAMA_URL")
+        if not _url:
+            raise RuntimeError(
+                "OLLIE_URL/OLLAMA_URL not set in environment -- no fallback "
+                "permitted (HM-HARDCODED-HOST-FIX-2026-09-11)"
+            )
+        _OLLAMA_URL_CACHE = _url.rstrip("/")
     return _OLLAMA_URL_CACHE
 
 

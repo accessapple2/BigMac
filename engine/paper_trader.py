@@ -3706,7 +3706,9 @@ def _fire_post_mortem_async(*, player_id: str, symbol: str, side: str,
             import os
             import requests
             from datetime import datetime as _dt
-            ollie_url = os.getenv("OLLIE_URL", "http://192.168.1.166:11434")
+            ollie_url = os.getenv("OLLIE_URL")
+            if not ollie_url:
+                raise RuntimeError("OLLIE_URL not set -- no fallback permitted (HM-HARDCODED-HOST-FIX-2026-09-11)")
             # Pull current regime so the classifier has macro context.
             _regime = "UNKNOWN"
             try:

@@ -44,7 +44,9 @@ GATE_FILES = {
 _GATE_RE = re.compile(r"^_EXECUTION_ENABLED:?\s*bool\s*=\s*True", re.MULTILINE)
 
 BRIEFING_MODES = ("premarket", "open_check", "power_hour", "after_close")
-OLLIE_URL = os.getenv("OLLIE_URL", "http://192.168.1.168:11434")
+OLLIE_URL = os.getenv("OLLIE_URL")
+if not OLLIE_URL:
+    raise RuntimeError("OLLIE_URL not set -- no fallback permitted (HM-HARDCODED-HOST-FIX-2026-09-11)")
 
 
 def _utc_now() -> datetime:
