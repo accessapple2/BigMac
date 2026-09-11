@@ -1131,6 +1131,49 @@ def setup():
     """)
     # === /HM-SEASON1-OPTIONS-PNL-FLAG ====================================
 
+    # === HM-OPTIONS-TRADES-RESTATEMENT 2026-09-11 (dry-dock B6) ==========
+    # RULE #1 (never rewrite rows): additive columns only. Reconstructs
+    # options_trades' pre-real-quote-era rows (entry_date/exit_date before
+    # 2026-07-07, when the synthetic vix/500-formula CSP pricing bug --
+    # engine/wheel_strategy.py + engine/shadow_csp.py -- was still live)
+    # from real Alpaca historical option bars where a bar actually exists;
+    # marks unrecoverable where it doesn't (mostly illiquid leveraged-ETF
+    # CSP legs -- TQQQ/SOXL/UPRO -- with zero recorded trades that day/week
+    # in Alpaca's own data, a genuine coverage gap, not a script bug).
+    # See relay_2026-09-11_B6_options_premium_restatement.md for the full
+    # methodology, the units-inconsistency finding (two different dollar
+    # conventions coexist in this table depending on which code path wrote
+    # the row), and the Season 1/2/4 PSR/DSR-scoreability verdict for the
+    # OLDER, separate `trades`-table options rows (pre-dates options_trades
+    # entirely; unrecoverable there for a stronger reason -- no strike or
+    # expiry was ever recorded, so there's no contract to even look up).
+    _opt_cols = {row[1] for row in c.execute("PRAGMA table_info(options_trades)")}
+    for _col, _decl in [
+        ("entry_credit_debit_restated", "REAL"),
+        ("exit_credit_debit_restated", "REAL"),
+        ("pnl_restated", "REAL"),
+        ("restatement_basis", "TEXT"),
+    ]:
+        if _col not in _opt_cols:
+            c.execute(f"ALTER TABLE options_trades ADD COLUMN {_col} {_decl}")
+
+    c.execute("""
+        CREATE VIEW IF NOT EXISTS options_trades_restated AS
+        SELECT ot.*,
+          CASE
+            WHEN restatement_basis = 'real_alpaca_bar' THEN pnl_restated
+            ELSE NULL
+          END AS pnl_best_estimate,
+          CASE
+            WHEN restatement_basis = 'real_alpaca_bar' THEN 'reconstructed_from_alpaca_bars'
+            WHEN restatement_basis IN ('unrecoverable_no_alpaca_bar', 'unrecoverable_unknown_unit_convention') THEN 'unrecoverable'
+            WHEN restatement_basis = 'not_closed_no_restatement_needed' THEN 'not_applicable_still_open'
+            ELSE 'original_pnl_unaffected'
+          END AS restated_status
+        FROM options_trades ot
+    """)
+    # === /HM-OPTIONS-TRADES-RESTATEMENT ==================================
+
     # === HM-XO-PLAN-2026-09 Phase 1.1: structured invalidation ==========
     # invalidation = the parsed "Invalidation:" line (see providers/base.py
     # ::parse_decision); reference_price = the price the model was shown
