@@ -11225,3 +11225,21 @@ GiB of old `.db-shm`/`.db-wal` sidecar files (dated back to July) plus an
 matches `.db.gz`, so these sidecars have accumulated with zero retention
 mechanism. Separate, smaller cleanup from the main backup-retention
 policy — not touched this pass.
+
+## FLAGGED, NOT ROOT-CAUSED 2026-09-11 — McCoy's 12:30 PM ET screened-scan slot: no confirmed firing
+
+Found while characterizing olliemax traffic for the modelworks delivery.
+`main.py::run_mccoy_screened_scan()` (A3, `schedule.every(5).minutes`)
+registered normally on every restart today (`job=run_mccoy_screened_scan`
+in `logs/trader.log`, 6 times). The 9:35 AM ET slot fell inside this
+morning's dry-dock incident window and was expectedly missed. The 12:30
+PM ET slot's window (12:30-12:50 ET) has now passed — checked at 1:17 PM
+ET, with `main.py` continuously running since ~11:45 AM ET, well before
+the window opened — and `grep -i "McCoy screened scan" logs/trader.log`
+shows zero matches for today. Not investigated further in this pass
+(would need to check whether `schedule.run_pending()` is being starved by
+other long-running scan work — `RateLimiter` was showing 119% utilization
+around this time, a plausible contributor — or whether the function is
+silently raising inside its own try/except and only logging to a
+different sink). Worth a look on its own before trusting A3's twice-daily
+cadence is actually firing as designed.
