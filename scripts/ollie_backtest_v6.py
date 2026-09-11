@@ -122,18 +122,21 @@ def _load_bakeoff_agents() -> None:
 # McCoy's defensive universe: only active when VIX >= 22
 MCCOY_UNIVERSE: list[str] = ["GLD", "TLT", "XLU", "SH", "PSQ", "GDX"]
 
-_LOCALHOST = "http://localhost:11434"
+# HM-HARDCODED-HOST-SWEEP-2026-09-10: _LOCALHOST and the except-branch
+# _OLLIE_URL were both hardcoded literals pointing at hosts no longer in
+# service (bigmac local Ollama, decommissioned 2026-09-09; the old .166
+# Ollie Box before that). No fallback now -- fails loud (KeyError /
+# ImportError surfaces plainly) instead of silently routing bakeoff clones
+# to a dead host, which is exactly the 4h-of-garbage failure mode the
+# 2026-05-16 comment below describes happening once already.
 # HM-BM Phase 3a routing fix (2026-05-16): import OLLIE_URL so bakeoff clones
 # (not present in config.AI_PLAYERS) route to Ollie GPU instead of bigmac
 # localhost. Previously the _PLAYER_BASE_URLS.get(clone_id, _LOCALHOST) fallback
 # at line 302 hit bigmac, which has no ministral-3:3b, producing 4h of garbage
 # 404+HOLD(5/10) fallback responses. _load_bakeoff_agents() now seeds clone URLs.
-try:
-    from config import AI_PLAYERS as _AI_PLAYERS, OLLIE_URL as _OLLIE_URL
-    _PLAYER_BASE_URLS: dict = {p["id"]: p.get("url", _LOCALHOST) for p in _AI_PLAYERS}
-except Exception:
-    _OLLIE_URL = "http://192.168.1.166:11434"  # hardcoded fallback if config import fails
-    _PLAYER_BASE_URLS: dict = {}
+from config import AI_PLAYERS as _AI_PLAYERS, OLLIE_URL as _OLLIE_URL
+_LOCALHOST = _OLLIE_URL  # no per-player url key -> route to the same migrated host, not localhost
+_PLAYER_BASE_URLS: dict = {p["id"]: p.get("url", _LOCALHOST) for p in _AI_PLAYERS}
 
 # Seed bakeoff clones into AGENTS + _PLAYER_BASE_URLS after both are defined.
 _load_bakeoff_agents()

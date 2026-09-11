@@ -40,7 +40,12 @@ logging.basicConfig(
 
 BACKTEST_DB   = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data", "backtest.db"))
 _LOCK_FILE    = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data", "backtest.lock"))
-OLLAMA_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
+# HM-HARDCODED-HOST-SWEEP-2026-09-10: no fallback -- fails loud if neither
+# env var is set rather than silently reaching for bigmac's decommissioned
+# local Ollama. OLLAMA_BASE_URL stays the explicit override name this file
+# already used; OLLAMA_URL is the repo-wide migrated source of truth.
+OLLAMA_URL = os.environ.get("OLLAMA_BASE_URL") or os.environ["OLLAMA_URL"]
+OLLAMA_URL = OLLAMA_URL.rstrip("/")
 
 STARTING_CASH = 10_000.0
 PROFIT_TARGET = 0.05   # +5% (default; overridden per-agent below)

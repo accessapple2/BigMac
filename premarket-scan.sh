@@ -31,9 +31,19 @@ if [ -f "$LOCK" ]; then
     rm -f "$LOCK"
 fi
 
-# Verify Ollama is running
-if ! curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
-    log "[FAIL] Ollama not running. Aborting."
+# HM-HARDCODED-HOST-SWEEP-2026-09-10: was hardcoded to bigmac's now-
+# decommissioned local Ollama with no env indirection at all -- would have
+# failed this check unconditionally since 2026-09-09 (also found: the
+# "com.trademinds.premarket launchd agent" this header claims manages it
+# no longer exists either, per launchctl/plist checks -- this script is
+# effectively orphaned regardless of this fix).
+OLLIE_HOST=$(grep '^OLLIE_URL=' "$TRADEMINDS_DIR/.env" | cut -d= -f2-)
+if [ -z "$OLLIE_HOST" ]; then
+    log "[FAIL] OLLIE_URL not set in .env. Aborting."
+    exit 1
+fi
+if ! curl -s "$OLLIE_HOST/api/tags" > /dev/null 2>&1; then
+    log "[FAIL] Ollama not running at $OLLIE_HOST. Aborting."
     exit 1
 fi
 

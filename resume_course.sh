@@ -21,11 +21,19 @@ fi
 
 echo ""
 echo "[ 2/7 ] Checking Ollama..."
-OLLAMA=$(curl -s --max-time 5 http://192.168.1.166:11434 | grep -c "Ollama" || true)
-if [ "$OLLAMA" -gt 0 ]; then
-  echo "  ✓ Ollie (192.168.1.166) responding"
+# HM-HARDCODED-HOST-SWEEP-2026-09-10: was hardcoded to the decommissioned
+# pre-migration Ollie Box (.166) with no env indirection at all. Fails
+# loud if OLLIE_URL isn't in .env rather than silently checking a dead host.
+OLLIE_HOST=$(grep '^OLLIE_URL=' "$CD/.env" | cut -d= -f2-)
+if [ -z "$OLLIE_HOST" ]; then
+  echo "  ✗ OLLIE_URL not set in .env — cannot check Ollama"
 else
-  echo "  ✗ Ollie unreachable — check 192.168.1.166 manually"
+  OLLAMA=$(curl -s --max-time 5 "$OLLIE_HOST" | grep -c "Ollama" || true)
+  if [ "$OLLAMA" -gt 0 ]; then
+    echo "  ✓ Ollie ($OLLIE_HOST) responding"
+  else
+    echo "  ✗ Ollie unreachable — check $OLLIE_HOST manually"
+  fi
 fi
 
 echo ""

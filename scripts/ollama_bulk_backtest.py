@@ -208,8 +208,15 @@ VERDICT: BUY | CONFIDENCE: 7 | WINNER: Riker | REASON: bull case stronger
 VERDICT must be BUY, SELL, or HOLD."""
 
 
-OLLAMA_GENERATE = "http://localhost:11434/api/generate"
-OLLAMA_CHAT     = "http://localhost:11434/api/chat"
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
+# HM-HARDCODED-HOST-SWEEP-2026-09-10: no fallback -- fails loud if
+# OLLAMA_URL isn't set rather than silently reaching for bigmac's
+# decommissioned local Ollama.
+_OLLAMA_BASE = os.environ["OLLAMA_URL"]
+OLLAMA_GENERATE = _OLLAMA_BASE + "/api/generate"
+OLLAMA_CHAT     = _OLLAMA_BASE + "/api/chat"
 
 # Models that use chain-of-thought — need think suppressed or large token budget
 THINK_MODELS = {"qwen3:8b", "deepseek-r1:14b", "deepseek-r1:14b", "qwen3:4b", "qwen3:30b"}

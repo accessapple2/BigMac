@@ -16,7 +16,10 @@ load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 from db import get_conn  # noqa: E402
 
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434") + "/api/chat"
+# HM-HARDCODED-HOST-SWEEP-2026-09-10: no fallback -- fails loud if
+# OLLAMA_URL isn't set rather than silently reaching for bigmac's
+# decommissioned local Ollama.
+OLLAMA_URL = os.environ["OLLAMA_URL"] + "/api/chat"
 # ministral-3:3b: fast, reliable JSON output; qwen3:8b returns empty (thinking-only mode)
 PARSE_MODEL = "ministral-3:3b"
 BATCH_SIZE = int(os.environ.get("UHURA_BATCH", "500"))

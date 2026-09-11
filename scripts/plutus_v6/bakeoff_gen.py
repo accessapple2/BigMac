@@ -1,7 +1,13 @@
 """Phase 1: generate v1 + v6-eval critiques for all 178 held-out test prompts.
 Grouped by model (all of one model, then the other) so ollama keeps one model
 resident instead of swapping VRAM every call. Output: bakeoff_gen.json"""
-import json, urllib.request, time
+import json, os, urllib.request, time
+from dotenv import load_dotenv
+
+load_dotenv()
+# HM-HARDCODED-HOST-SWEEP-2026-09-10: fails loud if OLLAMA_URL isn't set
+# rather than silently reaching for a possibly-nonexistent local Ollama.
+_OLLAMA_URL = os.environ["OLLAMA_URL"]
 
 TEST = "/home/bigmac/plutus_corpus_v6.test.jsonl"
 OUT  = "/home/bigmac/bakeoff_gen.json"
@@ -16,7 +22,7 @@ def gen(model, prompt, retries=2):
     body = json.dumps({"model": model, "prompt": prompt, "stream": False, "options": OPTS}).encode()
     for a in range(retries+1):
         try:
-            req = urllib.request.Request("http://localhost:11434/api/generate", data=body,
+            req = urllib.request.Request(f"{_OLLAMA_URL}/api/generate", data=body,
                                          headers={"Content-Type": "application/json"})
             return json.load(urllib.request.urlopen(req, timeout=240))["response"].strip()
         except Exception as e:

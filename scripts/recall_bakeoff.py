@@ -3,15 +3,19 @@
 Additive + reversible: trader.db gains vec_trades_{bge,qwen,gemma,nomic}; DROP to undo. No flags,
 no signals, ai_players untouched, live fleet untouched. Embeds the ENTRY setup text (NOT realized
 P&L — outcome is a tag, not embedded, so neighbors cluster by setup not by result)."""
-import sqlite3, json, urllib.request, sys, time
+import os, sqlite3, json, urllib.request, sys, time
 import sqlite_vec
+from dotenv import load_dotenv
+
+load_dotenv()
 
 DB = "/Users/bigmac/autonomous-trader/data/trader.db"
-# HM-OLLIEMAX-DECOMM-MISS-2026-08-30: was pointed at the decommissioned Ollie
-# Box (.168, decommissioned 2026-07); this one-time bake-off script isn't in
-# recall_refresh_run.sh's live call chain, but repointed anyway for
-# consistency -- same evaded-the-e7c3e7d-sweep class of bug.
-OLLAMA = "http://127.0.0.1:11434/api/embed"
+# HM-HARDCODED-HOST-SWEEP-2026-09-10: this constant has now drifted TWICE
+# (once to the decommissioned .168 Ollie Box, HM-OLLIEMAX-DECOMM-MISS-
+# 2026-08-30's fix; then silently back to a stale bigmac-local literal even
+# after that fix claimed to repoint it "for consistency"). Reads from env
+# with no fallback this time -- fails loud instead of drifting a third time.
+OLLAMA = os.environ["OLLAMA_URL"] + "/api/embed"
 N_CORPUS = 500   # most-recent closed trades (manageable embed time; plenty for similarity)
 MODELS = [  # (label, ollama_model, dim, table)
     ("bge",   "bge-m3",              1024, "vec_trades_bge"),

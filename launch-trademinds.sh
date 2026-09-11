@@ -68,10 +68,15 @@ else
 fi
 
 # 3. Ollama running
-if curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
-    MODEL_COUNT=$(curl -s http://localhost:11434/api/tags | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('models',[])))" 2>/dev/null || echo "?")
-    echo "$OK Ollama: running ($MODEL_COUNT models loaded)"
-    curl -s http://localhost:11434/api/tags | python3 -c "
+# HM-HARDCODED-HOST-SWEEP-2026-09-10: was hardcoded to bigmac's now-
+# decommissioned local Ollama with no env indirection at all.
+OLLIE_HOST=$(grep '^OLLIE_URL=' "$TRADEMINDS_DIR/.env" 2>/dev/null | cut -d= -f2-)
+if [ -z "$OLLIE_HOST" ]; then
+    echo "$WARN Ollama: OLLIE_URL not set in .env, cannot check"
+elif curl -s "$OLLIE_HOST/api/tags" > /dev/null 2>&1; then
+    MODEL_COUNT=$(curl -s "$OLLIE_HOST/api/tags" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('models',[])))" 2>/dev/null || echo "?")
+    echo "$OK Ollama: running at $OLLIE_HOST ($MODEL_COUNT models loaded)"
+    curl -s "$OLLIE_HOST/api/tags" | python3 -c "
 import sys, json
 models = json.load(sys.stdin).get('models', [])
 for m in models[:8]:
@@ -81,7 +86,7 @@ for m in models[:8]:
     print(f'       - {name} ({size_gb}GB)')
 " 2>/dev/null || true
 else
-    echo "$WARN Ollama: not running"
+    echo "$WARN Ollama: not running at $OLLIE_HOST"
     echo "  Start with: ollama serve &"
     echo "  Continuing anyway — cloud models still available"
 fi

@@ -29,11 +29,17 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+load_dotenv(ROOT / ".env")
 
 DB = ROOT / "data" / "trader.db"
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
+# HM-HARDCODED-HOST-SWEEP-2026-09-10: no fallback -- fails loud if
+# OLLAMA_URL isn't set rather than silently reaching for bigmac's
+# decommissioned local Ollama.
+OLLAMA_URL = os.environ["OLLAMA_URL"]
 SCORE_CAP = 300   # max debates scored per model per run (300×2 models ≈ 2.5–4 hrs total)
 
 # ── Model taxonomy (HM-SHADOW-AB-WITNESS 2026-06-29) ─────────────────────────

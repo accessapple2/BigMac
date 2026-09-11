@@ -2,12 +2,19 @@
 critiques. Order-balanced by idx parity (no position bias). Judge = strongest
 neutral non-plutus model present. Output: bakeoff_scored.json + summary."""
 import json, urllib.request, re, time, sys, os
+from dotenv import load_dotenv
+
+load_dotenv()
+# HM-HARDCODED-HOST-SWEEP-2026-09-10: was a hardcoded "localhost:11434"
+# literal in both call sites below -- fails loud if OLLAMA_URL isn't set
+# rather than silently reaching for a possibly-nonexistent local Ollama.
+_OLLAMA_URL = os.environ["OLLAMA_URL"]
 
 GEN = "/home/bigmac/bakeoff_gen.json"
 OUT = os.environ.get("OUT", "/home/bigmac/bakeoff_scored.json")
 
 def ollama_models():
-    req = urllib.request.Request("http://localhost:11434/api/tags")
+    req = urllib.request.Request(f"{_OLLAMA_URL}/api/tags")
     return [m["name"] for m in json.load(urllib.request.urlopen(req, timeout=20))["models"]]
 
 # pick judge: env override, else strongest neutral, never a plutus model
@@ -38,7 +45,7 @@ def judge(ctx, a, b, retries=2):
                        "think": False, "options": {"temperature": 0.0, "num_predict": NUMPRED}}).encode()
     for att in range(retries+1):
         try:
-            req = urllib.request.Request("http://localhost:11434/api/generate", data=body,
+            req = urllib.request.Request(f"{_OLLAMA_URL}/api/generate", data=body,
                                          headers={"Content-Type": "application/json"})
             txt = json.load(urllib.request.urlopen(req, timeout=180))["response"]
             txt = re.sub(r"<think>.*?</think>", "", txt, flags=re.S)

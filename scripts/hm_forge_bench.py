@@ -21,9 +21,14 @@ OPERATIONAL: loading a 13GB model (gpt-oss:20b) EVICTS the live fleet from the
 RTX 5080's 16GB. Run ONLY in a market-closed window. Each model is loaded, the
 fleet's keep_alive will re-warm afterwards.
 """
-import argparse, json, subprocess, time, urllib.request, statistics
+import argparse, json, os, subprocess, time, urllib.request, statistics
+from dotenv import load_dotenv
 
-OLLAMA = "http://127.0.0.1:11434/api/chat"
+load_dotenv()
+# HM-HARDCODED-HOST-SWEEP-2026-09-10: was a hardcoded literal, no env at
+# all. Fails loud if OLLAMA_URL isn't set rather than silently reaching
+# for bigmac's decommissioned local Ollama.
+OLLAMA = os.environ["OLLAMA_URL"] + "/api/chat"
 
 # Frozen War-Room CSP debate turn — McCoy-style high-VIX cash-secured-put verdict.
 SYS = (

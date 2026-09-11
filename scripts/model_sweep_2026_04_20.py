@@ -53,8 +53,13 @@ KILL_FILE  = REPO_ROOT / "KILL_SWITCH"
 LOG_FILE   = Path("/tmp/model_sweep.log")
 
 # ── Inference endpoint (Ollie GPU only) ───────────────────────────────────────
+from dotenv import load_dotenv
+load_dotenv(REPO_ROOT / ".env")
 
-OLLIE_BASE      = "http://192.168.1.166:11434"
+# HM-HARDCODED-HOST-SWEEP-2026-09-10: no fallback -- fails loud if
+# OLLIE_URL isn't set rather than silently reaching for the decommissioned
+# pre-migration Ollie Box address.
+OLLIE_BASE      = os.environ["OLLIE_URL"]
 OLLIE_GENERATE  = OLLIE_BASE + "/api/generate"
 OLLIE_CHAT      = OLLIE_BASE + "/api/chat"
 OLLIE_TAGS      = OLLIE_BASE + "/api/tags"

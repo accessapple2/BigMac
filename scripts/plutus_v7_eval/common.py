@@ -4,10 +4,11 @@ Sacred-data rule: this package NEVER writes to trader.db / arena.db / the plutus
 scripts/plutus_v6/. All output goes under data/plutus_eval/. Inference is .168-only.
 """
 from __future__ import annotations
-import json, os, re, time, urllib.request, urllib.error
+import json, os, re, sys, time, urllib.request, urllib.error
 
 # ---- paths -----------------------------------------------------------------
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+sys.path.insert(0, REPO)
 DATA = os.path.join(REPO, "data")
 EVAL_DIR = os.path.join(DATA, "plutus_eval")
 TEST_SET = os.path.join(DATA, "plutus_corpus_v6.test.jsonl")
@@ -20,8 +21,13 @@ GEN_FILE = os.path.join(EVAL_DIR, "gen_v1_v6.jsonl")
 JUDGE_RAW = os.path.join(EVAL_DIR, "judge_raw.jsonl")
 SCORECARD = os.path.join(EVAL_DIR, "scorecard_v1_v6.json")
 
-# ---- .168 ollama -----------------------------------------------------------
-OLLAMA = os.environ.get("PLUTUS_EVAL_OLLAMA", "http://192.168.1.168:11434")
+# HM-HARDCODED-HOST-SWEEP-2026-09-10: was ".168" (old Ollie Max, decommissioned)
+# hardcoded as this env var's own default. PLUTUS_EVAL_OLLAMA stays an explicit
+# override if eval ever needs a genuinely different host; the fallback now
+# derives from config.OLLAMA_URL (the migrated source of truth) instead of a
+# stale literal.
+from config import OLLAMA_URL as _INFERENCE_HOST  # noqa: E402
+OLLAMA = os.environ.get("PLUTUS_EVAL_OLLAMA", _INFERENCE_HOST)
 KEEP_ALIVE = "30s"                      # short — shared box, never pin
 PLUTUS_MODELS = {"v1": "plutus-v1:latest", "v6": "plutus-v6-eval:latest"}
 JUDGES = ["qwen3:14b", "gpt-oss:20b"]   # same pair as the v6 bakeoff

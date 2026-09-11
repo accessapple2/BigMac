@@ -52,15 +52,30 @@ except Exception:  # pragma: no cover
 _DB_PATH = str(Path(__file__).resolve().parent.parent / "data" / "trader.db")
 
 # bge-m3 won the HM-RECALL 4-way bake-off (scripts/recall_bakeoff.py).
-# HM-OLLIEMAX-DECOMM-MISS-2026-08-30: was still pointed at the Ollie Box
-# (.168), decommissioned 2026-07 -- this constant evaded the e7c3e7d
-# consolidation sweep (2026-08-29). Repointed to local com.ollama.serve,
-# same convention as config.py/engine/reveille.py etc (OLLAMA_URL env var,
-# default 127.0.0.1). bge-m3 pulled locally (family "bert",
-# capabilities=["embedding"] only -- cannot load as a second chat model
-# alongside the qwen3:8b alias set; 566M params / ~1.2GB, small per
-# OLLAMA_MAX_LOADED_MODELS=1 already rotating chat models on this box).
-OLLAMA_EMBED_URL = os.environ.get("RECALL_OLLAMA_URL", "http://127.0.0.1:11434/api/embed")
+#
+# HM-RECALL-URL-STILL-LOCAL-2026-09-10: the previous fix here
+# (HM-OLLIEMAX-DECOMM-MISS-2026-08-30, repointing from the decommissioned
+# .168 Ollie Box to "local com.ollama.serve") was itself superseded by the
+# 2026-09-09 migration that moved ALL inference and embeddings to olliemax
+# (100.95.195.20) and deliberately booted out + disabled com.ollama.serve
+# on bigmac -- but nobody added `RECALL_OLLAMA_URL` to .env in that same
+# change (confirmed 2026-09-10: not in .env, not in any launchd plist, not
+# in a shell profile -- it was never set anywhere, despite this constant's
+# own env-read making it LOOK migrated). Every call silently fell through
+# to the stale "http://127.0.0.1:11434/api/embed" default -- a server that
+# no longer exists on this box by design, not by outage. Do NOT restart
+# com.ollama.serve to "fix" this; that would stand up a second Ollama
+# server competing with the one actually serving. Fixed by deriving from
+# config.OLLAMA_URL (the one already-migrated, single source of truth for
+# "where inference lives") instead of maintaining a second, independently-
+# configurable env var + literal fallback pair -- the exact pattern that
+# let this drift silently in the first place, and that a repo-wide sweep
+# (2026-09-10, see docs/XO_BACKLOG.md) found repeated across ~30 files.
+# RECALL_OLLAMA_URL is still honored as an explicit override (e.g. if
+# embeddings ever need a genuinely different host than chat inference),
+# just no longer the thing carrying a stale literal by itself.
+from config import OLLAMA_URL as _INFERENCE_HOST  # noqa: E402 -- config.OLLAMA_URL is env-backed + migrated
+OLLAMA_EMBED_URL = os.environ.get("RECALL_OLLAMA_URL", f"{_INFERENCE_HOST}/api/embed")
 EMBED_MODEL = "bge-m3"
 EMBED_DIM = 1024
 

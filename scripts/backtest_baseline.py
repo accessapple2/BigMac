@@ -16,6 +16,7 @@ from typing import Optional
 
 import pandas as pd
 import yfinance as yf
+from dotenv import load_dotenv
 
 try:
     import requests as _requests
@@ -23,10 +24,16 @@ try:
 except ImportError:
     _HAS_REQUESTS = False
 
+load_dotenv(Path(__file__).parent.parent / ".env")
+
 CACHE_DIR = Path(__file__).parent.parent / "data" / "backtest_cache"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-OLLAMA_URL = "http://localhost:11434/api/chat"
+# HM-HARDCODED-HOST-SWEEP-2026-09-10: no fallback -- fails loud if
+# OLLAMA_URL isn't set rather than silently reaching for bigmac's
+# decommissioned local Ollama. "ALL backtests import this" per the header
+# above, so this was the widest-blast-radius hit in the whole sweep.
+OLLAMA_URL = os.environ["OLLAMA_URL"] + "/api/chat"
 
 AGENT_MODELS = {
     "navigator":     "qwen3:8b",

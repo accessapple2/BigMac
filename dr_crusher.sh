@@ -32,9 +32,15 @@ check_port_retry() {
     echo "$code"  # return last non-ok code
 }
 
-# Check Ollama on Ollie Max (.168) via remote health endpoint
-if ! curl -s -o /dev/null --max-time 5 http://192.168.1.168:11434/api/tags; then
-    echo "$(date): Ollama on 192.168.1.168 NOT responding" >> "$LOG"
+# HM-HARDCODED-HOST-SWEEP-2026-09-10: was hardcoded to the decommissioned
+# pre-migration Ollie Max (.168) with no env indirection at all. Fails
+# loud (logs and skips the check) if OLLIE_URL isn't in .env rather than
+# silently checking a dead host.
+OLLIE_HOST=$(grep '^OLLIE_URL=' "$HOME/autonomous-trader/.env" | cut -d= -f2-)
+if [ -z "$OLLIE_HOST" ]; then
+    echo "$(date): OLLIE_URL not set in .env -- skipping Ollama check" >> "$LOG"
+elif ! curl -s -o /dev/null --max-time 5 "$OLLIE_HOST/api/tags"; then
+    echo "$(date): Ollama on $OLLIE_HOST NOT responding" >> "$LOG"
 fi
 
 # Check port 8080 (USS TradeMinds — all trading + dashboard)

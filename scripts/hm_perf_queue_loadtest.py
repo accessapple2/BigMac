@@ -15,6 +15,7 @@ Usage:
 """
 from __future__ import annotations
 
+import os
 import statistics
 import subprocess
 import sys
@@ -28,7 +29,10 @@ sys.path.insert(0, str(ROOT))
 from dotenv import load_dotenv
 load_dotenv(ROOT / ".env")
 
-OLLIE_URL = "http://192.168.1.168:11434"
+# HM-HARDCODED-HOST-SWEEP-2026-09-10: no fallback -- fails loud if
+# OLLIE_URL isn't set rather than silently reaching for the decommissioned
+# pre-migration Ollie Max address.
+OLLIE_URL = os.environ["OLLIE_URL"]
 MODEL = "qwen3:8b"  # the shared fleet workhorse, per ram-discipline.md
 
 # Representative-but-modest synthetic prompt (~700 words, not the full
