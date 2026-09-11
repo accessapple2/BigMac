@@ -11199,19 +11199,23 @@ because the stash still exists.
 
 Triggered by `hm_ops_sentinel.py`'s real boot-volume WARNING (87.7% full)
 firing through the new Pushover path — traced to `~/.ollama` (37GB, dead
-weight since olliemax took over model serving 9/9, Admiral removing it
-directly) and `data/backups/` (12.8 GiB across 13 files). Full policy,
-simulation against the current inventory, and three concrete options for
-today's near-duplicate dry-dock-era snapshots: `docs/runbooks/backup-
-retention-policy.md`. Headline finding: applying the proposed rules
-literally to today's inventory frees 0 bytes (everything present is
-either within its 7-day window or a genuine named incident/migration
-checkpoint) — the only real lever is the new dedup rule against 5
-specific dry-dock-era files, and that's presented as an explicit choice,
-not a default. Also surfaced: none of the 6 current ad-hoc-named
-snapshots have ANY off-host X9 copy (the sync cron only matches the
-strict `trader_YYYY-MM-DD.db` daily pattern) — a real gap independent of
-the retention question. **Nothing deleted or moved. Awaiting approval.**
+weight since olliemax took over model serving 9/9, resolved by the
+Admiral directly) and `data/backups/` (12.8 GiB across 13 files). Full
+policy: `docs/runbooks/backup-retention-policy.md`. **Decided 2026-09-11:
+disk pressure resolved (66% used, 65GB free) — keep all five dry-dock
+files, 0 bytes freed is correct when nothing is stale.**
+
+**Off-host gap FIXED same day**: `scripts/offhost_backup.sh`'s sync only
+matched the strict `trader_YYYY-MM-DD.db` pattern, so the 6 ad-hoc
+(pre-migration/pre-restatement/incident-checkpoint) files — exactly the
+ones rule 3 keeps indefinitely — had zero off-host copy. New `ADHOC` sync
+step added (no cap, runs every night going forward); all 6 backfilled to
+X9 same day, each confirmed byte-exact and passing a real `PRAGMA
+integrity_check` on the X9 copy. Named as a general pattern in
+`docs/DOCTRINE.md` ("Coverage that looks complete but silently excludes
+what matters") alongside `origin_healthcheck.sh` and the expired
+`REVISIT-BY` tags — three real instances of the same failure shape found
+in one dry-dock session.
 
 ## BACKLOG — data/backups/_archive/ sidecar debris, no retention mechanism
 

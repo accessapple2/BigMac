@@ -53,28 +53,33 @@ see "Status" at the bottom.
 
 ## Before removing anything: the off-host X9 copy must hold it
 
-`scripts/offhost_backup.sh`'s nightly sync only matches the strict pattern
-`trader_YYYY-MM-DD.db` (`find ... -name 'trader_20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].db'`)
-— **any ad-hoc-named snapshot (the rule-3 indefinite category, by
-definition) is never synced to X9 by the existing cron, regardless of how
-long it's kept locally.** This is a real gap, not a hypothetical one —
-verified live 2026-09-11: zero of today's 4 ad-hoc `trader_*.db` files and
-2 `signals_*.db` files exist anywhere on the mounted X9
-(`/Volumes/Crucial X9/OLLIETRADES_BACKUPS/backups/`), which holds only the
-standard-named dailies.
+**FIXED 2026-09-11.** `scripts/offhost_backup.sh`'s nightly sync only
+matched the strict pattern `trader_YYYY-MM-DD.db` — any ad-hoc-named
+snapshot (the rule-3 indefinite category, by definition) was never
+synced to X9, regardless of how long it was kept locally. Verified live
+before the fix: zero of the 4 ad-hoc `trader_*.db` files and 2
+`signals_*.db` files existed anywhere on the mounted X9. Same failure
+shape as `origin_healthcheck.sh` restarting a docked trader and an
+expired `REVISIT-BY` tag nobody re-checked — see `docs/DOCTRINE.md`,
+"Coverage that looks complete but silently excludes what matters."
 
-**Policy addition**: a snapshot may only be removed locally once a copy
-(any copy — the standard sync or a one-off manual `rsync`) is confirmed
-present on X9 **and** passes its own `PRAGMA integrity_check` there, not
-just a byte-size match. For rule-3 indefinite-keep files specifically,
-this means: since they're never auto-synced, either (a) copy them to X9
-manually once (they don't need to move locally, just also exist there),
-or (b) accept they're single-point-of-failure on the local disk for as
-long as they're kept — which defeats the point of calling them
-"indefinite." **Recommendation: manually rsync the current 6 ad-hoc files
-to X9 now**, independent of whatever the Admiral decides about rule 4,
-since local-only indefinite retention is a real risk regardless of the
-dedup question.
+**Fix**: a new `ADHOC` sync step (`HM-OFFHOST-ADHOC-COVERAGE-2026-09-11`)
+picks up every `data/backups/*.db` file that ISN'T the dated-daily
+pattern — no 14-day cap, since these are rare and deliberate by
+construction — and every ad-hoc file is now individually integrity-
+checked post-sync (not sampled, unlike the `tail -7` spot-check on
+dailies), since there are few of them and each is individually
+important. Runs automatically as part of the normal 20:30 nightly cron
+from now on, no separate step to remember.
+
+**Backfill done**: all 6 currently-existing ad-hoc files (4 trader.db +
+2 signals.db) manually rsync'd to X9 the same day this was found — each
+confirmed byte-exact **and** passing a real `PRAGMA integrity_check`
+against the X9 copy (not inferred from size). Policy addition, now
+satisfied for the current inventory: a snapshot may only be removed
+locally once a copy is confirmed present on X9 and integrity-checked
+there — true today for all 13 files in `data/backups/`, not just the 7
+dailies.
 
 ## Simulated against the current inventory (2026-09-11, nothing applied)
 
@@ -123,10 +128,12 @@ All 7 of the current daily snapshots (`trader_2026-09-04.db` through
 (`/Volumes/Crucial X9/OLLIETRADES_BACKUPS/backups/`), byte-size exact
 match to the local copy, **and** `PRAGMA integrity_check` = `ok` run
 directly against each X9 copy (not inferred from the size match alone).
-These 7 are the only files in the current inventory that rules 1–3 would
-ever consider removing (once they age out) — and per the policy section
-above, none of the rule-3 indefinite files have any X9 copy yet, which is
-the real, actionable gap this pass surfaced.
+
+**Update, same day**: the sync-pattern gap above is fixed, and all 6
+ad-hoc files (the ones rules 1–3 keep indefinitely) are now also
+confirmed on X9 — byte-exact and passing a real `PRAGMA integrity_check`
+against the X9 copy, same rigor as the 7 dailies. **All 13 files in the
+current `data/backups/` inventory now have a verified off-host copy.**
 
 ## Incidental finding, not part of this policy
 

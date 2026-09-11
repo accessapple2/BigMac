@@ -332,6 +332,30 @@ stall (HM-RUN-SCAN-WATCHDOG) keep `crew_scanner` independent of the arena lock.
 Same family as "alarms must not share a failure mode" — independent paths survive
 independent failures.
 
+### Coverage that looks complete but silently excludes what matters (2026-09-11)
+Three unrelated mechanisms, same failure shape, all found in one dry-dock
+session: `scripts/origin_healthcheck.sh` restarted a *deliberately* stopped
+trader because it had no concept of intentional downtime (fixed via
+`engine/dry_dock.py`); several `REVISIT-BY` tags in `docs/XO_BACKLOG.md`
+sat overdue for weeks because nothing forced a re-check once the date
+passed; and `scripts/offhost_backup.sh`'s off-host sync matched only the
+strict `trader_YYYY-MM-DD.db` daily pattern, so every ad-hoc pre-migration/
+pre-restatement/incident-checkpoint backup — the files a retention policy
+most needs protected — had **zero** off-host copy, silently, since the
+day each was created. In every case the mechanism *looked* like coverage
+(a healthcheck runs, a backlog has revisit dates, a backup script logs
+"[OK] daily-backups (7)" every night) and the absence of the excluded
+class produced no signal anywhere — no error, no gap in a log, nothing to
+notice without deliberately checking what the filter actually matches
+against what actually exists. **Rule: when building or auditing a
+coverage mechanism (healthcheck, retention policy, sync, ack/ignore
+list), enumerate what it actually matches against a live inventory, not
+what it was intended to match — and treat "matches everything I can think
+of" as a specific, falsifiable claim to test, not an assumption to trust.**
+Same family as "alarms must not share a failure mode" (multi-path
+scanning, above): both are about a protective mechanism failing exactly
+where and when it's needed most, with nothing else positioned to catch it.
+
 ### Measurement-instrument bugs: boundary-isolate before reporting rates (2026-05-29)
 The analysis tooling keeps biting us as badly as the bugs. Two instances: **date-less
 log lines** (2026-05-29 — `trader_error.log` `[LRS]` lines carry HH:MM:SS but no date, so

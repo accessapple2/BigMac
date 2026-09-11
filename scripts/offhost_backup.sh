@@ -13,6 +13,12 @@
 #     HM-SIGNAL-CENTER-RETENTION; the cold copy signal_history/
 #     intelligence_feed rows rotate into (scripts/signal_center_archive_rotate.py)
 #   - backups/trader_YYYY-MM-DD.db (last 14 daily snapshots)
+#   - backups/*.db that AREN'T the dated-daily pattern above -- ad-hoc
+#     pre-migration/pre-restatement/incident-checkpoint backups (added
+#     2026-09-11, HM-OFFHOST-ADHOC-COVERAGE; these had silently never been
+#     synced before, despite being exactly the files docs/runbooks/
+#     backup-retention-policy.md's rule 3 says to keep indefinitely). No
+#     14-day cap -- rare and deliberate by construction.
 #
 # HM-TRADER-SNAPSHOT-HARDEN 2026-08-27: trader.db used to rsync the LIVE file
 # (+ -shm/-wal) with --soft, because copying a continuously-written multi-
@@ -268,6 +274,25 @@ else
     note="$note daily-backups(none-found)"
 fi
 
+# HM-OFFHOST-ADHOC-COVERAGE-2026-09-11: the glob above only ever matched the
+# strict trader_YYYY-MM-DD.db daily convention -- any ad-hoc-named backup
+# (pre-migration, pre-restatement, dry-dock/incident checkpoints -- exactly
+# the ones docs/runbooks/backup-retention-policy.md's rule 3 says to keep
+# INDEFINITELY) was silently excluded and had never once reached X9. Found
+# live: 6 such files (4 trader_*.db + 2 signals_*.db) with zero off-host
+# copy despite being the files a retention/incident policy most needs
+# protected. Same failure shape as a healthcheck that restarts a docked
+# trader or an ignore-list with an expired date -- something that looks
+# like coverage and isn't. No 14-day cap here (unlike DAILIES above): these
+# are rare and deliberate by construction, nobody generates hundreds of them.
+ADHOC=( $(find "$REPO"/data/backups -maxdepth 1 -type f \
+    \( -name 'trader_*.db' -o -name 'signals_*.db' \) \
+    ! -name 'trader_20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].db' \
+    2>/dev/null | sort) )
+if [ ${#ADHOC[@]} -gt 0 ]; then
+    run_rsync "adhoc-backups (${#ADHOC[@]})" "${ADHOC[@]}" "$DEST_BASE/backups/" || true
+fi
+
 # Integrity check via local sqlite3 CLI against the just-copied files on the X9.
 # HM-X9-LOCAL-INTEGRITY (2026-08-27): replaces the old ssh+remote-python check
 # now that the destination is a local mount, not olliemax over the network.
@@ -281,6 +306,15 @@ CHECK_FILES=("$DEST_BASE/data/trader.db" "$DEST_BASE/signal-center/signals.db" "
 while IFS= read -r f; do
     CHECK_FILES+=("$f")
 done < <(find "$DEST_BASE/backups" -maxdepth 1 -type f -name 'trader_20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].db' 2>/dev/null | sort | tail -7)
+# HM-OFFHOST-ADHOC-COVERAGE-2026-09-11: check every ad-hoc backup, not a
+# tail -N sample -- there are few of them and each is individually
+# important (that's the whole reason rule 3 keeps them indefinitely).
+while IFS= read -r f; do
+    CHECK_FILES+=("$f")
+done < <(find "$DEST_BASE/backups" -maxdepth 1 -type f \
+    \( -name 'trader_*.db' -o -name 'signals_*.db' \) \
+    ! -name 'trader_20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].db' \
+    2>/dev/null | sort)
 
 fail=0
 integrity=""
