@@ -379,13 +379,12 @@ def _send_ntfy(title: str, message: str, priority: str = "default", tags: str = 
     if _under_pytest():
         logger.info("ntfy suppressed (pytest/OT_ALERTS_DISABLED): [%s] %s", title, message[:80])
         return False
-    # DECOM-SILENCE 2026-07-19 — all ntfy pushes silenced ahead of Gate 2
-    # full removal (Admiral wants phone quiet immediately). Single choke
-    # point: everything through engine/ntfy.py and every direct
-    # alert_channels importer routes through here. Revert by deleting
-    # this guard if silence needs to be lifted before Gate 2 lands.
-    logger.info("ntfy suppressed (DECOM-SILENCE): [%s] %s", title, message[:80])
-    return False
+    # DECOM-SILENCE 2026-07-19 — LIFTED 2026-09-11 (Admiral decision, dry-dock
+    # C11 follow-up). Was: all ntfy pushes silenced ahead of Gate 2 full
+    # removal. Gate 2 landed weeks ago; the guard was never revisited, and
+    # every INFO/WARNING alert had zero real phone delivery for ~2 months
+    # as a result (see relay_2026-09-11_C11_pushover_redesign.md). Restored
+    # to real delivery.
     _topic = topic or NTFY_TOPIC
     if not _topic:
         return False
@@ -427,24 +426,31 @@ def _send_pushover(title: str, message: str, priority: int = 0) -> bool:
     interrupting). Priority 2 is reserved for GPU buy alerts and never
     used here.
 
-    HM-PUSHOVER-OLLIETRADES-TOKEN (2026-09-11, C11): prefers a dedicated
-    OllieTrades Pushover app identity (PUSHOVER_OLLIETRADES_TOKEN/_USER
-    env vars) over the shared /usr/local/etc/pushover.env creds, so
-    OllieTrades alerts show under their own app icon/name instead of
-    whatever else already uses that shared token. Falls back to the
-    shared file-based creds if the dedicated env vars aren't set --
-    **creating the actual dedicated app on pushover.net is an Admiral
-    action this code cannot perform itself; until that app exists and
-    its token is set, this silently keeps using the shared identity,
-    which is correct/safe behavior, not a bug.**
+    HM-PUSHOVER-ENV-REPOINT (2026-09-11, C11 correction): the OllieTrades
+    Pushover app's own PUSHOVER_TOKEN/PUSHOVER_USER were added to .env on
+    2026-09-09 -- no separate app needed (an earlier pass here wrongly
+    assumed one did and added now-removed PUSHOVER_OLLIETRADES_TOKEN/_USER
+    env vars that were never populated). Tries os.environ first (.env, via
+    config.py's load_dotenv -- also loaded directly below so this module
+    works standalone too), falling back to the older /usr/local/etc/
+    pushover.env file creds on an actual SEND failure, not just absence --
+    found live 2026-09-11: .env's PUSHOVER_TOKEN is 120 chars (Pushover's
+    format is 30; their API rejects it outright, "application token is
+    invalid"), while the file's token is correctly shaped and was the one
+    actually delivering RED_ALERT before this pass. A presence-only
+    fallback would have gone dark the moment this repoint shipped, using a
+    bad value with no retry. **The .env value itself needs a real fix
+    (wrong secret pasted in on 2026-09-09?) -- flagged, not silently
+    worked around forever.**
     """
     if _under_pytest():
         logger.info("pushover suppressed (pytest/OT_ALERTS_DISABLED): %s", title[:80])
         return False
     import urllib.parse, urllib.request
-    tok = os.environ.get("PUSHOVER_OLLIETRADES_TOKEN")
-    usr = os.environ.get("PUSHOVER_OLLIETRADES_USER")
-    if not (tok and usr):
+    from dotenv import load_dotenv as _load_dotenv
+    _load_dotenv(override=False)  # don't clobber anything already set by the caller
+
+    def _file_creds() -> tuple[str | None, str | None]:
         env = {}
         try:
             for line in open("/usr/local/etc/pushover.env"):
@@ -453,12 +459,20 @@ def _send_pushover(title: str, message: str, priority: int = 0) -> bool:
                     k, v = line.split("=", 1)
                     env[k.strip()] = v.strip()
         except Exception as e:
-            logger.warning("pushover env unreadable: %s", e)
-            return False
-        tok, usr = env.get("PUSHOVER_TOKEN"), env.get("PUSHOVER_USER")
-    if not (tok and usr):
-        logger.warning("pushover creds missing")
+            logger.warning("pushover env file unreadable: %s", e)
+        return env.get("PUSHOVER_TOKEN"), env.get("PUSHOVER_USER")
+
+    candidates: list[tuple[str, str, str]] = []
+    env_tok, env_usr = os.environ.get("PUSHOVER_TOKEN"), os.environ.get("PUSHOVER_USER")
+    if env_tok and env_usr:
+        candidates.append((env_tok, env_usr, ".env"))
+    file_tok, file_usr = _file_creds()
+    if file_tok and file_usr and (file_tok, file_usr) != (env_tok, env_usr):
+        candidates.append((file_tok, file_usr, "/usr/local/etc/pushover.env"))
+    if not candidates:
+        logger.warning("pushover creds missing (checked .env and the fallback file)")
         return False
+
     # HM-PUSHOVER-TIMESTAMP-2026-09-09: explicit send-time, not left to
     # Pushover's own receipt-time default. Found while investigating a
     # RED_ALERT that displayed a ~12-day-old timestamp (HM-FALSE-RED-ALERT,
@@ -466,20 +480,24 @@ def _send_pushover(title: str, message: str, priority: int = 0) -> bool:
     # never sent a `timestamp` field, so whatever Pushover displayed wasn't
     # controlled here. Pinning it removes that as a variable regardless of
     # any upstream queuing/delay between construction and this call.
-    fields = {"token": tok, "user": usr, "title": title[:250],
-              "message": message[:1024], "priority": priority,
-              "timestamp": int(_time.time())}
-    try:
-        req = urllib.request.Request(
-            "https://api.pushover.net/1/messages.json",
-            data=urllib.parse.urlencode(fields).encode())
-        with urllib.request.urlopen(req, timeout=10) as r:
-            r.read()
-        logger.info("pushover sent: %s", title[:60])
-        return True
-    except Exception as e:
-        logger.warning("pushover failed: %s", e)
-        return False
+    last_err = None
+    for tok, usr, source in candidates:
+        fields = {"token": tok, "user": usr, "title": title[:250],
+                  "message": message[:1024], "priority": priority,
+                  "timestamp": int(_time.time())}
+        try:
+            req = urllib.request.Request(
+                "https://api.pushover.net/1/messages.json",
+                data=urllib.parse.urlencode(fields).encode())
+            with urllib.request.urlopen(req, timeout=10) as r:
+                r.read()
+            logger.info("pushover sent via %s: %s", source, title[:60])
+            return True
+        except Exception as e:
+            last_err = e
+            logger.warning("pushover failed via %s: %s", source, e)
+    logger.warning("pushover failed on all %d credential source(s): %s", len(candidates), last_err)
+    return False
 
 
 def _send_email(subject: str, body: str, to: str = "") -> bool:

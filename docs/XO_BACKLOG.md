@@ -11055,20 +11055,14 @@ because a live gap was found. Full sweep, not attempted this session —
 touches live decision-path files, deliberately out of scope for a
 minimal-risk dry-dock pass.
 
-## DECISION NEEDED — ntfy has been fully dead since DECOM-SILENCE 2026-07-19
+## RESOLVED 2026-09-11 — ntfy DECOM-SILENCE lifted (Admiral decision)
 
-**Found 2026-09-11 (dry-dock C11).** `engine/alert_channels.py::_send_ntfy()`
-has had an unconditional early `return False` since 2026-07-19 ("Admiral
-wants phone quiet immediately", tied to DECOM-MASTER Gate 2). Gate 2
-landed weeks ago; the guard was never revisited. Net effect: every
-INFO/WARNING-level alert across the whole fleet had zero phone delivery
-for ~2 months, until tonight's tiered-Pushover fix gave WARNING a working
-path via Pushover instead. **Not reversed unilaterally** — the comment
-frames this as an explicit stated preference, and only the Admiral can
-say whether it should lapse now or stay in effect. Decide: delete the
-guard (full ntfy restore) or leave it (Pushover-only phone delivery,
-current state) or something in between (e.g. ntfy only for INFO, which
-still has no phone path today even with the Pushover fix).
+Was dead since 2026-07-19 (see prior note, superseded). **Admiral
+decision: lift it** — Gate 2 is long past, a channel dark for forgotten
+reasons is exactly the pattern this dry-dock spent two days finding
+elsewhere. Guard removed from `_send_ntfy()`; confirmed live via a real
+three-tier dispatch (`ntfy: True` at INFO/WARNING/RED_ALERT). Full detail:
+`relay_2026-09-11_undock_followup_pushover_ntfy.md`.
 
 ## DONE 2026-09-11 — C11: Pushover tiered routing + storm breaker, shipped and verified live
 
@@ -11079,17 +11073,24 @@ made of many *different* alert_types together (the gap the existing
 per-type rate limiter doesn't cover — this repo's own 07:33 lock-storm
 incident was exactly this shape); threshold 8/10min, replaces individual
 WARNING pushes with one rate-limited digest once tripped, RED_ALERT never
-suppressed outright. `PUSHOVER_OLLIETRADES_TOKEN`/`_USER` env vars now
-preferred over the shared file-based creds (falls back cleanly — no
-behavior change until the vars are set). Full detail + live verification:
+suppressed outright. Full detail + live verification:
 `relay_2026-09-11_C11_pushover_redesign.md`.
 
-## TODO (Admiral) — create the dedicated OllieTrades Pushover app
+## RESOLVED 2026-09-11 (follow-up) — no separate Pushover app was needed; a real bad .env value found instead
 
-Code side is done (see above) — needs an actual pushover.net application
-created (Pushover → create an application → get its token), then set
-`PUSHOVER_OLLIETRADES_TOKEN`/`PUSHOVER_OLLIETRADES_USER` in `.env`. Not
-something this session can self-provision.
+The "create a dedicated OllieTrades Pushover app" TODO above was based on
+a wrong assumption — the app already exists, its `PUSHOVER_TOKEN`/
+`PUSHOVER_USER` were added to `.env` on 2026-09-09. Repointed
+`_send_pushover()` to read them (removed the now-pointless
+`PUSHOVER_OLLIETRADES_TOKEN`/`_USER` scheme). **Found live: `.env`'s
+`PUSHOVER_TOKEN` is 120 chars — Pushover's real format is 30 — and their
+API rejects it outright ("application token is invalid").** Code now
+falls back to the older file-based token on an actual send failure (not
+just absence), confirmed delivering at every tier. **Still needs a real
+fix**: correct the `.env` value so OllieTrades alerts actually go out
+under its own app identity instead of silently falling back to the old
+shared one every time. Full detail: `relay_2026-09-11_undock_followup_
+pushover_ntfy.md`.
 
 ## BACKLOG — Kirk merge into engine/alert_channels.py's hardened primitives
 
