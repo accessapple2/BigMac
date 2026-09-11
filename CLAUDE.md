@@ -772,6 +772,39 @@ Shrink `_QWEN3_ALIAS_MODEL_IDS` back down (or remove it) at that point —
 `qwen2.5-coder:7b` in particular MUST come out once the real coder model
 is pulled, since it was never a thinking model to begin with.
 
+## THREE distinct "v1" Plutus models — confirm digest before any seat change (2026-09-10)
+
+`plutus-v1` is heavily overloaded on olliemax. As of 2026-09-10 there are
+**three separate models with "v1" in the name**, and seating the wrong one
+puts an unbenchmarked model into production. Confirmed live via
+`/api/tags` (digest is authoritative — size alone is not, see the alias
+section above for why):
+
+| Tag | Digest | Family / size | What it actually is |
+|---|---|---|---|
+| `plutus-v1:latest` | `f112024b4d65a1ec6a84...` | qwen3, 8.2B | The qwen3:8b alias (see above) — what McCoy (`ollama-plutus`) runs **today**. NOT a Plutus fine-tune at all. |
+| `plutus-v1-real:latest` | `06148c3401a6d74bab0c...` | qwen2, 7.6B, size 4683075467 | The May build recovered from the X9 salvage 2026-09-09 — the restored HM-PLUTUS-V5-WIN checkpoint (`docs/XO_PLAN_2026-09.md` Phase 2 arm 5). |
+| `plutus-v1-may27:latest` | `d413dbe9839060cea51f...` | qwen2, 7.6B, size 4683075306 | A **different** May build — the one June's evaluation actually benchmarked. Confirmed genuinely distinct from `plutus-v1-real` by both digest and byte size despite matching family/param count. |
+
+**Before any seat change (config.py, `ai_players.model_id`, or a bakeoff
+arm) that names anything starting `plutus-v1`, re-confirm which digest is
+meant** — do not assume from the tag name alone, and do not trust a
+target date or a prior comment (see the alias section above for why that
+already went wrong once). Full history and additional digests: `~/
+modelworks/CLAUDE.md` on olliemax (not in this repo — a separate working
+tree on that host).
+
+**June's evaluation verdicts, corrected 2026-09-10:**
+- **"v6 tied v1" is withdrawn.** That tie came from `scripts/plutus_v6/
+  bakeoff_judge.py`'s verdict checker substantially just matching the
+  words "stop loss" in both critiques, not a real quality judgment.
+- **"v1 beat v6-eval 98-80" is marked not-reproduced, not wrong.** It came
+  from the LLM judge (`bakeoff_judge.py`/`bakeoff_gen.py`, both repointed
+  off bigmac-local Ollama tonight, see the hardcoded-host-sweep relay
+  report) — fresh samples score 87-91, not 98-80. The original number
+  isn't proven false, just not reproducible from a fresh run; don't cite
+  98-80 as a settled result either direction.
+
 ## Ollama Service: com.ollama.serve is the ONLY real service (2026-08-27)
 
 **Ground truth, confirmed live 2026-08-27:** the actual Ollama server on
