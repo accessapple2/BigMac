@@ -5084,24 +5084,27 @@ if __name__ == "__main__":
             console.log(f"[yellow]Daily enrichment skip: {_de}")
     schedule.every(30).minutes.do(run_daily_enrichment)        # Enrichment gate fires at 2:30 PM AZ
 
-    # Dr. Crusher Healthcheck — auto-detect and repair common failures every 5 min
+    # Dr. Crusher Healthcheck — auto-detect and repair common failures every 15 min
+    # (comment previously said "5 min", stale vs. the actual schedule.every(15)
+    # call below -- corrected here, dry-dock C12, 2026-09-11)
     def dr_crusher_check():
-        import subprocess, requests as _req, logging as _log
+        import subprocess, logging as _log
         _hc = _log.getLogger("dr_crusher")
 
-        # Check 2: Is the scan model responsive? (plutus lives on Ollie Box)
-        try:
-            r = _req.post(
-                f"{OLLIE_URL}/api/generate",
-                json={"model": "0xroyce/plutus", "prompt": "ok",
-                      "stream": False, "think": False,
-                      "options": {"num_predict": 3}},
-                timeout=30,
-            )
-            if not r.ok:
-                _hc.warning(f"Scan model not responding: {r.status_code}")
-        except Exception:
-            _hc.warning("Scan model timeout — will retry next cycle")
+        # Check 2 RETIRED 2026-09-11 (dry-dock C12): pinged "0xroyce/plutus"
+        # unconditionally, bypassing OllamaProvider/DB/halt checks entirely --
+        # nominally the model dayblade-0dte (T'Pol, 0DTE options) is
+        # configured to use, but dayblade-0dte has been halt_mode='full'
+        # since 2026-07-13 (systematic options mispricing, halt_reason on
+        # file). No live seat has used this model for ~2 months; this check
+        # was keeping it resident on olliemax regardless, contributing to
+        # GPU-residency contention that was also starving bge-m3 (see
+        # relay_2026-09-10_recall-url-fix-and-host-sweep.md). Flagged twice
+        # before tonight (2026-09-08, 2026-09-10 relay docs) and not
+        # actioned either time -- actioned now, per the dry-dock directive's
+        # explicit "retire it" (not "retarget it": no live seat currently
+        # needs a stray infra healthcheck on a specific model at all; the
+        # DB/scan-activity checks below already cover real liveness).
 
         # Check 3: DB accessible?
         _db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "trader.db")
