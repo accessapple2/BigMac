@@ -1,87 +1,113 @@
 #!/usr/bin/env python3
 """HM-XO-PLAN-2026-09 Phase 1.3 — dry-run demonstration, read-only.
 
-Calls engine.phase13_sizing.compute_alpha_sizing_multiplier() directly against
-LIVE data (real composite_alpha scores, real current regime) for a sample of
-symbols and confidence levels. Does NOT touch config.PHASE_1_3_ALPHA_SIZING_
-ENABLED, does NOT call buy() or execute_signal(), does NOT write anything to
-any table. Purpose: let the Admiral see real tier decisions on real data
-before ever flipping the flag, per the directive ("I want to read the diff and
-the first dry-run output before it sizes anything real").
+Rebuilt 2026-09-11 after Admiral review of the first version. Two sections:
+
+1. Live sample: compute_alpha_sizing_multiplier() against today's live
+   composite_alpha for a sample of symbols, showing all four ladder outcomes
+   (full/base/low/no-data) on real current data.
+2. Real replay: McCoy's actual last 10 trade_fire decisions (decision_audit),
+   with the sizing multiplier each WOULD have gotten, using composite_alpha's
+   own as_of_date history to look up the value AS OF that decision's date
+   (not today's value) -- this is what the Admiral asked for after finding
+   composite_alpha already carries real daily history (64 distinct as_of_date
+   values back to 2026-04-09) that the first version of this script ignored.
+
+Does NOT touch config.PHASE_1_3_ALPHA_SIZING_ENABLED, does NOT call buy() or
+execute_signal(), does NOT write anything to any table.
 
 Run: .venv/bin/python3 scripts/phase13_sizing_dry_run.py
 """
+import sqlite3
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from engine.phase13_sizing import compute_alpha_sizing_multiplier
-from engine.regime_router import get_current_regime
-from engine.calibration_map import has_calibration_evidence
-import sqlite3
+from engine.phase13_sizing import compute_alpha_sizing_multiplier, compute_calibration_sizing_multiplier
 
 ALPHA_DB = Path(__file__).resolve().parent.parent / "data" / "alpha_signals.db"
+TRADER_DB = Path(__file__).resolve().parent.parent / "data" / "trader.db"
 
 
-def main() -> None:
-    regime = get_current_regime()
-    print(f"Live current regime: {regime}\n")
-
+def section_live_sample() -> None:
+    print("=" * 110)
+    print("SECTION 1 — live sample: compute_alpha_sizing_multiplier(symbol) against TODAY's")
+    print("composite_alpha (as_of=None -> most recent as_of_date). Every ladder branch shown.")
+    print("=" * 110)
     conn = sqlite3.connect(str(ALPHA_DB), timeout=5)
     rows = conn.execute(
-        "SELECT symbol, composite_score FROM composite_alpha "
-        "ORDER BY created_at DESC, symbol LIMIT 20"
+        "SELECT DISTINCT symbol FROM composite_alpha ORDER BY symbol LIMIT 15"
     ).fetchall()
     conn.close()
+    symbols = [r[0] for r in rows]
+    # Add a symbol guaranteed to have zero composite_alpha rows, to show the
+    # "no data" branch explicitly rather than only by accident.
+    symbols.append("ZZZNODATA")
 
-    if not rows:
-        print("No composite_alpha rows found -- nothing to demonstrate.")
-        return
+    print(f"{'symbol':<12}{'multiplier':>12}  reason")
+    print("-" * 110)
+    for symbol in symbols:
+        mult, reason = compute_alpha_sizing_multiplier(symbol)
+        print(f"{symbol:<12}{mult:>12.2f}  {reason}")
 
-    # Sample confidence values spanning the calibration bins (BIN_EDGES 0.5..1.0).
-    sample_confidences = [0.65, 0.80, 0.95]
 
-    print(f"{'symbol':<8} {'alpha':>8} {'conf':>6} {'multiplier':>10}  reason")
-    print("-" * 100)
-    for symbol, alpha in rows:
-        for conf in sample_confidences:
-            mult, reason = compute_alpha_sizing_multiplier(symbol, regime, conf)
-            print(f"{symbol:<8} {alpha:>8.3f} {conf:>6.2f} {mult:>10.2f}  {reason}")
-        print()
+def section_real_replay() -> None:
+    print("\n" + "=" * 110)
+    print("SECTION 2 — real replay: McCoy's last 10 real trade_fire decisions, sized with the")
+    print("composite_alpha value AS OF each decision's own date (as_of=<decision date>), not")
+    print("today's value. 'actual_mult' is what really happened (Phase 1.3 has never been on,")
+    print("so it is always 1.0).")
+    print("=" * 110)
+    conn = sqlite3.connect(str(TRADER_DB), timeout=5)
+    rows = conn.execute("""
+        SELECT symbol, confidence, regime, created_at
+        FROM decision_audit
+        WHERE player_id='ollama-plutus' AND event_type='trade_fire'
+        ORDER BY created_at DESC LIMIT 10
+    """).fetchall()
+    conn.close()
 
-    print("=" * 100)
-    print("Calibration evidence by bucket, this regime (what has_calibration_evidence()\n"
-          "is actually checking against for every 'fail-closed' line above):")
-    for conf in sample_confidences:
-        has_ev = has_calibration_evidence(regime, conf)
-        print(f"  regime={regime} stated_confidence={conf:.2f} -> "
-              f"has_calibration_evidence={has_ev}")
+    print(f"{'symbol':<8}{'conf':<7}{'regime':<15}{'decided_at':<21}{'would-be':<10}{'actual':<8}reason")
+    print("-" * 150)
+    for symbol, confidence, regime, created_at in rows:
+        as_of_date = created_at[:10]  # 'YYYY-MM-DD HH:MM:SS' -> 'YYYY-MM-DD'
+        mult, reason = compute_alpha_sizing_multiplier(symbol, as_of=as_of_date)
+        print(f"{symbol:<8}{confidence:<7}{regime:<15}{created_at:<21}{mult:<10.2f}{1.0:<8.2f}{reason}")
 
-    print("\n" + "=" * 100)
-    print("HONEST NOTE: as of this run, EVERY (regime, confidence-bucket) in the live\n"
-          "DB has fewer than MIN_BUCKET_N=8 real observations (the whole calibration_map\n"
-          "pool is ~3 fleet-wide trade_fire-linked rows right now -- see docs/XO_PLAN_\n"
-          "2026-09.md's 'Coordination question' blocker note). This means the fail-closed\n"
-          "rule is effectively ALWAYS active today: no live symbol/regime/confidence\n"
-          "combination can currently earn the 1.0 full tier via the calibration-evidence\n"
-          "path, only 1.0 (unaffected, alpha<0.3) or 0.5 (base). The full-tier-with-\n"
-          "evidence branch is exercised below with a SYNTHETIC example (not live data)\n"
-          "so both code paths are visible, not just the one live data happens to hit today.")
 
-    print("\nSynthetic example (fabricated inputs, NOT from any live table):")
-    from unittest.mock import patch
-    with patch("engine.phase13_sizing._get_composite_alpha", return_value=0.75), \
-         patch("engine.phase13_sizing.has_calibration_evidence", return_value=True):
-        mult, reason = compute_alpha_sizing_multiplier("SYNTH_HIGH_ALPHA_WITH_EVIDENCE", "BULL_CROSS", 0.90)
-        print(f"  alpha=0.75 (fabricated), evidence=True (fabricated)  -> "
-              f"multiplier={mult}  reason={reason}")
-    with patch("engine.phase13_sizing._get_composite_alpha", return_value=0.75), \
-         patch("engine.phase13_sizing.has_calibration_evidence", return_value=False):
-        mult, reason = compute_alpha_sizing_multiplier("SYNTH_HIGH_ALPHA_NO_EVIDENCE", "BULL_CROSS", 0.90)
-        print(f"  alpha=0.75 (fabricated), evidence=False (fabricated) -> "
-              f"multiplier={mult}  reason={reason}")
+def section_calibration_dimension() -> None:
+    print("\n" + "=" * 110)
+    print("SECTION 3 — calibration dimension (compute_calibration_sizing_multiplier), SEPARATE")
+    print("from the alpha ladder above and NOT wired into any live call site. Shown here only")
+    print("to demonstrate it runs correctly in isolation, using the real, current, live")
+    print("regime/confidence buckets -- see engine/phase13_sizing.py for why this is unwired.")
+    print("=" * 110)
+    from engine.regime_router import get_current_regime
+    regime = get_current_regime()
+    print(f"Live current regime: {regime}\n")
+    for conf in (0.65, 0.80, 0.95):
+        mult, reason = compute_calibration_sizing_multiplier(regime, conf)
+        print(f"  regime={regime} stated_confidence={conf:.2f} -> multiplier={mult}  {reason}")
+
+    print("\nLive per-bucket observation counts vs. MIN_BUCKET_N (why every live bucket above")
+    print("is 'no evidence' today):")
+    from engine.calibration_map import load_calibration_data, fit_binned_calibration, MIN_BUCKET_N
+    data = load_calibration_data()
+    print(f"  Total clean trade_fire-linked settled rows, fleet-wide: {len(data)}  (MIN_BUCKET_N={MIN_BUCKET_N})")
+    m = fit_binned_calibration(data)
+    any_nonzero = False
+    for reg, buckets in m.items():
+        for b in buckets:
+            if b["n"] > 0:
+                any_nonzero = True
+                status = "HAS EVIDENCE" if b["hit_rate"] is not None else f"fail-closed (needs {MIN_BUCKET_N - b['n']} more)"
+                print(f"    {reg:15s} conf[{b['lo']:.1f},{b['hi']:.1f})  n={b['n']:3d}  {status}")
+    if not any_nonzero:
+        print("    (no bucket has any observations at all)")
 
 
 if __name__ == "__main__":
-    main()
+    section_live_sample()
+    section_real_replay()
+    section_calibration_dimension()

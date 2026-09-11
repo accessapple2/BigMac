@@ -2431,36 +2431,37 @@ def execute_signal(player_id: str, signal: dict, price: float, signal_id: int | 
 
     if action == "BUY":
         _asset_type = signal.get("asset_type", "stock")
-        # HM-XO-PLAN-2026-09 Phase 1.3 (2026-09-11): alpha-scaled sizing, behind
-        # config.PHASE_1_3_ALPHA_SIZING_ENABLED (default False). See that flag's
-        # comment and engine/phase13_sizing.py's module docstring for the full
-        # spec + scope. Stock BUYs only, scoped to
-        # config.PHASE_1_3_ALPHA_SIZING_PLAYER_IDS (McCoy only in this build) --
-        # every other player and every non-stock action is completely
-        # unaffected, same as if this block didn't exist.
-        _sizing_multiplier = 1.0
+        # HM-XO-PLAN-2026-09 Phase 1.3 (rebuilt 2026-09-11 after Admiral review).
+        # config.PHASE_1_3_ALPHA_SIZING_ENABLED (default False) gates the CALL
+        # itself, not just the result -- when off, compute_alpha_sizing_multiplier
+        # is never imported or invoked, and `sizing_multiplier` is never added to
+        # _buy_kwargs at all, so buy() falls through to its own unrelated default
+        # rather than receiving a hardcoded 1.0 re-asserted by this code. "Off"
+        # is auditable as off: grep this call site and the kwarg's presence
+        # itself tells you whether Phase 1.3 fired, not just its value. See
+        # engine/phase13_sizing.py's module docstring for the full spec + scope.
+        # Stock BUYs only, scoped to config.PHASE_1_3_ALPHA_SIZING_PLAYER_IDS
+        # (McCoy only in this build) -- every other player and every non-stock
+        # action takes a code path with zero Phase 1.3 involvement.
+        _buy_kwargs = dict(
+            asset_type=_asset_type, reasoning=reasoning, confidence=confidence,
+            sources=sources, timeframe=timeframe, signal_id=signal_id,
+        )
         try:
             from config import PHASE_1_3_ALPHA_SIZING_ENABLED, PHASE_1_3_ALPHA_SIZING_PLAYER_IDS
             if (PHASE_1_3_ALPHA_SIZING_ENABLED and _asset_type == "stock"
                     and player_id in PHASE_1_3_ALPHA_SIZING_PLAYER_IDS):
                 from engine.phase13_sizing import compute_alpha_sizing_multiplier
-                from engine.regime_router import get_current_regime
-                _regime = get_current_regime()
-                _sizing_multiplier, _sizing_reason = compute_alpha_sizing_multiplier(
-                    symbol, _regime, confidence
-                )
+                _sizing_multiplier, _sizing_reason = compute_alpha_sizing_multiplier(symbol)
                 console.log(
                     f"[cyan][PHASE-1.3-SIZING] {player_id} {symbol} "
                     f"multiplier={_sizing_multiplier} — {_sizing_reason}"
                 )
+                _buy_kwargs["sizing_multiplier"] = _sizing_multiplier
         except Exception as e:
             console.log(f"[yellow][PHASE-1.3-SIZING] error ({type(e).__name__}: {e}) — "
-                        f"falling back to sizing_multiplier=1.0")
-            _sizing_multiplier = 1.0
-        return buy(player_id, symbol, price, asset_type=_asset_type, reasoning=reasoning,
-                   confidence=confidence, sources=sources, timeframe=timeframe,
-                   sizing_multiplier=_sizing_multiplier,
-                   signal_id=signal_id)
+                        f"sizing_multiplier NOT passed, buy() uses its own default")
+        return buy(player_id, symbol, price, **_buy_kwargs)
     elif action == "SELL":
         return sell(player_id, symbol, price, reasoning=reasoning, confidence=confidence)
     elif action == "SHORT":

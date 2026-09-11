@@ -108,26 +108,40 @@ GRADE_B_REVERSAL_MIN_MA8_MARGIN_PCT = 0.3   # SPY % above its 8MA to count as a 
 # no shadow call. Live-flip via settings.
 SHADOW_WITNESS_ENABLED = False
 
-# === HM-XO-PLAN-2026-09 Phase 1.3 — alpha-scaled sizing (spec v2, docs/XO_PLAN_2026-09.md) ===
-# When ON, engine.paper_trader.execute_signal()'s BUY path computes sizing_multiplier
-# from the symbol's live composite_alpha score (data/alpha_signals.db) instead of the
-# unconditional 1.0 default, for ollama-plutus (McCoy) ONLY -- scope matches the spec's
-# entire measured/validated basis (the 30-day funnel, the 42-trade/71.4% calibration
-# finding). Tiers: composite_alpha >= 0.6 -> 1.0 (full, ONLY with confidence-calibration
-# evidence for the trade's regime/confidence-bucket -- see engine/calibration_map.py's
-# has_calibration_evidence()), 0.3-0.6 -> 0.5 (base), < 0.3 or no alpha data -> 1.0
-# (unaffected, matches buy()'s existing default). Fails CLOSED: a bucket with no
-# calibration evidence never grants the full tier regardless of how high composite_alpha
-# or raw stated confidence are (get_calibrated_confidence() itself stays fail-open --
-# unchanged -- this is a stricter rule sizing applies on top, per the spec).
-# Explicitly OUT of scope for this flag (see docs/XO_PLAN_2026-09.md's "Coordination
-# question" and "real gate chain" sections): the confidence_modifier/calibration_map
-# unification (held pending materially more calibration_map data) and the
-# UNIVERSAL_MIN_CONVICTION 0.65->0.70 threshold change (not requested for this build).
-# Default OFF. Requires a restart to flip (deliberately NOT a live_flag() -- the
-# Admiral wants to read the diff and a dry-run before this ever sizes anything real).
+# === HM-XO-PLAN-2026-09 Phase 1.3 — position sizing (spec v2, docs/XO_PLAN_2026-09.md) ===
+# REBUILT 2026-09-11 after Admiral review rejected the first version (fail-open on the
+# alpha dimension: missing/low alpha sized the same as high alpha -- see engine/
+# phase13_sizing.py's module docstring for the full rebuild rationale). Two
+# INDEPENDENT sizing dimensions, each its own flag, deliberately not one combined
+# flag -- see that module for why.
+#
+# Alpha ladder (fixed, monotonic, fail-closed -- no branch above 1.0 exists):
+#   composite_alpha >= 0.6       -> 1.0 (full)
+#   composite_alpha in [0.3,0.6) -> 0.5 (base)
+#   composite_alpha < 0.3        -> 0.25 (low)
+#   no alpha data / internal error -> 0.25 (low -- missing evidence never earns full size)
+# When ON: engine.paper_trader.execute_signal()'s BUY path computes this from the
+# symbol's composite_alpha score (data/alpha_signals.db), for ollama-plutus (McCoy)
+# ONLY, stock BUYs only. When OFF: the lookup+compute never runs at all and
+# sizing_multiplier is never passed to buy() -- it falls through to buy()'s own
+# unrelated default, not a hardcoded 1.0 re-asserted by this code (auditable-as-off,
+# per Admiral review: "off" must look structurally different at the call site, not
+# just numerically equivalent).
 PHASE_1_3_ALPHA_SIZING_ENABLED = False
 PHASE_1_3_ALPHA_SIZING_PLAYER_IDS = ("ollama-plutus",)
+
+# Calibration dimension (engine.phase13_sizing.compute_calibration_sizing_multiplier).
+# Built, unit-testable in isolation, but this flag is READ NOWHERE -- not wired into
+# execute_signal() or any other call site. See engine/phase13_sizing.py's "Calibration
+# dimension: an honest design note" for why: at McCoy's real throughput (10 trade_fire
+# events since 2026-07-01, scattered across regimes/buckets) and the current ~3-row
+# fleet-wide trade_fire->trade_id join, no (regime, confidence) bucket can plausibly
+# reach the 8-observation minimum this dimension requires -- this is a throughput the
+# design cannot cross, not a "wait a few weeks" gap. Left OFF and unwired rather than
+# combined with the alpha ladder above until a human decides how (or whether) to fix
+# the upstream join, since shipping a combination scheme for a dimension that
+# structurally can't accumulate evidence would be building on sand.
+PHASE_1_3_CALIBRATION_SIZING_ENABLED = False
 
 
 def live_flag(key: str, default: bool) -> bool:
