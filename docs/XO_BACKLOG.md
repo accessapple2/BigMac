@@ -11194,3 +11194,30 @@ both locally and on origin, approach fully superseded by the live
 `engine/stops.py` conviction-tier scheme, 3.5 months stale) — this entry
 stays as the record of what it was and why dropping it was safe, not
 because the stash still exists.
+
+## PROPOSED 2026-09-11 — data/backups/ retention policy, written down, not applied
+
+Triggered by `hm_ops_sentinel.py`'s real boot-volume WARNING (87.7% full)
+firing through the new Pushover path — traced to `~/.ollama` (37GB, dead
+weight since olliemax took over model serving 9/9, Admiral removing it
+directly) and `data/backups/` (12.8 GiB across 13 files). Full policy,
+simulation against the current inventory, and three concrete options for
+today's near-duplicate dry-dock-era snapshots: `docs/runbooks/backup-
+retention-policy.md`. Headline finding: applying the proposed rules
+literally to today's inventory frees 0 bytes (everything present is
+either within its 7-day window or a genuine named incident/migration
+checkpoint) — the only real lever is the new dedup rule against 5
+specific dry-dock-era files, and that's presented as an explicit choice,
+not a default. Also surfaced: none of the 6 current ad-hoc-named
+snapshots have ANY off-host X9 copy (the sync cron only matches the
+strict `trader_YYYY-MM-DD.db` daily pattern) — a real gap independent of
+the retention question. **Nothing deleted or moved. Awaiting approval.**
+
+## BACKLOG — data/backups/_archive/ sidecar debris, no retention mechanism
+
+Found while investigating the above: `data/backups/_archive/` holds 3.2
+GiB of old `.db-shm`/`.db-wal` sidecar files (dated back to July) plus an
+`_orphaned_sidecars/` subfolder. The existing `archive_ttl_cron` only
+matches `.db.gz`, so these sidecars have accumulated with zero retention
+mechanism. Separate, smaller cleanup from the main backup-retention
+policy — not touched this pass.
