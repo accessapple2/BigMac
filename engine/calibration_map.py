@@ -156,3 +156,27 @@ def get_calibrated_confidence(regime: str, stated_confidence: float, db_path: st
     if bucket["hit_rate"] is None:
         return stated_confidence
     return bucket["hit_rate"]
+
+
+def has_calibration_evidence(regime: str, stated_confidence: float, db_path: str | None = None) -> bool:
+    """HM-XO-PLAN-2026-09 Phase 1.3 (2026-09-11): True iff the (regime,
+    confidence-bucket) that get_calibrated_confidence() would look up for
+    this stated_confidence has >= MIN_BUCKET_N real observations -- i.e.
+    whether that function's return value is a real calibrated rate or just
+    its fail-open passthrough of stated_confidence unchanged.
+
+    Additive only -- does NOT change get_calibrated_confidence()'s own
+    fail-open behavior or signature (see module docstring: the gate still
+    needs fail-open). This is the fail-CLOSED check a SIZING layer applies
+    on top, per docs/XO_PLAN_2026-09.md's "Confidence input to sizing"
+    section -- callers that need to know "is this a real number or a
+    guess" call this function, not get_calibrated_confidence() itself.
+    """
+    cal = _cached_map(db_path)
+    buckets = cal.get(regime)
+    if not buckets:
+        return False
+    idx = _bucket_index(stated_confidence)
+    if idx >= len(buckets):
+        return False
+    return buckets[idx]["hit_rate"] is not None

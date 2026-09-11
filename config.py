@@ -108,6 +108,27 @@ GRADE_B_REVERSAL_MIN_MA8_MARGIN_PCT = 0.3   # SPY % above its 8MA to count as a 
 # no shadow call. Live-flip via settings.
 SHADOW_WITNESS_ENABLED = False
 
+# === HM-XO-PLAN-2026-09 Phase 1.3 — alpha-scaled sizing (spec v2, docs/XO_PLAN_2026-09.md) ===
+# When ON, engine.paper_trader.execute_signal()'s BUY path computes sizing_multiplier
+# from the symbol's live composite_alpha score (data/alpha_signals.db) instead of the
+# unconditional 1.0 default, for ollama-plutus (McCoy) ONLY -- scope matches the spec's
+# entire measured/validated basis (the 30-day funnel, the 42-trade/71.4% calibration
+# finding). Tiers: composite_alpha >= 0.6 -> 1.0 (full, ONLY with confidence-calibration
+# evidence for the trade's regime/confidence-bucket -- see engine/calibration_map.py's
+# has_calibration_evidence()), 0.3-0.6 -> 0.5 (base), < 0.3 or no alpha data -> 1.0
+# (unaffected, matches buy()'s existing default). Fails CLOSED: a bucket with no
+# calibration evidence never grants the full tier regardless of how high composite_alpha
+# or raw stated confidence are (get_calibrated_confidence() itself stays fail-open --
+# unchanged -- this is a stricter rule sizing applies on top, per the spec).
+# Explicitly OUT of scope for this flag (see docs/XO_PLAN_2026-09.md's "Coordination
+# question" and "real gate chain" sections): the confidence_modifier/calibration_map
+# unification (held pending materially more calibration_map data) and the
+# UNIVERSAL_MIN_CONVICTION 0.65->0.70 threshold change (not requested for this build).
+# Default OFF. Requires a restart to flip (deliberately NOT a live_flag() -- the
+# Admiral wants to read the diff and a dry-run before this ever sizes anything real).
+PHASE_1_3_ALPHA_SIZING_ENABLED = False
+PHASE_1_3_ALPHA_SIZING_PLAYER_IDS = ("ollama-plutus",)
+
 
 def live_flag(key: str, default: bool) -> bool:
     """Boolean flag with a config default that can be flipped LIVE (no restart) via

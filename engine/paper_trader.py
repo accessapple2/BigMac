@@ -2431,8 +2431,35 @@ def execute_signal(player_id: str, signal: dict, price: float, signal_id: int | 
 
     if action == "BUY":
         _asset_type = signal.get("asset_type", "stock")
+        # HM-XO-PLAN-2026-09 Phase 1.3 (2026-09-11): alpha-scaled sizing, behind
+        # config.PHASE_1_3_ALPHA_SIZING_ENABLED (default False). See that flag's
+        # comment and engine/phase13_sizing.py's module docstring for the full
+        # spec + scope. Stock BUYs only, scoped to
+        # config.PHASE_1_3_ALPHA_SIZING_PLAYER_IDS (McCoy only in this build) --
+        # every other player and every non-stock action is completely
+        # unaffected, same as if this block didn't exist.
+        _sizing_multiplier = 1.0
+        try:
+            from config import PHASE_1_3_ALPHA_SIZING_ENABLED, PHASE_1_3_ALPHA_SIZING_PLAYER_IDS
+            if (PHASE_1_3_ALPHA_SIZING_ENABLED and _asset_type == "stock"
+                    and player_id in PHASE_1_3_ALPHA_SIZING_PLAYER_IDS):
+                from engine.phase13_sizing import compute_alpha_sizing_multiplier
+                from engine.regime_router import get_current_regime
+                _regime = get_current_regime()
+                _sizing_multiplier, _sizing_reason = compute_alpha_sizing_multiplier(
+                    symbol, _regime, confidence
+                )
+                console.log(
+                    f"[cyan][PHASE-1.3-SIZING] {player_id} {symbol} "
+                    f"multiplier={_sizing_multiplier} — {_sizing_reason}"
+                )
+        except Exception as e:
+            console.log(f"[yellow][PHASE-1.3-SIZING] error ({type(e).__name__}: {e}) — "
+                        f"falling back to sizing_multiplier=1.0")
+            _sizing_multiplier = 1.0
         return buy(player_id, symbol, price, asset_type=_asset_type, reasoning=reasoning,
                    confidence=confidence, sources=sources, timeframe=timeframe,
+                   sizing_multiplier=_sizing_multiplier,
                    signal_id=signal_id)
     elif action == "SELL":
         return sell(player_id, symbol, price, reasoning=reasoning, confidence=confidence)
