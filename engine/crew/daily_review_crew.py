@@ -138,6 +138,80 @@ def _save_adjustment(data):
     conn.close()
 
 
+def _flag_no_trade_active_players(traded_ids: set) -> int:
+    """HM-LEARNING-COVERAGE-GAP-2026-09-11: root cause of McCoy (ollama-
+    plutus) and Worf (qwen3-8b-flash) both being frozen at their 2026-07-09/
+    10 model_scores -- this whole crew was gated on `if not trades: skip`,
+    and even when it ran, model_scores only ever got a row (line ~280
+    below) for players who appear in `trades` THAT SPECIFIC DAY. A player
+    who rarely converts a signal into a trade (which is exactly McCoy's
+    real problem, see the 2026-09-11 funnel trace) therefore almost never
+    gets reviewed -- the diagnostic tool needs trades to run, but the
+    problem under diagnosis IS a lack of trades. Confirmed live 2026-09-11:
+    of 8 halt_mode='active' players, only desk-manual had a score newer
+    than 2026-07-10.
+
+    Fix: runs UNCONDITIONALLY (no LLM calls, cheap, can't add cost/timeout
+    risk) for every active player NOT in traded_ids who had real signal
+    activity today. Writes a model_scores row that explicitly CARRIES
+    FORWARD their most recent real score (never fabricates a new grade --
+    there's nothing to grade without a trade) with today's date, so
+    freshness-based staleness checks stop reading "no update in 2 months"
+    for a seat that's actually alive and producing (rejected) signals every
+    day. `data_window` marks these rows so they're never confused with a
+    real LLM-graded review.
+    """
+    conn = _conn()
+    try:
+        today = date.today().isoformat()
+        active = conn.execute(
+            "SELECT id FROM ai_players WHERE halt_mode='active'"
+        ).fetchall()
+        flagged = 0
+        for row in active:
+            pid = row["id"]
+            if pid in traded_ids:
+                continue
+            has_activity = conn.execute(
+                "SELECT 1 FROM signals WHERE player_id=? AND date(created_at)=? LIMIT 1",
+                (pid, today),
+            ).fetchone()
+            if not has_activity:
+                continue  # genuinely dormant today (e.g. a human-operated seat) -- nothing to flag
+            last = conn.execute(
+                "SELECT win_rate, avg_pnl, sharpe, max_drawdown, regime_alignment, "
+                "thesis_accuracy, confidence_calibration, overall_score "
+                "FROM model_scores WHERE player_id=? ORDER BY date DESC LIMIT 1",
+                (pid,),
+            ).fetchone()
+            n_signals = conn.execute(
+                "SELECT COUNT(*) AS n FROM signals WHERE player_id=? AND date(created_at)=?",
+                (pid, today),
+            ).fetchone()["n"]
+            conn.execute(
+                "INSERT INTO model_scores (player_id, period, date, win_rate, avg_pnl, sharpe, "
+                "max_drawdown, regime_alignment, thesis_accuracy, confidence_calibration, "
+                "overall_score, data_window) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    pid, "daily", today,
+                    last["win_rate"] if last else None,
+                    last["avg_pnl"] if last else None,
+                    last["sharpe"] if last else None,
+                    last["max_drawdown"] if last else None,
+                    last["regime_alignment"] if last else None,
+                    last["thesis_accuracy"] if last else None,
+                    last["confidence_calibration"] if last else None,
+                    last["overall_score"] if last else None,
+                    f"no-trade-day, {n_signals} signals, carried forward from prior score",
+                ),
+            )
+            flagged += 1
+        conn.commit()
+        return flagged
+    finally:
+        conn.close()
+
+
 def run_daily_review():
     """Run the full daily post-market review. 3 agents sequentially."""
     console.log("[bold cyan]Daily Review Crew: Assembling...")
@@ -146,9 +220,20 @@ def run_daily_review():
     regime = _get_regime()
     regime_label = regime.get("regime", "UNKNOWN")
 
+    # HM-LEARNING-COVERAGE-GAP-2026-09-11: runs before the trades-gate
+    # below so a zero-fleet-trade day doesn't ALSO skip this -- see
+    # _flag_no_trade_active_players()'s docstring.
+    n_flagged = 0
+    try:
+        n_flagged = _flag_no_trade_active_players({t["player_id"] for t in trades})
+        if n_flagged:
+            console.log(f"[dim]Daily Review: {n_flagged} active no-trade player(s) freshness-flagged")
+    except Exception as e:
+        console.log(f"[yellow]  No-trade freshness flag error: {e}")
+
     if not trades:
-        console.log("[dim]Daily Review: No trades today, skipping review")
-        return {"status": "skipped", "reason": "no trades today"}
+        console.log("[dim]Daily Review: No trades today, skipping full grading review")
+        return {"status": "skipped", "reason": "no trades today", "no_trade_players_flagged": n_flagged}
 
     console.log(f"[cyan]Daily Review: {len(trades)} trades to analyze, regime={regime_label}")
 
