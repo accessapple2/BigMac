@@ -38,6 +38,13 @@ from pathlib import Path
 
 import sqlite_vec
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from engine.db_safety import guarded_connect  # HM-RULE1-DELETE-LAYERS: this
+# script (cron-scheduled, unattended, 0 15 * * 1-5) runs a dynamic-table
+# DROP TABLE against VEC_TABLE -- exactly the defense-in-depth scenario
+# db_safety.py exists for, and higher-stakes here than a manual one-off
+# since nobody watches this run in real time.
+
 # CANONICAL text/dedup helpers come from the engine module (single definition shared with the live
 # query path, so corpus + query embed/dedup identically). Self-contained otherwise — no dependency
 # on the (untracked) bake-off script.
@@ -74,7 +81,7 @@ N_CORPUS = int(os.environ.get("RECALL_N_CORPUS", 500))  # most-recent closed tra
 
 
 def conn() -> sqlite3.Connection:
-    c = sqlite3.connect(DB, timeout=45)
+    c = guarded_connect(DB, timeout=45)
     c.execute("PRAGMA busy_timeout=45000")
     c.enable_load_extension(True)
     sqlite_vec.load(c)
@@ -84,7 +91,7 @@ def conn() -> sqlite3.Connection:
 
 def build_corpus() -> list[dict]:
     """Closed trades -> deduped setup rows (most-recent representative per normalized setup)."""
-    c = sqlite3.connect(DB, timeout=45)
+    c = guarded_connect(DB, timeout=45)
     closed = c.execute(
         "SELECT id, player_id, symbol, realized_pnl, executed_at, timeframe FROM trades "
         "WHERE action IN ('SELL','COVER') AND realized_pnl IS NOT NULL "
@@ -195,7 +202,7 @@ def distances() -> None:
     """Print the bge-m3 L2 nearest-neighbor distance distribution over the corpus (calibration)."""
     import json
     import math
-    c = sqlite3.connect(DB, timeout=45)
+    c = guarded_connect(DB, timeout=45)
     rows = c.execute("SELECT trade_id, normalized, emb_json FROM recall_corpus").fetchall()
     c.close()
     embs = [(tid, norm, json.loads(ej)) for tid, norm, ej in rows]

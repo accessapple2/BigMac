@@ -11027,3 +11027,29 @@ rushed or incomplete. Worth a small pass to have each one `import
 engine.dry_dock; if dry_dock.is_docked(): return` at its own top,
 so the dock state is self-describing and self-restoring rather than
 relying on someone remembering which cron lines to uncomment.
+
+## DONE 2026-09-11 — C10: RULE #1 layer 3 (db_safety.py), scoped to actual exposure
+
+`guarded_connect()` was flagged in CLAUDE.md as "not yet wired into every
+existing connection helper" (397 files, 400+ call sites — full adoption
+correctly out of scope for a dry-dock pass, per db_safety.py's own
+docstring). Real gap analysis: BEFORE DELETE triggers already cover every
+connection regardless of wiring, so the only marginal protection this
+layer adds is DROP TABLE. Grepped the whole repo for the literal string
+"DROP TABLE" — exactly 3 files, one the test itself. The other two
+(scripts/recall_bakeoff.py, scripts/recall_refresh.py — the latter
+cron-scheduled/unattended) both run a dynamic-table-name DROP TABLE and
+are now wired to guarded_connect() (all 5 connect() sites). Verified live
+in .venv-recall: extension loading unaffected, DROP TABLE on a protected
+table now raises, DROP TABLE on a real (unprotected) table still works.
+100% of the repo's actual DROP-TABLE-capable surface covered. Full detail:
+relay_2026-09-11_C10_rule1_enforcement.md.
+
+## BACKLOG — wire guarded_connect() into the remaining ~395 connection helpers
+
+Low-priority, no known exposure (none of these files contain a DROP TABLE
+statement, so the BEFORE DELETE triggers already fully protect them
+regardless). Worth doing eventually for defense-in-depth consistency, not
+because a live gap was found. Full sweep, not attempted this session —
+touches live decision-path files, deliberately out of scope for a
+minimal-risk dry-dock pass.

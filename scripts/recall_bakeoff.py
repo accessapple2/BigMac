@@ -7,6 +7,11 @@ import os, sqlite3, json, urllib.request, sys, time
 import sqlite_vec
 from dotenv import load_dotenv
 
+sys.path.insert(0, "/Users/bigmac/autonomous-trader")
+from engine.db_safety import guarded_connect  # HM-RULE1-DELETE-LAYERS: this
+# file runs a dynamic-table-name DROP TABLE (see build_corpus/MODELS loop
+# below) -- exactly the defense-in-depth scenario db_safety.py exists for.
+
 load_dotenv()
 
 DB = "/Users/bigmac/autonomous-trader/data/trader.db"
@@ -26,7 +31,7 @@ MODELS = [  # (label, ollama_model, dim, table)
 
 
 def conn():
-    c = sqlite3.connect(DB, timeout=45)
+    c = guarded_connect(DB, timeout=45)
     c.execute("PRAGMA busy_timeout=45000")
     c.enable_load_extension(True); sqlite_vec.load(c); c.enable_load_extension(False)
     return c
@@ -34,7 +39,7 @@ def conn():
 
 def build_corpus():
     """Each closed trade -> its ENTRY (BUY) reasoning = the setup text. Outcome tag = pnl sign."""
-    c = sqlite3.connect(DB, timeout=45)
+    c = guarded_connect(DB, timeout=45)
     closed = c.execute(
         "SELECT id, player_id, symbol, realized_pnl, executed_at, timeframe FROM trades "
         "WHERE action IN ('SELL','COVER') AND realized_pnl IS NOT NULL "
