@@ -50,6 +50,16 @@ detailed in `data/reports/relay/relay_2026-09-10_morning_checkin.md`.
   verified-good key, and its `would_fail_loud` reading is no longer
   confounded by a key question — only the market-hours confound noted in
   the relay doc remains.
+- ~~situation_report~~ — **RESOLVED 2026-09-11 (dry-dock C15, see "STAYS
+  DARK" section below for full detail).** The redundancy-vs-`kirk_briefing.py`
+  question this row's "still open" framing was waiting on turned out to be
+  moot: the file was already renamed `.quietdown-disabled-2026-07-22` as
+  part of the 07-22 fleet stand-down, predating its own REVISIT-BY tag by
+  six weeks — dark for an unrelated reason, not because it lost a
+  redundancy comparison. Both cron lines confirmed commented-out live
+  (`crontab -l`, re-verified XO directive P4 item 10, 2026-09-11). This row
+  was left "still open" after the actual resolution landed the same
+  session — closing now, no new work done here today.
 
 | Item | Owner | Target date | Blocker |
 |---|---|---|---|
@@ -69,7 +79,6 @@ detailed in `data/reports/relay/relay_2026-09-10_morning_checkin.md`.
 | The 8/30 verify-or-close list (6 items) | Scotty / decision | mixed | **5 of 6 resolved.** Reveille empty-output, sentinel repoint, regime_refresh rows verified working 9/9 (relay doc §5). **gex_collector — resolved 9/10 AM, was already retired 2026-08-30** (`HM-GEX-RETIRED`, crontab-documented, missed by the 9/9 pass which read docs not the live crontab) — Polygon options-chain entitlement is 403/cancelled, cron line commented with reason, data preserved in `data/flow_gex.db`. **1 unresolved:** three-popup banner UX and four Bridge LOW defects not located, need a pointer. |
 | Ollie-machine review | Steve | 2026-09-29 | scheduled review date |
 | Monday-check monitors | Scotty | unslotted | **swept 9/10.** 3 of 4 already retired+ledgered, no drift (signals-v2-monday-check, -verify, wr-dur-monday-check). **1 stuck:** `hm-bridge-consensus-monday-check` — one-shot system LaunchDaemon, fired once successfully 2026-07-20, will never fire again (date is 7 weeks past), never retired/ledgered, not in sentinel's tracked set — needs an Admiral retire decision. |
-| situation_report | Scotty | unslotted | **investigated 9/10 — still open.** Dark since 07-22 quietdown. Its revisit-by-09-06 tag (canonical tag lives in the "STAYS DARK" section below, not duplicated here) passed with no revisit; redundancy-vs-`kirk_briefing.py` question never actually answered. Now caught going forward by `hm_ops_sentinel.py::check_doc_revisit_dates()`. Needs an Admiral call: revive, retire, or explicitly confirm redundant. |
 | ollama_prewarm | — | — | **RESOLVED 9/10** — retired (ledger row 119, `docs/orders/ORDER_2026-09-10_retire_job_ollama-prewarm.md`). Superseded by `OLLAMA_KEEP_ALIVE=-1` shipping with the olliemax migration. |
 | v2 redesign items | Scotty | unslotted | not scoped yet — likely overlaps signals_v2 rec #2 |
 | DexEvents set | Scotty | unslotted | not scoped yet |
