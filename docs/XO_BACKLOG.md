@@ -80,6 +80,35 @@ detailed in `data/reports/relay/relay_2026-09-10_morning_checkin.md`.
 | Tailscale stale peer | Scotty | unslotted | needs a cleanup pass |
 | GoDaddy listings | Steve | unslotted | domain/registrar admin, not a code task |
 | Advisory Team 'grok' sub-advisor stale | Scotty | unslotted | **Found 2026-09-10, item 8 followup.** `engine/team_advisor_grok.py`'s `run_grok_subadvisor()` — reads real Schwab holdings (`data/real_holdings.json`), local qwen3:8b under the hood (xAI path is dead code per Free-Models-First), runs twice/day at 09:30/13:30 ET via `main.py` schedule, writes `portfolio_advice` rows (`advisor='grok'`). **Last row: 2026-06-24T17:41:05 — 11 weeks stale**, while its two Advisory Team peers (Troi, Worf) both fired fine today (2026-09-10). Consumed by `signal-center/server.py:1239`'s "Advisory Team consensus surface" panel — that panel has been silently missing 1 of 3 voices for 11 weeks with no freshness indicator, on a surface that advises against REAL Schwab holdings (display-only, RULE #1 intact — no order path affected, but the advice itself has been quietly 2/3-strength). **Fourth dead-man's-switch instance this session** (after situation_report, ollama_prewarm, and the qwen3-alias un-aliasing note) — same class: a component silently stops and nothing notices because no per-component freshness check exists on that consensus panel. Root cause not yet investigated (scheduler skip, provider error, cron drift — unknown). Candidate for the same `check_doc_revisit_dates`-style treatment: a per-advisor staleness check on `portfolio_advice`, not just an overall "did the job run" check. |
+| Options premium restatement | Scotty | REVISIT-BY: 2026-09-11 | **Held explicitly for tomorrow after close** (Captain's call, 2026-09-10) — rewrites how three seasons' options trades read (the known premium bug); the dataset exporter below depends on this landing first, so it goes first in tomorrow's sequence. Part of tomorrow's after-close sequence, see below. |
+| Dataset exporter (prompt_text/decision/invalidation/1d-5d return/regime/model) | Scotty | REVISIT-BY: 2026-09-11 | **Held explicitly for tomorrow after close** (Captain's call, 2026-09-10) — blocked on the options premium restatement above landing first (options rows excluded until then). RULE #1: writes new files only, never touches source tables. Walk-forward split by date. Part of tomorrow's after-close sequence, see below. |
+
+## 2026-09-11 after-close sequence (set 2026-09-10, do not run early)
+
+In order — each gates the next where noted:
+
+1. **Phase 1.1 acceptance read** (`docs/XO_PLAN_2026-09.md` Phase 1) — was
+   scheduled for 2026-09-10 after close, deferred one day alongside
+   everything else below.
+2. **S8 season rotation** (`engine/season_manager.py::rotate_season
+   (caller="s8-manual")`) — six-step sequence re-verified against current
+   code 2026-09-10 (see `data/reports/relay/relay_2026-09-10_*.md` for the
+   full verification): dry-run unhalt-scope check (abort-safe, currently
+   `active_before=8, would_affect=8, safe=True`, margin=10) → save S7
+   summary → bump `current_season`/stamp `season_8_start` → reset AI cash
+   (webull/alpaca-mirror/dayblade-0dte excluded per their special handling)
+   → unhalt **only** `halt_reason IS NULL` agents (confirmed 2026-09-10:
+   zero halted agents currently have a null reason, so nobody gets wrongly
+   swept active) → close AI positions + War Room post. Halt_mode
+   preservation is structural (the `halt_reason IS NULL` scope), not a
+   manual step to remember — verified, not assumed.
+3. **Options premium restatement** — see backlog row above.
+4. **Dataset exporter** — see backlog row above, blocked on #3.
+
+If any of these slip past 2026-09-11, they show as overdue in the
+session-open list via their `REVISIT-BY:` tags, same mechanism as
+`situation_report.py`'s tag (`hm_ops_sentinel.py::check_doc_revisit_dates`,
+HM-OPS-SENTINEL-DOC-REVISIT-2026-09-10).
 
 ---
 ## 🟥 START CARD — read this first, cold, no other context needed (2026-07-05)

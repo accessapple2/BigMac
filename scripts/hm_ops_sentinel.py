@@ -68,6 +68,19 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
+
+# HM-OPS-SENTINEL-LOCAL-DATE-2026-09-10: every date-gated doctrine tag in
+# this repo (REVISIT-BY:, resume_by, review_by) is set by a human reading
+# a local Phoenix-time calendar, not UTC. Comparing against
+# datetime.now(timezone.utc).date() made "today" flip 5-7 hours early
+# every day (UTC-7, no DST) -- caught live 2026-09-10 17:37 Phoenix
+# (already 2026-09-11 00:37 UTC): a tag deliberately dated "tomorrow" in
+# the evening fired as overdue immediately. Same fix applies to both
+# check_fleet_lifecycle_drift's resume_by/review_by check (pre-existing,
+# same bug, just not caught until this tag exposed it) and
+# check_doc_revisit_dates.
+_PHX = ZoneInfo("America/Phoenix")
 
 # HM-NTFY-OBSERVABILITY (2026-07-07): this standalone cron script never
 # configured logging, so engine.alert_channels's logger.info("ntfy sent...")
@@ -977,7 +990,7 @@ def check_fleet_lifecycle_drift(alerts: list[AlertTuple]) -> dict:
                 results["agent_drift"].append({"name": name, "ledger_action": entry["action"],
                                                 "expected_halt_mode": expected, "live_halt_mode": live_mode})
 
-    today = datetime.now(timezone.utc).date().isoformat()
+    today = datetime.now(_PHX).date().isoformat()
     for target_type, ledger in (("job", job_ledger), ("agent", agent_ledger)):
         for name, entry in ledger.items():
             if entry["action"] not in _PAUSE_LEDGER_ACTIONS:
@@ -1027,7 +1040,7 @@ def check_doc_revisit_dates(alerts: list[AlertTuple]) -> dict:
     nothing for it, same posture as every other check in this file.
     """
     results: dict = {"overdue": []}
-    today = datetime.now(timezone.utc).date().isoformat()
+    today = datetime.now(_PHX).date().isoformat()
     for path in DOC_REVISIT_PATHS:
         try:
             text = path.read_text()
