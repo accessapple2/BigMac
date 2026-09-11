@@ -1194,6 +1194,246 @@ def check_signals_v2_queue(alerts: list[AlertTuple]) -> dict:
     }
 
 
+# === HM-OPS-SENTINEL-EXPECTED-WORK 2026-09-11 (XO Priority 2, items 5+6) ===
+# Generic dead-man's-switch class: alert when EXPECTED WORK DOESN'T HAPPEN,
+# parameterized by (what should run, how often, what evidence proves it ran)
+# instead of hand-coding a new one-off staleness check per component. Five
+# real failures this week were exactly this shape -- silence, not errors:
+# the archive job dead since April, expired REVISIT-BY tags (already covered
+# by check_doc_revisit_dates above), the off-host sync excluding ad-hoc
+# files, McCoy's learning_engine coverage lapse (see the row in
+# docs/XO_BACKLOG.md, "McCoy fell out of learning_engine coverage
+# 2026-07-09"), and the Advisory Team's 'grok' sub-advisor silent since
+# 2026-06-24. This class + the concrete instances below cover the two of
+# those five that don't already have their own dedicated check in this
+# file (advisor staleness, per-player decision silence) plus the olliemax
+# generate-path probe the Admiral asked for by name.
+def _parse_ts_any(s: str) -> datetime:
+    """Parse either 'YYYY-MM-DD HH:MM:SS' (sqlite CURRENT_TIMESTAMP/datetime('now'))
+    or ISO-with-microseconds ('YYYY-MM-DDTHH:MM:SS.ffffff') timestamps, both of
+    which appear across tables in this DB. Naive timestamps are treated as UTC
+    (this DB's convention -- see HM-OPS-SENTINEL-LOCAL-DATE-2026-09-10 above,
+    which is about doc-prose dates, a DIFFERENT and deliberately local-Phoenix
+    convention -- do not conflate the two)."""
+    s = s.strip()
+    dt = datetime.fromisoformat(s)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+class ExpectedWorkMonitor:
+    """Alert when expected work does NOT happen.
+
+    get_age_value() must return the age of the most recent evidence that the
+    work ran (a float, in `unit`), or None if there is no evidence at all
+    (treated as maximally stale -- a distinct, more urgent message than a
+    merely-stale reading). Must not raise -- callers wrap it and treat an
+    exception as a check error, not a stale finding, same posture as every
+    other check in this file.
+    """
+
+    def __init__(self, name: str, what: str, get_age_value, stale_after: float,
+                 unit: str = "hours", level: str = "warning", hint: str = ""):
+        self.name = name
+        self.what = what
+        self.get_age_value = get_age_value
+        self.stale_after = stale_after
+        self.unit = unit
+        self.level = level
+        self.hint = hint
+
+    def check(self, alerts: list[AlertTuple]) -> dict:
+        try:
+            age = self.get_age_value()
+        except Exception as e:
+            print(f"[sentinel] expected-work check '{self.name}' error: "
+                  f"{type(e).__name__}: {e}", file=sys.stderr)
+            return {"checked": False, "error": f"{type(e).__name__}: {e}"}
+
+        alert_type = f"sentinel_expected_work_{self.name}"
+        if age is None:
+            alerts.append((
+                self.level, alert_type,
+                f"HM-OPS-SENTINEL [expected-work]: {self.what} -- NO EVIDENCE IT HAS "
+                f"EVER RUN.{(' ' + self.hint) if self.hint else ''}",
+                None,
+            ))
+            return {"age": None, "stale": True}
+
+        if age > self.stale_after:
+            alerts.append((
+                self.level, alert_type,
+                f"HM-OPS-SENTINEL [expected-work]: {self.what} is {age:.1f} {self.unit} "
+                f"stale (expected within {self.stale_after:.1f} {self.unit})."
+                f"{(' ' + self.hint) if self.hint else ''}",
+                round(age, 1),
+            ))
+            return {"age": round(age, 1), "stale": True}
+
+        return {"age": round(age, 1), "stale": False}
+
+
+# Concrete instance 1: per-advisor staleness on portfolio_advice, not just
+# "did the Advisory Team job run" -- the 2026-06-24 grok incident happened
+# with troi/worf both firing fine on schedule the whole time, so a job-level
+# check would never have caught it. 14 market-hours ~= 2 trading days --
+# wide enough to absorb a quiet single session, tight enough that an 11-week
+# silent gap like grok's fires almost immediately once this ships.
+_ADVISORY_ADVISORS = ["grok", "troi", "worf"]
+_ADVISORY_STALE_MARKET_HOURS = 14.0
+
+
+def _advisor_age_market_hours(advisor: str):
+    def _get():
+        from engine.market_calendar import market_hours_elapsed
+        conn = sqlite3.connect(DB_PATH, timeout=10)
+        row = conn.execute(
+            "SELECT MAX(created_at) FROM portfolio_advice WHERE advisor=?", (advisor,)
+        ).fetchone()
+        conn.close()
+        if not row or not row[0]:
+            return None
+        return market_hours_elapsed(_parse_ts_any(row[0]))
+    return _get
+
+
+# Concrete instance 2: per-player decision silence on decision_audit. Same
+# shape as check_riker_heartbeat/check_collector_freshness above but scoped
+# to a single fleet seat instead of a shared job -- catches "the box is
+# fine, the scheduler is fine, this ONE model just stopped producing
+# decisions" (the actual 2026-09-10 stale-socket incident: /api/ps and
+# /api/tags stayed green for the full 09:35-11:58 hang). 4 market-hours is
+# roughly 2/3 of a trading day -- wide enough that a normal lull never
+# fires, tight enough to catch a multi-hour hang same-session.
+_DECISION_SILENCE_PLAYERS = ["ollama-plutus"]  # McCoy -- named in the XO directive; extend as needed
+_DECISION_SILENCE_STALE_MARKET_HOURS = 4.0
+
+
+def _decision_silence_market_hours(player_id: str):
+    def _get():
+        from engine.market_calendar import market_hours_elapsed
+        conn = sqlite3.connect(DB_PATH, timeout=10)
+        row = conn.execute(
+            "SELECT MAX(created_at) FROM decision_audit WHERE player_id=?", (player_id,)
+        ).fetchone()
+        conn.close()
+        if not row or not row[0]:
+            return None
+        return market_hours_elapsed(_parse_ts_any(row[0]))
+    return _get
+
+
+def check_expected_work(alerts: list[AlertTuple]) -> dict:
+    """Runs every configured ExpectedWorkMonitor instance. Extend the two
+    lists above (or add a new monitor here) to cover another component --
+    that's the whole point of this being a class instead of another
+    one-off function."""
+    from engine.market_calendar import is_us_market_open
+    if not is_us_market_open():
+        return {"checked": False, "reason": "market closed"}
+
+    results: dict = {}
+    for advisor in _ADVISORY_ADVISORS:
+        mon = ExpectedWorkMonitor(
+            name=f"advisor_{advisor}",
+            what=f"Advisory Team sub-advisor '{advisor}' (portfolio_advice)",
+            get_age_value=_advisor_age_market_hours(advisor),
+            stale_after=_ADVISORY_STALE_MARKET_HOURS,
+            unit="market-hours",
+            level="warning",
+            hint="engine/team_advisor_grok.py or its sibling for this advisor may be "
+                 "failing silently -- check for a recent portfolio_advice row before "
+                 "assuming the whole job is down (the other advisors can be fine).",
+        )
+        results[f"advisor_{advisor}"] = mon.check(alerts)
+
+    for player_id in _DECISION_SILENCE_PLAYERS:
+        mon = ExpectedWorkMonitor(
+            name=f"decisions_{player_id}",
+            what=f"'{player_id}' decision_audit activity",
+            get_age_value=_decision_silence_market_hours(player_id),
+            stale_after=_DECISION_SILENCE_STALE_MARKET_HOURS,
+            unit="market-hours",
+            level="red_alert",
+            hint="Check whether this player's model is hanging on olliemax -- "
+                 "/api/ps and /api/tags can both stay green while /api/generate "
+                 "hangs, see check_ollama_generate_probe below.",
+        )
+        results[f"decisions_{player_id}"] = mon.check(alerts)
+
+    return results
+
+
+# Concrete instance 3: a REAL one-token /api/generate probe against olliemax,
+# per the Admiral's explicit instruction -- NOT /api/ps or /api/tags, both of
+# which stayed green for the full 2026-09-10 09:35-11:58 outage while every
+# generate call was hung on a dead pooled socket (12,563.52s / 3.49 cumulative
+# hours across 70 [OLLAMA-CANCEL] events). A listing/registry endpoint proves
+# the HTTP server is up; it does not exercise the model-serving path at all.
+_OLLAMA_PROBE_MODELS = ["plutus-v1", "qwen3:8b"]  # McCoy's alias + the roster's base qwen3
+_OLLAMA_PROBE_TIMEOUT_S = 15
+
+
+def check_ollama_generate_probe(alerts: list[AlertTuple]) -> dict:
+    import requests
+    from config import OLLAMA_URL
+
+    results: dict = {}
+    for model in _OLLAMA_PROBE_MODELS:
+        alert_type = f"sentinel_ollama_generate_probe_{model.replace(':', '_').replace('-', '_')}"
+        t0 = time.time()
+        try:
+            resp = requests.post(
+                f"{OLLAMA_URL}/api/generate",
+                json={"model": model, "prompt": "ping", "stream": False,
+                      "think": False, "options": {"num_predict": 1}},
+                timeout=(5, _OLLAMA_PROBE_TIMEOUT_S),
+            )
+            wall = time.time() - t0
+            if resp.status_code != 200:
+                alerts.append((
+                    "red_alert", alert_type,
+                    f"HM-OPS-SENTINEL [generate-probe]: olliemax /api/generate for "
+                    f"'{model}' returned HTTP {resp.status_code} (wall={wall:.1f}s). "
+                    f"/api/ps and /api/tags can both stay green while this path is "
+                    f"actually broken -- this probe exercises real generation.",
+                    wall,
+                ))
+                results[model] = {"ok": False, "status": resp.status_code, "wall_s": round(wall, 1)}
+                continue
+            body = resp.json()
+            if body.get("error"):
+                alerts.append((
+                    "red_alert", alert_type,
+                    f"HM-OPS-SENTINEL [generate-probe]: olliemax /api/generate for "
+                    f"'{model}' returned an error body: {body['error']!r} "
+                    f"(wall={wall:.1f}s).",
+                    wall,
+                ))
+                results[model] = {"ok": False, "error": body["error"], "wall_s": round(wall, 1)}
+                continue
+            results[model] = {"ok": True, "wall_s": round(wall, 1)}
+        except requests.exceptions.Timeout:
+            wall = time.time() - t0
+            alerts.append((
+                "red_alert", alert_type,
+                f"HM-OPS-SENTINEL [generate-probe]: olliemax /api/generate for "
+                f"'{model}' TIMED OUT after {wall:.1f}s (budget {_OLLAMA_PROBE_TIMEOUT_S}s) "
+                f"-- the generate serving path is hung even though /api/ps and "
+                f"/api/tags would report healthy. This is the exact failure class "
+                f"from the 2026-09-10 09:35-11:58 stale-socket incident.",
+                wall,
+            ))
+            results[model] = {"ok": False, "error": "timeout", "wall_s": round(wall, 1)}
+        except Exception as e:
+            print(f"[sentinel] ollama generate probe error for {model}: "
+                  f"{type(e).__name__}: {e}", file=sys.stderr)
+            results[model] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+    return results
+# === /HM-OPS-SENTINEL-EXPECTED-WORK ===
+
+
 def _dispatch(alerts: list[AlertTuple], dry_run: bool = False) -> None:
     if dry_run:
         for level_kw, alert_type, message, _metric in alerts:
@@ -1272,6 +1512,8 @@ def main() -> int:
         lifecycle_drift_status = check_fleet_lifecycle_drift(alerts)
         doc_revisit_status = check_doc_revisit_dates(alerts)
         disk_status = check_disk_space(alerts)
+        expected_work_status = check_expected_work(alerts)
+        ollama_probe_status = check_ollama_generate_probe(alerts)
     except Exception as e:
         print(f"[sentinel] error running checks: {type(e).__name__}: {e}", file=sys.stderr)
         return 1
@@ -1280,7 +1522,8 @@ def main() -> int:
           f"collectors={collector_status} status_page={status_page_status} "
           f"source_health={source_health_status} mlx_qwen3={mlx_qwen3_status} cron={cron_status} "
           f"launchd={launchd_status} lifecycle_drift={lifecycle_drift_status} "
-          f"doc_revisit={doc_revisit_status} disk={disk_status}")
+          f"doc_revisit={doc_revisit_status} disk={disk_status} "
+          f"expected_work={expected_work_status} ollama_probe={ollama_probe_status}")
 
     acks = _load_acks()
     fired = [a for a in alerts if not _is_suppressed(a[1], a[3], acks)]
