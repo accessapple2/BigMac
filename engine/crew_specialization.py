@@ -49,22 +49,41 @@ ALPHA_SQUAD: list[str] = [
 ]
 
 SCAN_PAIRS: list[list[str]] = [
-    # HM-OLLIE-30B-LIVE 2026-09-09: ollama-coder (Data) and ollama-plutus
-    # (McCoy) paused from this LLM-scan rotation for TODAY ONLY -- VRAM
-    # collision with the resident qwen3:30b-a3b-instruct-2507-q4_K_M on
-    # olliemax (2x RTX 2080 Ti, ~22GB total; the 30B alone is 18.56GB, no
-    # room for a 5-6GB alpha-squad model alongside it, so every ~2min
-    # rotation was forcing a full evict/reload of the 30B -- confirmed live
-    # in trader_error.log, 5+ swaps in the 15 minutes after the 09:12/09:28
-    # restarts). No model identity change: ALPHA_SQUAD above is untouched,
-    # so hard-stop-fallback and dip-buy position management for both
-    # players still runs; this only pauses NEW-entry LLM scanning via
-    # get_alpha_pair(). McCoy's real trading decisions continue unaffected
-    # via the separate Arena/ai_players path (decision_audit). Restore the
-    # two commented lines below once the 30B live-run ends.
+    # STATUS AS OF 2026-09-11 (HM-XO-PLAN-2026-09 dry-dock trace) -- this is
+    # NOT a "today only" pause anymore; that framing (below, kept for
+    # history) was never true past 2026-09-09 and nobody corrected it for
+    # two days. Actually true: DORMANT, pending a deliberate ship/kill
+    # decision -- filed to docs/XO_BACKLOG.md. The original VRAM-collision
+    # reason no longer holds (verified live 2026-09-11: qwen3:30b-a3b is
+    # not even loaded on olliemax right now, only plutus-v1/fin-r1 resident,
+    # ~11.9GB of a now-larger budget) -- but that does NOT mean this pair
+    # should be silently restored. Full trace, same date: ollama-plutus's
+    # real trading happens through a completely different mechanism (the
+    # Arena/ai_players path, decision_audit) -- this alpha-squad path
+    # (_scan_single_agent, feeds crew_decisions) produced 272 decisions and
+    # 0 executed trades in the 30 days before this pause, i.e. it was
+    # already producing nothing even while "active". Reviving it is a
+    # decision to make deliberately, with that number in hand, not a
+    # default to fall back into because the original blocking reason
+    # cleared.
+    #
+    # Original entry, 2026-09-09 (superseded by the above, kept verbatim
+    # for history): "ollama-coder (Data) and ollama-plutus (McCoy) paused
+    # from this LLM-scan rotation for TODAY ONLY -- VRAM collision with the
+    # resident qwen3:30b-a3b-instruct-2507-q4_K_M on olliemax (2x RTX 2080
+    # Ti, ~22GB total; the 30B alone is 18.56GB, no room for a 5-6GB
+    # alpha-squad model alongside it, so every ~2min rotation was forcing a
+    # full evict/reload of the 30B -- confirmed live in trader_error.log,
+    # 5+ swaps in the 15 minutes after the 09:12/09:28 restarts). No model
+    # identity change: ALPHA_SQUAD above is untouched, so hard-stop-fallback
+    # and dip-buy position management for both players still runs; this
+    # only pauses NEW-entry LLM scanning via get_alpha_pair(). McCoy's real
+    # trading decisions continue unaffected via the separate Arena/
+    # ai_players path (decision_audit). Restore the two commented lines
+    # below once the 30B live-run ends."
     # ["ollama-coder"],                  # Pair 1: Data solo (Spock moved to RULES_SCANNERS)
     # ["ollama-qwen3", "ollama-plutus"], # Pair 2: Dax + McCoy
-    ["ollama-qwen3"],                    # Dax solo for today (McCoy paused out of this pair)
+    ["ollama-qwen3"],                    # Dax solo -- McCoy dormant, see status note above
 ]
 
 # Advisory crew — bridge vote only, no individual scanning

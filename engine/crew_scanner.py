@@ -3254,8 +3254,15 @@ def _scan_rules_agent(player_id: str, market_ctx: dict[str, Any]) -> dict[str, A
         decision = spock_rules(market_ctx, scan_picks)
     elif player_id == "ollama-qwen3":
         decision = dax_rules(market_ctx, scan_picks)
-    elif player_id == "ollama-plutus":
-        decision = mccoy_rules(market_ctx, scan_picks)
+    # ollama-plutus (McCoy) -> mccoy_rules() branch RETIRED 2026-09-11
+    # (HM-XO-PLAN-2026-09 dry-dock trace): structurally unreachable --
+    # this whole function is only ever called for player_ids in
+    # RULES_SCANNERS (its one live caller, engine/crew_scanner.py's
+    # run_scan_cycle), and "ollama-plutus" has never been a member of
+    # that list. Confirmed dead in production: zero crew_decisions rows
+    # would ever originate here for McCoy. mccoy_rules() itself is left
+    # intact below -- engine/weekend_backtest.py calls it directly for
+    # backtesting, unrelated to this live dispatch.
     elif player_id in ("data-tng", "ollama-coder"):
         decision = data_rules(market_ctx, scan_picks)
     elif player_id == "ollama-llama":
