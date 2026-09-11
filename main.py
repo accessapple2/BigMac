@@ -92,6 +92,31 @@ _vix_alerted_today = False
 _dashboard_started = threading.Event()
 _dashboard_error = None
 
+# === HM-SCHED-JOB-TRACE 2026-09-11 (XO Priority 1, item 1) ===
+# Per-job entry/exit + duration logging at the schedule library's own dispatch
+# choke point (Job.run -> job_func()), so a future stall shows exactly which
+# job was in flight when schedule.run_pending() stopped ticking. This is a
+# stronger signal than the ~90 existing @_hm_bq_instr wraps, which only log on
+# EXIT (wall>1.0s) -- a job still running when a time window closes leaves
+# those logs silent for the whole window, which is exactly what happened
+# 2026-09-11 09:30-09:50 AZ (zero [HM-BQ-instr] or job-specific log lines from
+# ANY scheduled job in that span -- see relay_2026-09-11_mccoy_1230_nofire_
+# trace.md). The [SCHED-JOB] start line fixes that: it fires the instant a job
+# is dispatched, regardless of how long it then runs.
+_original_schedule_job_run = schedule.Job.run
+def _instrumented_schedule_job_run(self):
+    _sj_name = getattr(self.job_func, "__name__", repr(self.job_func))
+    _sj_t0 = _hm_bq_time.perf_counter()
+    console.log(f"[dim][SCHED-JOB] start name={_sj_name}")
+    try:
+        return _original_schedule_job_run(self)
+    finally:
+        _sj_wall = _hm_bq_time.perf_counter() - _sj_t0
+        _sj_style = "yellow" if _sj_wall > 5.0 else "dim"
+        console.log(f"[{_sj_style}][SCHED-JOB] done name={_sj_name} wall={_sj_wall:.3f}s")
+schedule.Job.run = _instrumented_schedule_job_run
+# === /HM-SCHED-JOB-TRACE ===
+
 
 def is_extended_or_market_hours() -> bool:
     """Return True during pre-market, regular hours, and after-hours (Mon–Fri).
@@ -3209,23 +3234,35 @@ def run_mccoy_screened_scan():
     if now.weekday() >= 5:
         return
 
+    # HM-SCHED-STALL-FIX 2026-09-11 (XO Priority 1, item 3): same-day recovery.
+    # NORMAL_WINDOW is the original on-time window; LATE_RECOVERY extends it so
+    # a slot missed by more than a few minutes still fires later the same day
+    # (marked late in the log) instead of silently never firing at all. This is
+    # now belt-and-braces given run_mccoy_screened_scan dispatches from its own
+    # 60s-poll daemon thread (see HM-SCHED-STALL-FIX near HM-WR-DAEMON-THREAD),
+    # not the shared schedule.run_pending() queue -- but it also covers a
+    # transient stall of that thread itself (e.g. mid-restart).
+    NORMAL_WINDOW_MIN = 20
+    LATE_RECOVERY_MIN = 60
     slots = [("pre-open", 9, 35), ("midday", 12, 30)]
     for slot_id, target_h, target_m in slots:
         if slot_id in _mccoy_screened_slots_done_today:
             continue
         now_mins = now.hour * 60 + now.minute
         target_mins = target_h * 60 + target_m
-        if target_mins <= now_mins <= target_mins + 20:
+        if target_mins <= now_mins <= target_mins + NORMAL_WINDOW_MIN + LATE_RECOVERY_MIN:
+            is_late = now_mins > target_mins + NORMAL_WINDOW_MIN
             try:
                 from engine.mccoy_screen import get_mccoy_screened_symbols
                 screen = get_mccoy_screened_symbols()
                 symbols = screen["symbols"]
+                _late_tag = " [LATE — same-day recovery]" if is_late else ""
                 if not symbols:
-                    console.log(f"[yellow]McCoy screened scan [{slot_id}]: 0 symbols from screen — skipping")
+                    console.log(f"[yellow]McCoy screened scan [{slot_id}]{_late_tag}: 0 symbols from screen — skipping")
                 else:
                     arena.run_scan(symbols, player_ids=frozenset({"ollama-plutus"}))
                     console.log(
-                        f"[green]McCoy screened scan [{slot_id}]: {screen['n_found']}/{screen['n_requested']} "
+                        f"[green]McCoy screened scan [{slot_id}]{_late_tag}: {screen['n_found']}/{screen['n_requested']} "
                         f"symbols (regime={screen['regime'].get('regime') if screen['regime'] else '?'})"
                     )
             except Exception as e:
@@ -4414,6 +4451,49 @@ if __name__ == "__main__":
         )
     # === /HM-WR-DAEMON-THREAD ===
 
+    # === HM-SCHED-STALL-FIX 2026-09-11 (XO Priority 1, items 2+3) ===
+    # run_mccoy_screened_scan moved off the shared schedule.run_pending() queue
+    # onto its own daemon thread, mirroring HM-WR-DAEMON-THREAD above. Root
+    # cause (relay_2026-09-11_mccoy_1230_nofire_trace.md): the 12:30 PM ET slot
+    # silently no-fired because something else blocked schedule.run_pending()
+    # for the full ~20min window -- zero scheduled jobs of ANY kind ticked in
+    # that span, not just McCoy's. The [SCHED-JOB] instrumentation above will
+    # catch the actual blocker live next time it recurs; independently of that,
+    # Phase 1.2's twice-daily cadence is load-bearing enough to earn the same
+    # dedicated-thread treatment already proven for run_war_room. A 60s poll is
+    # far tighter than the 20min slot window, so a transient stall of this
+    # thread alone still finds the window on its next tick. run_mccoy_screened_
+    # scan's own internal slot/window/once-per-day gating is unchanged --
+    # this is purely a dispatch substitution, same as HM-WR-DAEMON-THREAD.
+    def _mccoy_scheduler_thread():
+        import time as _mc_time
+        while True:
+            try:
+                run_mccoy_screened_scan()
+            except Exception as _mc_e:
+                console.log(
+                    f"[red][MCCOY-DAEMON] tick error: "
+                    f"{type(_mc_e).__name__}: {_mc_e!r}[/red]"
+                )
+            _mc_time.sleep(60)
+
+    try:
+        threading.Thread(
+            target=_mccoy_scheduler_thread,
+            daemon=True,
+            name="mccoy_scheduler",
+        ).start()
+        console.log(
+            "[green][MCCOY-DAEMON] McCoy screened-scan scheduler thread started "
+            "(60s poll, independent of schedule.run_pending())"
+        )
+    except Exception as _mcd_e:
+        console.log(
+            f"[red][MCCOY-DAEMON] thread startup failed: "
+            f"{type(_mcd_e).__name__}: {_mcd_e!r}[/red]"
+        )
+    # === /HM-SCHED-STALL-FIX ===
+
     # === HM-AS-β LOOP 3 — battle_station dedicated daemon thread (2026-05-29) ===
     # Decouple the 60s-critical options monitor from the shared schedule.run_pending()
     # queue. Loops 1+2 backgrounded whisper+autopilot, but every-cycle scanners still
@@ -4865,7 +4945,11 @@ if __name__ == "__main__":
     schedule.every(5).minutes.do(run_kirk_advisory_job)      # Kirk Advisory: persist kirk_advisory_log at open/midday/close (AZ weekdays) — HM-KIRK-REHOME 2026-06-01. Was every(30) until HM-OPS-SENTINEL P3.8 (2026-07-06): a 30-min poll's phase (set by whenever main.py last restarted) can drift outside every one of the three 10-min-wide slot windows -- confirmed today all 3 slots (06:35/09:30/13:05) were missed because the post-restart tick landed at :17:28/:47:28, never inside :x5-:x5+10. 5-min cadence (< the 10-min window) guarantees a hit regardless of restart phase.
     schedule.every(30).minutes.do(run_ready_room)             # Ready Room: checks every 30 min, fires 4x daily (8:00/9:15/12:00/3:30 ET)
     schedule.every(30).minutes.do(run_team_advisor)           # Advisory Team (Grok/Ollie+Troi+Worf): fires at 9:30 AM and 1:30 PM ET
-    schedule.every(5).minutes.do(run_mccoy_screened_scan)     # HM-XO-PLAN-2026-09 Phase 1.2: McCoy screened top-100, fires 9:35 AM and 12:30 PM ET (replaces old _SCAN_TIER2 continuous membership)
+    # run_mccoy_screened_scan: moved off this shared queue onto its own daemon
+    # thread (HM-SCHED-STALL-FIX 2026-09-11, "mccoy_scheduler", 60s poll) --
+    # the 12:30 PM ET slot silently no-fired 2026-09-11 when something else
+    # blocked schedule.run_pending() for the full 20min window. See the
+    # HM-SCHED-STALL-FIX block near HM-WR-DAEMON-THREAD above.
     schedule.every(5).minutes.do(run_portfolio_monitor)       # Ship's Computer: Captain's Portfolio monitor (stop breaches, big moves, new advice)
     schedule.every(5).minutes.do(run_oi_morning_snapshot)    # OI Tracker: baseline snapshot at market open (9:30 ET)
 
