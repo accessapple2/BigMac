@@ -11118,3 +11118,25 @@ by-design 404 would be solving a problem that doesn't exist. This closes
 the loop the dry-dock item asked for (a decision + action — the decision
 is "no change," the action is this reconfirmation) rather than leaving it
 perpetually re-flaggable without a real disposition on record.
+
+## RECONFIRMED 2026-09-11 (dry-dock C14) — Grep Gate CI already fixed and enabled
+
+Dry-dock directive asked to "fix the allowlist and re-enable." Investigated
+via `gh run list`/`gh run view` rather than assuming: the workflow was
+never actually disabled at the GitHub Actions level (`gh workflow list`
+shows "active" throughout, unbroken). What happened: 9 failures on
+2026-09-10 evening, all the SAME root cause (`relay_2026-09-09_overnight_
+session.md:105` quoting `tests/test_rule1_delete_guard.py`'s own
+deliberate `DROP TABLE signals` verbatim while narrating that fix — the
+exact "HM-GREP-GATE-RELAY-REGRESSION-2026-09-10" class already described
+in the current `.github/workflows/grep-gate.yml`'s own comments). The fix
+(excluding `data/reports/relay/*.md` from the DROP TABLE pattern, prose
+narrating an incident isn't the incident) is already live in the file on
+disk. Pushed today's 14 real dry-dock commits (`379f19d`, was 13 commits
+unpushed, past this session's 5-commit self-enforcement cap) and watched
+the actual CI run: **green, 15s, clean** — confirms the fix holds against
+real content including two new files with genuine `DROP TABLE` statements
+(`scripts/recall_bakeoff.py`/`recall_refresh.py`, both correctly NOT
+flagged since their table names are variables, not literal protected-table
+names). No further action needed — already fixed, already enabled,
+verified live rather than just re-asserted.
