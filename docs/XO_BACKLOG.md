@@ -11102,3 +11102,19 @@ consolidation without weakening the guarantee. Not attempted 2026-09-11
 (C11) — touching Kirk's delivery path (the Admiral's stated "phone push,
 no hands-on" daily heartbeat) needs its own careful pass, not folded into
 the same session as three other alert_channels.py structural changes.
+
+## RECONFIRMED 2026-09-11 (dry-dock C13) — tour.ollietrades.com, no action needed
+
+Dry-dock directive asked to "fix the route or delete the application and
+hostname. Decide and act." Re-verified live rather than trusting the
+2026-07-05 finding blind: `tour_api.py` still running (PID 435, live
+since well before this session), `curl localhost:8088/api/tour/health`
+returns `{"ok":true,"service":"tour-api",...}` right now. The `/` 404 is
+still by-design (API-only, never defined a root route) — same behavior
+as 2026-07-05, no regression. **Decision: keep as-is.** The service
+actively backs the real Bridge Tour page; deleting it would remove
+working functionality with no bug to justify it, and "fixing" a
+by-design 404 would be solving a problem that doesn't exist. This closes
+the loop the dry-dock item asked for (a decision + action — the decision
+is "no change," the action is this reconfirmation) rather than leaving it
+perpetually re-flaggable without a real disposition on record.
