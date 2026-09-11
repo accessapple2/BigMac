@@ -426,22 +426,20 @@ def _send_pushover(title: str, message: str, priority: int = 0) -> bool:
     interrupting). Priority 2 is reserved for GPU buy alerts and never
     used here.
 
-    HM-PUSHOVER-ENV-REPOINT (2026-09-11, C11 correction): the OllieTrades
-    Pushover app's own PUSHOVER_TOKEN/PUSHOVER_USER were added to .env on
-    2026-09-09 -- no separate app needed (an earlier pass here wrongly
-    assumed one did and added now-removed PUSHOVER_OLLIETRADES_TOKEN/_USER
-    env vars that were never populated). Tries os.environ first (.env, via
-    config.py's load_dotenv -- also loaded directly below so this module
-    works standalone too), falling back to the older /usr/local/etc/
-    pushover.env file creds on an actual SEND failure, not just absence --
-    found live 2026-09-11: .env's PUSHOVER_TOKEN is 120 chars (Pushover's
-    format is 30; their API rejects it outright, "application token is
-    invalid"), while the file's token is correctly shaped and was the one
-    actually delivering RED_ALERT before this pass. A presence-only
-    fallback would have gone dark the moment this repoint shipped, using a
-    bad value with no retry. **The .env value itself needs a real fix
-    (wrong secret pasted in on 2026-09-09?) -- flagged, not silently
-    worked around forever.**
+    HM-PUSHOVER-ENV-REPOINT (2026-09-11, C11 correction, fallback pulled
+    2026-09-11): reads the OllieTrades Pushover app's own PUSHOVER_TOKEN/
+    PUSHOVER_USER from .env (added 2026-09-09; no separate app needed --
+    an earlier pass here wrongly assumed one did). The old shared
+    /usr/local/etc/pushover.env creds (a different app, "GPU Watch") were
+    used as a temporary fallback while .env's token was bad -- first a
+    120-char value (wrong shape), then a 30-char value Pushover's API
+    still rejected as unregistered. Corrected 2026-09-11; the real
+    OllieTrades token now sends cleanly on the first try (verified live,
+    both WARNING and RED_ALERT, no fallback attempt needed). Fallback
+    removed -- alerts should show under the OllieTrades app identity now,
+    not GPU Watch; if PUSHOVER_TOKEN/PUSHOVER_USER ever go missing or bad
+    again, this fails loud (logged, returns False) rather than silently
+    reverting to a different app's identity.
     """
     if _under_pytest():
         logger.info("pushover suppressed (pytest/OT_ALERTS_DISABLED): %s", title[:80])
@@ -450,27 +448,10 @@ def _send_pushover(title: str, message: str, priority: int = 0) -> bool:
     from dotenv import load_dotenv as _load_dotenv
     _load_dotenv(override=False)  # don't clobber anything already set by the caller
 
-    def _file_creds() -> tuple[str | None, str | None]:
-        env = {}
-        try:
-            for line in open("/usr/local/etc/pushover.env"):
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    k, v = line.split("=", 1)
-                    env[k.strip()] = v.strip()
-        except Exception as e:
-            logger.warning("pushover env file unreadable: %s", e)
-        return env.get("PUSHOVER_TOKEN"), env.get("PUSHOVER_USER")
-
-    candidates: list[tuple[str, str, str]] = []
-    env_tok, env_usr = os.environ.get("PUSHOVER_TOKEN"), os.environ.get("PUSHOVER_USER")
-    if env_tok and env_usr:
-        candidates.append((env_tok, env_usr, ".env"))
-    file_tok, file_usr = _file_creds()
-    if file_tok and file_usr and (file_tok, file_usr) != (env_tok, env_usr):
-        candidates.append((file_tok, file_usr, "/usr/local/etc/pushover.env"))
-    if not candidates:
-        logger.warning("pushover creds missing (checked .env and the fallback file)")
+    tok = os.environ.get("PUSHOVER_TOKEN")
+    usr = os.environ.get("PUSHOVER_USER")
+    if not (tok and usr):
+        logger.warning("pushover creds missing (PUSHOVER_TOKEN/PUSHOVER_USER not set in .env)")
         return False
 
     # HM-PUSHOVER-TIMESTAMP-2026-09-09: explicit send-time, not left to
@@ -480,24 +461,20 @@ def _send_pushover(title: str, message: str, priority: int = 0) -> bool:
     # never sent a `timestamp` field, so whatever Pushover displayed wasn't
     # controlled here. Pinning it removes that as a variable regardless of
     # any upstream queuing/delay between construction and this call.
-    last_err = None
-    for tok, usr, source in candidates:
-        fields = {"token": tok, "user": usr, "title": title[:250],
-                  "message": message[:1024], "priority": priority,
-                  "timestamp": int(_time.time())}
-        try:
-            req = urllib.request.Request(
-                "https://api.pushover.net/1/messages.json",
-                data=urllib.parse.urlencode(fields).encode())
-            with urllib.request.urlopen(req, timeout=10) as r:
-                r.read()
-            logger.info("pushover sent via %s: %s", source, title[:60])
-            return True
-        except Exception as e:
-            last_err = e
-            logger.warning("pushover failed via %s: %s", source, e)
-    logger.warning("pushover failed on all %d credential source(s): %s", len(candidates), last_err)
-    return False
+    fields = {"token": tok, "user": usr, "title": title[:250],
+              "message": message[:1024], "priority": priority,
+              "timestamp": int(_time.time())}
+    try:
+        req = urllib.request.Request(
+            "https://api.pushover.net/1/messages.json",
+            data=urllib.parse.urlencode(fields).encode())
+        with urllib.request.urlopen(req, timeout=10) as r:
+            r.read()
+        logger.info("pushover sent: %s", title[:60])
+        return True
+    except Exception as e:
+        logger.warning("pushover failed: %s", e)
+        return False
 
 
 def _send_email(subject: str, body: str, to: str = "") -> bool:
