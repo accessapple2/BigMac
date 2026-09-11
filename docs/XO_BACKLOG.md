@@ -11000,3 +11000,28 @@ Executed baseline (BUY signals that went live): n=6/5/5 (1d/3d/5d with bars avai
 | HALT | 539 | 383 | 1.00/-0.06% | 3.93/0.90% | 3.11/-0.82% | yes |
 | GRADE_B | 123 | 8 | -0.46/0.01% | n/a | n/a |  |
 | SCANNER_FILTER | 2 | 2 | 2.80/2.80% | n/a | n/a |  |
+
+## DECISION/BACKLOG — migrate other blind-restart monitors to engine.dry_dock (2026-09-11)
+
+`engine/dry_dock.py` (new, HM-DRY-DOCK-2026-09-11) is a file-based flag
+(`data/DRY_DOCK`) that lets a monitor recognize intentional downtime
+instead of alerting/restarting blindly. `hm_ops_sentinel.py`'s
+"main.py is not running" check is the first adopter: when docked, it
+downgrades from a paging red_alert every cron tick to a self-rate-limited
+informational heartbeat once an hour ("docked, intentional") instead.
+Removing the flag at undock restores normal paging automatically.
+
+**Candidates for the same migration, not done yet:** `scripts/
+origin_healthcheck.sh` (the actual dry-dock-breach culprit — see
+`relay_2026-09-11_drydock_breach_root_cause_final.md`; today it was
+handled by disabling its cron line outright, which works but has to be
+manually re-enabled at undock and manually re-disabled next time),
+`watchdog.py`'s `check_bridge()` loop, and `HM-TRADER-KEEPALIVE`'s cron
+line. All three currently get disabled via cron-comment-out for a dock
+and re-enabled by hand afterward — functionally fine, but it's the same
+"muted and forgotten" risk class as an ignore-list with an expired
+revisit date (see the doc-revisit-date lesson) if an undock is ever
+rushed or incomplete. Worth a small pass to have each one `import
+engine.dry_dock; if dry_dock.is_docked(): return` at its own top,
+so the dock state is self-describing and self-restoring rather than
+relying on someone remembering which cron lines to uncomment.

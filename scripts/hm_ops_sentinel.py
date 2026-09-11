@@ -208,9 +208,40 @@ def _main_pid() -> int | None:
     return int(pids[0]) if pids else None
 
 
+# HM-DRY-DOCK-2026-09-11: state file tracking the last "docked, intentional"
+# heartbeat dispatch, so the downgraded alert fires ~hourly instead of every
+# cron tick. Self-contained (doesn't touch the shared HM-SENTINEL-ACK file
+# or _dispatch's own 1800s rate limit) so this survives independently of both.
+_DOCK_HEARTBEAT_STATE = Path(__file__).resolve().parent.parent / "logs" / ".sentinel_dock_heartbeat"
+_DOCK_HEARTBEAT_INTERVAL_S = 3600.0
+
+
 def check_fd_count(alerts: list[AlertTuple]) -> dict:
     pid = _main_pid()
     if pid is None:
+        from engine import dry_dock
+        if dry_dock.is_docked():
+            info = dry_dock.dock_info()
+            last = None
+            try:
+                last = float(_DOCK_HEARTBEAT_STATE.read_text().strip())
+            except Exception:
+                pass
+            now = time.time()
+            if last is None or (now - last) >= _DOCK_HEARTBEAT_INTERVAL_S:
+                alerts.append((
+                    "info", "sentinel_docked_intentional",
+                    f"HM-OPS-SENTINEL: main.py not running -- docked, intentional "
+                    f"(since {info.get('since') or '?'}: {info.get('reason') or 'dry dock'}). "
+                    f"Suppressing the restart-alert while data/DRY_DOCK is set.",
+                    None,
+                ))
+                try:
+                    _DOCK_HEARTBEAT_STATE.parent.mkdir(parents=True, exist_ok=True)
+                    _DOCK_HEARTBEAT_STATE.write_text(str(now))
+                except Exception:
+                    pass
+            return {"pid": None, "fd_count": None, "docked": True}
         alerts.append((
             "red_alert", "sentinel_main_py_down",
             "HM-OPS-SENTINEL: main.py is not running (pgrep found no match). "

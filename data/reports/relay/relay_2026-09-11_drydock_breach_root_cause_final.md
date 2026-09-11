@@ -137,6 +137,32 @@ loses its other checks too (FD-leak, disk, source-health staleness,
 boot-time), which have independent value. Left running; Admiral's call
 whether the paging cadence is worth silencing for the dock.
 
+## The general pattern, not just this one fix
+
+A healthcheck whose only remedy is "restart the thing" with no concept of
+intentional downtime is the same failure class as an ignore-list with an
+expired revisit date: both are correct at write-time and silently wrong
+forever after, because nothing forces a re-check against current intent.
+`origin_healthcheck.sh` was written correctly for its actual purpose
+(catch a wedged-but-alive process — see its own header, referencing the
+SwingDesk incident) and had no reason to anticipate a deliberate,
+extended stop; it just had no way to be told about one.
+
+**Fix, addressed for one monitor as of this session:** `engine/dry_dock.py`
+— a file-based flag (`data/DRY_DOCK`, same shape as `engine/fleet_halt.py`'s
+`KILL_SWITCH`) that a monitor checks before treating "the thing is down" as
+an incident. `hm_ops_sentinel.py`'s "main.py is not running" check now
+downgrades from a paging `red_alert` every 5-minute tick to a
+self-rate-limited informational heartbeat ("docked, intentional") once an
+hour while the flag is set, and reverts to normal paging automatically
+the moment the flag is removed — no monitor-side state to remember to
+undo at undock. `origin_healthcheck.sh` itself, `watchdog.py`, and
+`HM-TRADER-KEEPALIVE` were only disabled via cron-comment-out today —
+functionally correct for this dock, but they're the same class of gap
+until they're migrated to check the same flag. Filed in
+`docs/XO_BACKLOG.md` as a "worth doing, not urgent" follow-up rather than
+done in this pass.
+
 ## Correction owed to olliemax
 
 `RESPONSE_TO_MODELWORKS.md` (sent earlier today) declared "main.py — the
