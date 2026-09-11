@@ -11182,8 +11182,10 @@ values. Live `config.py`'s `STOP_LOSS_PCT` is `0.05`, not the stash's
 different stop-loss design after it — this stash predates that and has
 no current relevance.
 
-**Not dropped.** Only flagged and documented, per standing doctrine
-(never destroy data without explicit instruction) — this is safe,
-inert, and now impossible to confuse with live work by accident. If it's
-confirmed genuinely dead, `git stash drop stash@{0}` is the Admiral's
-call, not mine to make unilaterally.
+**DROPPED 2026-09-11 (Admiral decision)**: `git stash drop stash@{0}`,
+commit `2fb5cb7f82fa5667c0e654c4c32747042837a60c`. Confirmed via `git
+stash list` returning empty. Rationale on record above (branch deleted
+both locally and on origin, approach fully superseded by the live
+`engine/stops.py` conviction-tier scheme, 3.5 months stale) — this entry
+stays as the record of what it was and why dropping it was safe, not
+because the stash still exists.
