@@ -96,11 +96,23 @@ _latency_logger.info(
 # or War Room's witness arm, McCoy (ollama-plutus, model plutus-v1), and
 # Data (ollama-coder, model qwen2.5-coder:7b) leak <think> tokens through
 # this path. qwen3:4b is already covered by the startswith("qwen3") check.
-# REVISIT AT UN-ALIASING (target 2026-09-04): once the roster gets real,
-# distinct models back, plutus-v1 becomes a Llama-based model and
-# qwen2.5-coder:7b becomes the real (non-thinking) Qwen2.5-Coder — sending
-# think:false to a non-thinking model can error on some Ollama versions.
-# Shrink this set back to genuine qwen3 tags only once that happens.
+#
+# STILL LIVE — RE-VERIFIED 2026-09-10, DO NOT SHRINK: the original comment
+# targeted un-aliasing by 2026-09-04. That date passed with the aliasing
+# fully intact -- live digest check against olliemax's /api/tags on
+# 2026-09-10 shows plutus-v1, plutus-v1:latest, ministral-3:3b, qwen3:4b,
+# and qwen2.5-coder:7b ALL share digest f112024b4d65a1ec6a84... (identical
+# to qwen3:8b's own digest) -- same weights, not just same size. Shrinking
+# this set on the assumption un-aliasing happened would silently
+# reintroduce the <think>-leak bug for ollama-plutus (McCoy, the only
+# still-active seat among these -- everything else on this alias list is
+# halt_mode='full'). Only `plutus-v1-real` (restored HM-PLUTUS-V5-WIN
+# checkpoint, digest 06148c3401a6d74bab0c, family qwen2) and
+# `0xroyce/plutus` (digest 0bf0c307b6a4a673f8ee, family llama) are
+# genuinely distinct models today -- neither is in this set, correctly.
+# Re-verify digests before ever shrinking this set; do not trust a target
+# date alone. See docs/orders/... alias-era note and CLAUDE.md (both
+# copies) for the same correction.
 _QWEN3_ALIAS_MODEL_IDS = {
     "plutus-v1", "plutus-v1:latest", "ministral-3:3b", "qwen2.5-coder:7b",
 }

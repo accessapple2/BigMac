@@ -110,7 +110,17 @@ QUEUE_OLDEST_WARN_HOURS = 48
 # ledger's own resume_by/review_by gap this repo already has a fix for
 # (docs/FLEET_LIFECYCLE.md), just on the doc-prose side instead. Extend
 # this list if another doc adopts the same REVISIT-BY: tag convention.
-DOC_REVISIT_PATHS = [ROOT / "docs" / "XO_BACKLOG.md"]
+DOC_REVISIT_PATHS = [
+    ROOT / "docs" / "XO_BACKLOG.md",
+    ROOT / "CLAUDE.md",
+    # HM-UNALIAS-STILL-LIVE-2026-09-10: ollietrades-lite is a separate repo
+    # (outside ROOT) whose CLAUDE.md carries an informational copy of the
+    # same Ollama-alias note -- both went stale together (2026-09-04 target
+    # missed unrevisited on both) so both need the same watch. See the
+    # relative_to(ROOT)-with-fallback handling below; a path outside ROOT
+    # is expected here, not a bug.
+    Path("/Users/bigmac/ollietrades-lite/CLAUDE.md"),
+]
 _REVISIT_TAG_RE = re.compile(r"REVISIT-BY:\s*(\d{4}-\d{2}-\d{2})")
 
 # HM-ALERT-COOLDOWN (2026-09-03): per-alert-type dispatch cooldown, independent
@@ -1024,11 +1034,15 @@ def check_doc_revisit_dates(alerts: list[AlertTuple]) -> dict:
         except Exception as e:
             print(f"[sentinel] doc-revisit read error ({path}): {type(e).__name__}: {e}", file=sys.stderr)
             continue
+        try:
+            display_path = str(path.relative_to(ROOT))
+        except ValueError:
+            display_path = str(path)  # outside ROOT (e.g. a sibling repo) -- show absolute
         for lineno, line in enumerate(text.splitlines(), start=1):
             m = _REVISIT_TAG_RE.search(line)
             if m and m.group(1) <= today:
                 results["overdue"].append({
-                    "path": str(path.relative_to(ROOT)), "line": lineno,
+                    "path": display_path, "line": lineno,
                     "date": m.group(1), "text": line.strip()[:160],
                 })
 

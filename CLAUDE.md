@@ -727,29 +727,50 @@ which had no model pulled at all before this) are **aliases of `qwen3:8b`**
 This was discovered 2026-08-25 and causes model-swap thrashing on the 16GB
 unified-memory budget when different logical "providers" that expect
 different models actually round-trip the same weights in and out of VRAM.
-Per-provider War Room attribution is **void until Friday, 2026-09-04**
-(moved from the original 2026-08-28 target — the 9900X build slipped to
-that date) while these aliases stand — a win/loss attributed to
-"plutus-v1", "ministral-3:3b", "qwen3:4b", or "qwen2.5-coder:7b" is really
-qwen3:8b under a different name.
+**STILL LIVE as of 2026-09-10 — REVISIT-BY: 2026-09-17.** The original
+"void until Friday, 2026-09-04" framing below is a dead-man's-switch that
+already tripped once (same class as HM-OPS-SENTINEL-DOC-REVISIT-2026-09-10's
+`situation_report.py`/`ollama_prewarm.sh` finding, `docs/XO_BACKLOG.md`):
+2026-09-04 passed with the aliasing fully intact, and nobody re-checked
+until this date. **Re-verified live 2026-09-10 by digest** (not just
+model size) against olliemax's `/api/tags`: `plutus-v1`,
+`plutus-v1:latest`, `ministral-3:3b`, `qwen3:4b`, and `qwen2.5-coder:7b`
+all still share digest `f112024b4d65a1ec6a84...` — byte-identical to
+`qwen3:8b`. Per-provider War Room attribution stays **void, ongoing, no
+end date** until a fresh digest check shows otherwise — a win/loss
+attributed to "plutus-v1", "ministral-3:3b", "qwen3:4b", or
+"qwen2.5-coder:7b" is still really qwen3:8b under a different name. Only
+`ollama-plutus` (McCoy) is currently `halt_mode='active'` among the
+alias-affected `ai_players` seats — everything else on this list is
+`full`. **One concrete consequence found 2026-09-10:** McCoy's only trade
+on/after the 2026-07-19 alias-era boundary (`relay_2026-09-09_plutus-v1-
+archaeology-and-season-dsr.md`'s "Alias-era flag" section) is the single
+row dated 2026-09-03 in `trades` — genuinely alias-era-contaminated,
+unlike Season 6's full trade range (predates 07-19, already cleared by
+that relay doc). Season 6 needed no correction; this one row does, if
+McCoy's Season 7 scorecard cites it as real Plutus-v1 performance.
 
 The real finance-tuned model is preserved separately as `0xroyce/plutus`
-(a distinct ID) — that is the one to reference for actual Plutus-branded
-finance-model behavior, not `plutus-v1`.
+(a distinct ID, family llama, digest `0bf0c307b6a4a673f8ee...`) — that is
+the one to reference for actual Plutus-branded finance-model behavior, not
+`plutus-v1`. The restored fine-tune itself is `plutus-v1-real` (digest
+`06148c3401a6d74bab0c...`, family qwen2) — also genuinely distinct, see
+`docs/XO_PLAN_2026-09.md` Phase 2 arm 5.
 
-**Downstream fix, REVISIT AT UN-ALIASING (target 2026-09-04):**
+**Downstream fix, DO NOT ACTION UNTIL A FRESH DIGEST CHECK CONFIRMS
+UN-ALIASING — a target date alone is not sufficient evidence, see above:**
 `engine/providers/ollama_provider.py`'s `_QWEN3_ALIAS_MODEL_IDS` set
 (`{"plutus-v1", "plutus-v1:latest", "ministral-3:3b", "qwen2.5-coder:7b"}`)
 extends the qwen3 thinking-mode suppression (`payload["think"] = False`)
 to cover these aliases, since War Room/McCoy/Data calls under these names
 route to the same qwen3:8b weights and would otherwise leak `<think>`
-tokens. **Once the roster gets real, distinct models back, `plutus-v1`
-becomes a Llama-based model and `qwen2.5-coder:7b` becomes the real
-(non-thinking) Qwen2.5-Coder** — sending `think:false` to a non-thinking
-model can error on some Ollama versions. Shrink `_QWEN3_ALIAS_MODEL_IDS`
-back down (or remove it) at that point — `qwen2.5-coder:7b` in particular
-MUST come out once the real coder model is pulled, since it was never a
-thinking model to begin with.
+tokens. **Once the roster gets real, distinct models back** (confirmed by
+digest, not by calendar), `plutus-v1` becomes a Llama-based model and
+`qwen2.5-coder:7b` becomes the real (non-thinking) Qwen2.5-Coder — sending
+`think:false` to a non-thinking model can error on some Ollama versions.
+Shrink `_QWEN3_ALIAS_MODEL_IDS` back down (or remove it) at that point —
+`qwen2.5-coder:7b` in particular MUST come out once the real coder model
+is pulled, since it was never a thinking model to begin with.
 
 ## Ollama Service: com.ollama.serve is the ONLY real service (2026-08-27)
 
