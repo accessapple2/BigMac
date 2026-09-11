@@ -10781,14 +10781,15 @@ first: `~/backups/cron/crontab.bak-20260830-090553-pre-revive-batch`.
 
 ### STAYS DARK, no ledger action (crontab comment refreshed for accuracy only)
 
-- **`scripts/situation_report.py`** — REVISIT-BY: 2026-09-06 — revisit
-  against `kirk_briefing.py`'s live coverage before deciding if it's
-  redundant. **Still open as of 2026-09-10 — the 09-06 date passed with no
-  revisit and no ledger action; caught by `hm_ops_sentinel.py`'s new
-  `check_doc_revisit_dates()` (HM-OPS-SENTINEL-DOC-REVISIT-2026-09-10)
-  going forward.** Do not silently re-date this tag to make an alert stop
-  firing — resolve the actual redundancy question (or take a ledger
-  action) and remove the tag instead.
+- **`scripts/situation_report.py`** — RESOLVED 2026-09-11 (dry-dock C15).
+  The redundancy question is moot: the file was already renamed
+  `situation_report.py.quietdown-disabled-2026-07-22` as part of the
+  2026-07-22 fleet stand-down (`git log`, commits `178548a`/`d9ebe8c`) —
+  predating this REVISIT-BY tag itself by six weeks. Its two cron lines
+  are already commented out (confirmed live in `crontab -l`). Nothing left
+  to decide: it's been dark since July for an unrelated reason, not
+  because it lost a redundancy comparison to `kirk_briefing.py`. Tag
+  removed per the standing instruction not to silently re-date it.
 - **`scripts/ollama_prewarm.sh`** — RESOLVED 2026-09-10: retired.
   `OLLAMA_KEEP_ALIVE=-1` shipped live with the olliemax hardware migration,
   mooting the cold-start failure mode this script existed to prevent (also
