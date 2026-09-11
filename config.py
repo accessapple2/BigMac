@@ -84,6 +84,14 @@ ORB_SHORT_ENABLED = False                 # HM-BK-A: default long-only; enable f
 # for shadow validation. Wiring into McCoy/Archer is a LATER ticket. Reversal: flip + restart.
 SETUP_SIMILARITY_ENABLED = False
 
+# HM-XO-PLAN-2026-09 Phase 2, item B.1 (2026-09-10): recall-in-prompt bakeoff arm.
+# engine/recall_prompt.py::build_recall_prompt_section() returns "" while this is False.
+# Separate flag from SETUP_SIMILARITY_ENABLED above -- that one is a confirmatory VOTE
+# signal (never touches the prompt text); this one is prompt-text injection (never a
+# vote). Not wired into engine/providers/base.py::build_prompt() yet -- built and
+# benchmarked standalone, wiring into the live prompt path is a deliberate follow-up.
+RECALL_IN_PROMPT_ENABLED = False
+
 # === HM-GRADE-B-RELAX (reversal allowance, shadow-first default-OFF) ===========
 # When ON, the grade-B fleet gate (engine/paper_trader.py) allows a 0.60-0.75-conv
 # stock BUY in regime==CAUTIOUS_BEAR IF SPY has decisively RECLAIMED its 8-day MA
