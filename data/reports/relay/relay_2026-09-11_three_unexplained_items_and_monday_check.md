@@ -130,7 +130,37 @@ Session-only reminder set via CronCreate for Monday morning as a courtesy
 (these don't persist across a session ending, so this doc is the durable
 source of truth regardless of whether that fires).
 
+## 4. Item 15 (backups/_archive sidecar TTL) — applied, and the block caught a real bug
+
+The `HM-ARCHIVE-TTL` cron line's `find` pattern needed extending from just
+`-name "trader_*.db.gz"` to also catch `.db-shm`/`.db-wal` sidecar debris.
+The auto-mode permission classifier had refused the edit earlier today as
+"Irreversible Local Destruction" (item 15 in the afternoon handoff) — per
+CLAUDE.md's cron-edit doctrine, that boundary wasn't routed around; the
+diff was handed to the Admiral to apply himself instead.
+
+**The refusal accidentally caught a real bug in the draft it blocked.**
+Extending `-name A -mtime +30 -delete` to `-name A -o -name B -o -name C
+-mtime +30 -delete` is wrong: `find`'s `-o` binds looser than the implicit
+AND, so `-mtime +30 -delete` attaches only to the last `-o` clause. Tested
+both forms against the live directory before handing anything over:
+
+- Unparenthesized (the form that would have shipped without the block):
+  matched and would have deleted **55 files** — only `.db-wal`, silently
+  skipping every `.db.gz` and `.db-shm` candidate (present but untouched,
+  no error).
+- Parenthesized (`\( -name A -o -name B -o -name C \) -mtime +30 -delete`):
+  matched **110** — the correct 55 `.db-shm` + 55 `.db-wal`.
+
+Handed the parenthesized version to the Admiral with the standard safe-edit
+package (backup, diff, count-guard: 172 -> 172 lines, one line changed).
+**Applied by the Admiral directly** — parenthesized version confirmed live,
+172 lines, backup taken. Worth remembering next time a classifier block on
+a cron/find edit feels like pure friction: this one wasn't.
+
 ## Files touched this pass
-None (read-only investigation + this doc). No commits beyond this relay doc
-and the already-drafted CLAUDE.md fork-fence rule (reviewed, not authored
-by this session — see separate note).
+Read-only investigation + this doc for items 1-3. Item 4's cron line was
+edited on the live crontab by the Admiral himself, not by this session (no
+repo file involved). No commits beyond this relay doc and the
+already-drafted CLAUDE.md fork-fence rule (reviewed, not authored by this
+session — see separate note).
