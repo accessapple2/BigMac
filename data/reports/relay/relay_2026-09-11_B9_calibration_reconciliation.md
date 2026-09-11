@@ -1,5 +1,19 @@
 # Relay — B9: calibration_map reconciliation, not a contradiction. 2026-09-11
 
+## CORRECTION, 2026-09-11 (later, Admiral follow-up) — this reconciliation was itself wrong
+
+**The 168-trade/78.6% figure below is fleet-wide, not McCoy-specific — I
+presented it as confirming the McCoy-only "169" claim without checking
+that.** The query had no `player_id='ollama-plutus'` filter (`CLEAN_
+TRADES_WHERE` only *excludes* 3 players, it doesn't *restrict* to McCoy).
+Of those 168 rows, McCoy contributed 42; `neo-matrix` contributed more
+(52). Properly scoped to McCoy alone: **n=42, hit rate 71.4%**, not
+169/78.6%. The near-match between 168 and 169 was coincidence, not
+confirmation. Full correction, and what it means for Phase 1.3:
+`relay_2026-09-11_calibration_finding_correction.md`. The rest of this
+document is kept as-written for the record — see that file for what's
+actually true.
+
 ## The question
 
 Two numbers appeared to describe the same thing and disagree: last
