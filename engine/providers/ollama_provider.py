@@ -148,10 +148,46 @@ _NUM_CTX_OVERRIDES = {
     # HM-OLLIE-30B-LIVE-2026-09-09: instruct-2507 build, same context sizing
     # rationale as the thinking build above (same real-traffic token
     # distribution across McCoy/Troi/Worf) -- this is the tag actually live
-    # now, the thinking tag above is retired from any fleet seat.
+    # now, the thinking tag above is retired from any fleet seat. NOTE
+    # 2026-09-11: both 30B tags reverted out of every active seat the same
+    # day this override was written (HM-OLLIE-30B-BAKEOFF-REVERT) -- McCoy
+    # and Worf are back on 8B. These entries are inert today but harmless;
+    # left in place rather than removed since a future 30B re-bakeoff would
+    # need the same sizing.
     "qwen3:30b-a3b-instruct-2507-q4_K_M": 16384,
 }
-_DEFAULT_NUM_CTX = 10240
+# HM-OLLIE-TRUNCATION-2026-09-11: was 10240, sized off qwen3:8b's p95 from
+# HM-PERF-FLEET-THROUGHPUT (2026-07-07) -- that p95 no longer reflects real
+# traffic. McCoy's screened-scan prompts actually run 15,455-17,942 tokens
+# (median 16,875), and this default silently truncated 4,575 real prompts
+# to ~30% of their content between 2026-09-09 and 2026-09-11 with no error
+# raised anywhere (Ollama logs a WARN to its own journal, not ours, and
+# returns a normal-looking 200) -- see olliemax's ~/modelworks/fleet_checks/
+# ollama_churn/FINDINGS_FOR_SCOTTY.md for the full trace + a 4,575-row CSV
+# of every truncation. Every caller that doesn't have an explicit entry in
+# _NUM_CTX_OVERRIDES above shares this one default -- that's McCoy
+# (ollama-plutus, model_id "plutus-v1", the Arena's screened scans), Worf
+# (qwen3-8b-flash, model_id literally "qwen3:8b" -- same weights as McCoy's
+# alias, different tag name, also active, also hit this default and was the
+# "other caller" running qwen3:8b-named loads at 10240 alongside McCoy's
+# plutus-v1-named ones), and the McCoy-bakeoff arms (qwen3:8b / fin-r1 /
+# plutus-v1-real in scripts/mccoy_bakeoff_arms.py + the readiness-check
+# script, which smoke-tests fin-r1 against McCoy's real, full-size prompt).
+# Raised to 24576 to match what olliemax's qwen3-weight tags (plutus-v1,
+# qwen3:8b, qwen2.5-coder:7b, qwen3:4b, ministral-3:3b -- all five are
+# byte-identical, see _QWEN3_ALIAS_MODEL_IDS above) already carry as their
+# own Modelfile num_ctx -- 24,576 covers the largest real prompt seen
+# (17,942) plus ~6.6K of output headroom. Sending an explicit value that
+# matches the tag's own default (rather than omitting num_ctx and trusting
+# whatever the tag happens to be set to) keeps the original HM-PERF-FLEET-
+# THROUGHPUT intent -- a known, predictable per-slot VRAM budget for
+# 2-worker co-residency -- while actually covering real traffic instead of
+# a stale p95. This also ends the runner-restart churn documented in the
+# same findings doc (Priority 3): the runner reloads when a request's
+# context differs from the currently-loaded one, and 50 of 52 back-to-back
+# restarts on the qwen3 weights were exactly this default (10240) fighting
+# the tags' own configured 24576, not a real model swap.
+_DEFAULT_NUM_CTX = 24576
 
 
 def _num_ctx_for(model_id: str) -> int:
@@ -229,21 +265,16 @@ class OllamaProvider(AIProvider):
                 "temperature": self._temperature,
                 # HM-PERF-FLEET-THROUGHPUT 2026-07-07: was uncapped (Ollama's
                 # model-default context, unbounded VRAM variable — the main
-                # risk once >1 concurrent slot exists). Measured against
-                # real traffic first, not guessed: api_costs.input_tokens +
-                # output_tokens for call_type='scan' across the 5 active
-                # Ollama agents, last 30 days, n=5,845 — p50=7,698,
-                # p95=8,719, p99=31,977 (qwen3 thinking-mode leakage tail,
-                # not the normal distribution — see the think:False guard
-                # below, which doesn't reliably suppress it for every
-                # response). NUM_CTX=10240 covers p95 with ~17% headroom;
-                # deliberately not sized to the p99 tail, which would cost
-                # 3-4x the VRAM per slot to protect <1% of calls that are
-                # already anomalous. A call that would have exceeded this
-                # now degrades (truncated context) instead of the model
-                # generating unboundedly — an acceptable trade given the
-                # goal here is predictable per-slot VRAM for 2-worker
-                # co-residency, not zero-truncation guarantees.
+                # risk once >1 concurrent slot exists), then capped at 10240
+                # off a stale p95 that undercounted McCoy's real screened-scan
+                # prompt size (15,455-17,942 tokens) -- see _DEFAULT_NUM_CTX
+                # above for the 2026-09-11 correction to 24576 and the
+                # truncation incident that surfaced it. A call that still
+                # exceeds this now degrades (truncated context) instead of
+                # the model generating unboundedly — an acceptable trade
+                # given the goal here is a known, predictable per-slot VRAM
+                # budget for 2-worker co-residency, not a zero-truncation
+                # guarantee against every future prompt-size drift.
                 "num_ctx": _num_ctx_for(self.model_id),
             },
         }

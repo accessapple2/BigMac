@@ -212,11 +212,30 @@ def _do_riker_synthesis() -> str | None:
     try:
         resp = requests.post(
             f"{OLLAMA_URL}/api/generate",
-            json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False, "num_predict": 400},
+            # HM-OLLIE-RIKER-RUNAWAY-2026-09-11: num_predict was a top-level
+            # JSON key, which /api/generate silently ignores -- Ollama only
+            # reads generation params (num_predict, num_ctx, temperature...)
+            # from "options". The cap was never actually applied, so this
+            # call generated unbounded (twice overnight 09-11, ~28K tokens
+            # of context, hitting the 180s timeout as an HTTP 500 instead of
+            # stopping at 400 tokens). Moved into "options" where Ollama
+            # actually reads it. found via olliemax's ~/modelworks/
+            # fleet_checks/ollama_churn/FINDINGS_FOR_SCOTTY.md.
+            json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False,
+                  "options": {"num_predict": 400}},
             timeout=180,
         )
         resp.raise_for_status()
-        recommendation = resp.json().get("response", "").strip()
+        body = resp.json()
+        # Defense-in-depth: even with num_predict now honored, a
+        # done_reason of "length" means the model hit the cap mid-thought --
+        # treat that the same as a failure (skip the cycle) rather than
+        # caching a truncated synthesis as if it were a complete one.
+        if body.get("done_reason") == "length":
+            console.log("[yellow]Commander Riker: synthesis hit num_predict cap "
+                        "(done_reason=length) -- discarding, not caching a truncated take")
+            return None
+        recommendation = (body.get("response") or "").strip()
         if not recommendation:
             return None
 
