@@ -138,13 +138,15 @@ suggest.
 
 ## Open items not yet in `docs/XO_BACKLOG.md`
 
-1. **data/backups/_archive sidecar cron fix (XO P4 item 15)** — drafted, not applied.
-   Auto-mode's permission classifier refused the edit as destructive; the Admiral
-   chose to apply it themselves. Exact diff was given to the Admiral directly in
-   this session's chat (not written to a file) — extend the existing `HM-ARCHIVE-TTL`
-   cron line's `find` pattern to also match `-o -name "*.db-shm" -o -name "*.db-wal"`,
-   same `-mtime +30 -delete`. If it's still unapplied next session, the diff needs
-   reconstructing from this description (it's short) rather than assumed done.
+1. **data/backups/_archive sidecar cron fix (XO P4 item 15)** — **DONE**, per commit
+   `e8d9874` (the fourth session, 15:24 MST): applied by the Admiral directly after
+   the permission-classifier block. That session flags the block wasn't just
+   friction — the version actually typed at the terminal was unparenthesized, and
+   `find`'s `-o` binds looser than the implicit AND (so `-mtime +30 -delete` would
+   have attached only to the last `-name` clause, deleting 55 of 110 real
+   `.db-wal` candidates outright rather than sweeping all three extensions). The
+   corrected, parenthesized form was verified against the live directory before
+   being applied. No further action needed here.
 2. **Bakeoff run 2** — see above, blocked on olliemax, in progress via bigmac-13.
 3. **Phase 1.3 enable decision** — explicitly the Admiral's call, not automatic. No
    further code changes should happen here without that decision, per instruction.
