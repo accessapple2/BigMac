@@ -11053,3 +11053,52 @@ regardless). Worth doing eventually for defense-in-depth consistency, not
 because a live gap was found. Full sweep, not attempted this session —
 touches live decision-path files, deliberately out of scope for a
 minimal-risk dry-dock pass.
+
+## DECISION NEEDED — ntfy has been fully dead since DECOM-SILENCE 2026-07-19
+
+**Found 2026-09-11 (dry-dock C11).** `engine/alert_channels.py::_send_ntfy()`
+has had an unconditional early `return False` since 2026-07-19 ("Admiral
+wants phone quiet immediately", tied to DECOM-MASTER Gate 2). Gate 2
+landed weeks ago; the guard was never revisited. Net effect: every
+INFO/WARNING-level alert across the whole fleet had zero phone delivery
+for ~2 months, until tonight's tiered-Pushover fix gave WARNING a working
+path via Pushover instead. **Not reversed unilaterally** — the comment
+frames this as an explicit stated preference, and only the Admiral can
+say whether it should lapse now or stay in effect. Decide: delete the
+guard (full ntfy restore) or leave it (Pushover-only phone delivery,
+current state) or something in between (e.g. ntfy only for INFO, which
+still has no phone path today even with the Pushover fix).
+
+## DONE 2026-09-11 — C11: Pushover tiered routing + storm breaker, shipped and verified live
+
+WARNING now reaches Pushover at quiet priority (-1) — previously WARNING
+had no phone delivery at all (ntfy dead, see above). New storm breaker
+(`_storm_record_and_check`/`_storm_notice_due`, persisted) catches a flood
+made of many *different* alert_types together (the gap the existing
+per-type rate limiter doesn't cover — this repo's own 07:33 lock-storm
+incident was exactly this shape); threshold 8/10min, replaces individual
+WARNING pushes with one rate-limited digest once tripped, RED_ALERT never
+suppressed outright. `PUSHOVER_OLLIETRADES_TOKEN`/`_USER` env vars now
+preferred over the shared file-based creds (falls back cleanly — no
+behavior change until the vars are set). Full detail + live verification:
+`relay_2026-09-11_C11_pushover_redesign.md`.
+
+## TODO (Admiral) — create the dedicated OllieTrades Pushover app
+
+Code side is done (see above) — needs an actual pushover.net application
+created (Pushover → create an application → get its token), then set
+`PUSHOVER_OLLIETRADES_TOKEN`/`PUSHOVER_OLLIETRADES_USER` in `.env`. Not
+something this session can self-provision.
+
+## BACKLOG — Kirk merge into engine/alert_channels.py's hardened primitives
+
+`kirk_briefing.py::push_ntfy()` is a standalone ntfy implementation with
+its own IPv4-workaround + 429-retry-until-confirmed loop, deliberately
+stronger than `alert_channels.py`'s fire-and-forget dispatcher (Kirk's own
+comment: "Job B's delivery guarantee needs to KNOW the push landed").
+Right design: Kirk keeps its retry/confirmation loop but calls into the
+same underlying hardened send primitives instead of duplicating them —
+consolidation without weakening the guarantee. Not attempted 2026-09-11
+(C11) — touching Kirk's delivery path (the Admiral's stated "phone push,
+no hands-on" daily heartbeat) needs its own careful pass, not folded into
+the same session as three other alert_channels.py structural changes.

@@ -186,6 +186,7 @@ def _load_state() -> None:
         rs.close()
         if rsrow and rsrow["value"]:
             _rate_state.update({k: float(v) for k, v in json.loads(rsrow["value"]).items()})
+        _storm_load()
     except Exception:
         pass
 
@@ -253,6 +254,75 @@ def _rate_ok(alert_type: str, rate_limit_secs: int = RATE_LIMIT_SECS) -> bool:
     with _state_lock:
         last = _rate_state.get(alert_type, 0)
         return _time.time() - last >= rate_limit_secs
+
+
+# ── Storm breaker (HM-ALERT-STORM-BREAKER, dry-dock C11, 2026-09-11) ────────────
+# Per-alert_type rate limiting (_rate_ok above) doesn't catch a storm made of
+# many DIFFERENT alert_types firing together (the real 07:33 lock-storm
+# incident this repo has already lived through: multiple distinct alert
+# sources all tripping within the same window, each individually passing its
+# own per-type rate limit). This tracks loud-channel (pushover-eligible:
+# WARNING+RED_ALERT) dispatch timestamps globally, persisted like the
+# rate-limit state above, and once volume in a rolling window crosses a
+# threshold, individual pushes stop reaching Pushover -- replaced by ONE
+# rate-limited storm notice -- until the window quiets back down. Everything
+# still reaches the DB (_db_notification) regardless of storm state; this
+# only throttles the phone-interrupting channel.
+_STORM_WINDOW_S = 600      # 10 min rolling window
+_STORM_THRESHOLD = 8       # loud-channel dispatches within the window to trip it
+_STORM_NOTICE_COOLDOWN_S = 1800  # don't re-notify "still storming" more than every 30 min
+_storm_timestamps: list[float] = []
+_storm_last_notice_ts = 0.0
+
+
+def _storm_load() -> None:
+    global _storm_timestamps, _storm_last_notice_ts
+    try:
+        c = _conn()
+        row = c.execute("SELECT value FROM settings WHERE key=?", ("alert_storm_state",)).fetchone()
+        c.close()
+        if row and row["value"]:
+            state = json.loads(row["value"])
+            _storm_timestamps = list(state.get("timestamps", []))
+            _storm_last_notice_ts = float(state.get("last_notice_ts", 0.0))
+    except Exception:
+        pass
+
+
+def _storm_save() -> None:
+    try:
+        _save_setting("alert_storm_state", json.dumps({
+            "timestamps": _storm_timestamps, "last_notice_ts": _storm_last_notice_ts,
+        }))
+    except Exception:
+        pass
+
+
+def _storm_record_and_check() -> bool:
+    """Record one loud-channel dispatch attempt now; return True if a storm
+    is currently active (volume in the last _STORM_WINDOW_S seconds >=
+    _STORM_THRESHOLD, evaluated AFTER recording this one)."""
+    global _storm_timestamps
+    with _state_lock:
+        now = _time.time()
+        _storm_timestamps = [t for t in _storm_timestamps if now - t < _STORM_WINDOW_S] + [now]
+        active = len(_storm_timestamps) >= _STORM_THRESHOLD
+    _storm_save()
+    return active
+
+
+def _storm_notice_due() -> bool:
+    """True once per _STORM_NOTICE_COOLDOWN_S while a storm is active --
+    the single 'still storming' ping that replaces N suppressed individual
+    pushes, itself rate-limited so the storm notice can't itself storm."""
+    global _storm_last_notice_ts
+    with _state_lock:
+        now = _time.time()
+        if now - _storm_last_notice_ts < _STORM_NOTICE_COOLDOWN_S:
+            return False
+        _storm_last_notice_ts = now
+    _storm_save()
+    return True
 
 
 def _mark_rate_limit_sent(alert_type: str) -> None:
@@ -346,25 +416,46 @@ def _send_ntfy(title: str, message: str, priority: str = "default", tags: str = 
 
 
 def _send_pushover(title: str, message: str, priority: int = 0) -> bool:
-    """PUSHOVER-RED-ALERT 2026-08-28 — RED_ALERT lane only. ntfy stays
-    silenced per DECOM-SILENCE 2026-07-19; this restores delivery for
-    critical alerts alone. Creds from /usr/local/etc/pushover.env.
-    Priority 2 is reserved for GPU buy alerts and never used here."""
+    """PUSHOVER-RED-ALERT 2026-08-28 — originally RED_ALERT lane only,
+    extended to WARNING 2026-09-11 (dry-dock C11, tiered routing) since
+    ntfy stays fully silenced (DECOM-SILENCE 2026-07-19 -- see
+    _send_ntfy, an unconditional early-return, unreverted since) and
+    without this, WARNING-level alerts reach no phone at all. Priority
+    (Pushover scale: -2 lowest/no-notify .. 2 emergency-repeat) is the
+    tier: RED_ALERT callers pass 1, WARNING callers pass -1 (quiet
+    notification, no sound/vibration -- present in the app, not
+    interrupting). Priority 2 is reserved for GPU buy alerts and never
+    used here.
+
+    HM-PUSHOVER-OLLIETRADES-TOKEN (2026-09-11, C11): prefers a dedicated
+    OllieTrades Pushover app identity (PUSHOVER_OLLIETRADES_TOKEN/_USER
+    env vars) over the shared /usr/local/etc/pushover.env creds, so
+    OllieTrades alerts show under their own app icon/name instead of
+    whatever else already uses that shared token. Falls back to the
+    shared file-based creds if the dedicated env vars aren't set --
+    **creating the actual dedicated app on pushover.net is an Admiral
+    action this code cannot perform itself; until that app exists and
+    its token is set, this silently keeps using the shared identity,
+    which is correct/safe behavior, not a bug.**
+    """
     if _under_pytest():
         logger.info("pushover suppressed (pytest/OT_ALERTS_DISABLED): %s", title[:80])
         return False
     import urllib.parse, urllib.request
-    env = {}
-    try:
-        for line in open("/usr/local/etc/pushover.env"):
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                k, v = line.split("=", 1)
-                env[k.strip()] = v.strip()
-    except Exception as e:
-        logger.warning("pushover env unreadable: %s", e)
-        return False
-    tok, usr = env.get("PUSHOVER_TOKEN"), env.get("PUSHOVER_USER")
+    tok = os.environ.get("PUSHOVER_OLLIETRADES_TOKEN")
+    usr = os.environ.get("PUSHOVER_OLLIETRADES_USER")
+    if not (tok and usr):
+        env = {}
+        try:
+            for line in open("/usr/local/etc/pushover.env"):
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    env[k.strip()] = v.strip()
+        except Exception as e:
+            logger.warning("pushover env unreadable: %s", e)
+            return False
+        tok, usr = env.get("PUSHOVER_TOKEN"), env.get("PUSHOVER_USER")
     if not (tok and usr):
         logger.warning("pushover creds missing")
         return False
@@ -537,17 +628,40 @@ def send_alert(
         results["ntfy"] = any(_send_ntfy(title, message, ntfy_priority, ntfy_tags, t) for t in _ntfy_topics())
         _db_notification(title, message, "info", _notif_type)
 
-    # WARNING → ntfy + browser notification (DB)
+    # WARNING → ntfy (silenced, see _send_ntfy) + browser notification (DB)
+    # + Pushover at quiet priority (HM-ALERT-STORM-BREAKER / C11 tiered
+    # routing, 2026-09-11) -- WARNING previously had no real phone delivery
+    # at all while ntfy stays under DECOM-SILENCE, which is the specific
+    # "alerts need to be usable before we undock" gap C11 closes.
     elif level == AlertLevel.WARNING:
         results["ntfy"]    = any(_send_ntfy(title, message, ntfy_priority, ntfy_tags, t) for t in _ntfy_topics())
         _db_notification(title, message, "warning", _notif_type)
         results["browser"] = True
+        if _storm_record_and_check():
+            if _storm_notice_due():
+                results["pushover"] = _send_pushover(
+                    "STORM — alerts suppressed", f"{_STORM_THRESHOLD}+ alerts in the last "
+                    f"{_STORM_WINDOW_S // 60} min. Individual pushes paused; check the dashboard "
+                    f"for the full list. Most recent: {title}", priority=-1)
+        else:
+            results["pushover"] = _send_pushover(title, message, priority=-1)  # quiet, no sound
 
     # RED ALERT → all channels
     elif level == AlertLevel.RED_ALERT:
         crit_topics = _ntfy_topics() + [NTFY_CRITICAL_TOPIC]   # HM-UHURA-HAILS: keep admin topic AND add critical lane
         results["ntfy"]    = any(_send_ntfy(title, message, ntfy_priority, ntfy_tags, t) for t in crit_topics)
-        results["pushover"] = _send_pushover(f"RED ALERT: {title}", message, priority=1)
+        # RED_ALERT is never storm-suppressed outright (that would be the
+        # exact "alarm shares a failure mode with the thing it watches"
+        # doctrine violation) -- it always gets its own individual push,
+        # below. It DOES still contribute to the shared storm counter (so a
+        # RED_ALERT flood correctly counts toward tripping the breaker for
+        # subsequent WARNING alerts too) and piggybacks one extra
+        # storm-context line onto its own message when a storm notice is due.
+        _storm_active = _storm_record_and_check()
+        _storm_suffix = ""
+        if _storm_active and _storm_notice_due():
+            _storm_suffix = f"\n\n[STORM: {_STORM_THRESHOLD}+ alerts in {_STORM_WINDOW_S // 60} min]"
+        results["pushover"] = _send_pushover(f"RED ALERT: {title}", message + _storm_suffix, priority=1)
         _db_notification(title, message, "critical", _notif_type)
         results["browser"] = True
         results["email"]   = _send_email(title, f"{message}\n\nLevel: RED ALERT\nType: {alert_type}")
