@@ -263,7 +263,13 @@ _SCAN_TIER1: frozenset = frozenset({
 
 # Tier 2 — Department Heads: secondary signals, every 2 hours
 _SCAN_TIER2: frozenset = frozenset({
-    "ollama-plutus",     # McCoy         (ministral-3:3b — HM-BN.1 canonical; was mistral:7b)
+    # ollama-plutus (McCoy) REMOVED 2026-09-11 (HM-XO-PLAN-2026-09 Phase 1.2):
+    # measured cadence via this tier was ~12 firings/day x ~175 real
+    # signal_emits/firing (full 600-900-symbol active universe scanned on
+    # every 2h tier trigger) = ~2,095/day -- ~10x the <200/day target.
+    # Replaced by run_mccoy_screened_scan() (twice-daily, deterministic
+    # screen via engine/mccoy_screen.py, top-100), scheduled separately
+    # below main.py's schedule block -- see that function's docstring.
     "ollama-qwen3",      # Scotty        (phi3:mini)
     # ── benched ADVISORY_CREW agents removed from this scan roster ──────────────
     # qwen3-8b-flash (Worf) REMOVED 2026-05-29 (HM-WORF-DRIFT-RECONCILE): benched
@@ -3152,6 +3158,72 @@ def run_team_advisor():
             break  # One slot per poll cycle
 
 
+_mccoy_screened_slots_done_today: set = set()
+
+
+@_hm_bq_instr("run_mccoy_screened_scan")
+def run_mccoy_screened_scan():
+    """HM-XO-PLAN-2026-09 Phase 1.2: McCoy's twice-daily screened scan.
+
+    Fires at 9:35 AM ET (pre-open, 5 min after the bell -- gives volume
+    alerts a moment to register post-open) and 12:30 PM ET (midday,
+    roughly the middle of the 9:30-16:00 ET session). Same 5-min-poll +
+    slot-window pattern as run_team_advisor() above -- NOT schedule's
+    .at("HH:MM") -- this codebase has been bitten three times by .at()'s
+    phase-drift-on-restart bug (see run_kirk_advisory_job/run_cto_advisory
+    comments), so every twice/four-times-daily job here uses the same
+    poll+window shape deliberately, not by coincidence.
+
+    Replaces McCoy's old _SCAN_TIER2 membership (removed same commit) --
+    that fired every 2h over the full 600-900-symbol active universe,
+    ~2,095 signal_emits/day measured. This scans only
+    engine.mccoy_screen.get_mccoy_screened_symbols()'s top-100 (Volume
+    Radar + a liquidity floor sized for movers, not the mega-cap
+    universe), twice a day -- targets <200/day.
+    """
+    global _mccoy_screened_slots_done_today
+    from datetime import datetime
+    import pytz
+
+    try:
+        et = pytz.timezone("US/Eastern")
+        now = datetime.now(et)
+    except Exception:
+        return
+
+    if now.hour < 1:
+        _mccoy_screened_slots_done_today = set()
+        return
+
+    if now.weekday() >= 5:
+        return
+
+    slots = [("pre-open", 9, 35), ("midday", 12, 30)]
+    for slot_id, target_h, target_m in slots:
+        if slot_id in _mccoy_screened_slots_done_today:
+            continue
+        now_mins = now.hour * 60 + now.minute
+        target_mins = target_h * 60 + target_m
+        if target_mins <= now_mins <= target_mins + 20:
+            try:
+                from engine.mccoy_screen import get_mccoy_screened_symbols
+                screen = get_mccoy_screened_symbols()
+                symbols = screen["symbols"]
+                if not symbols:
+                    console.log(f"[yellow]McCoy screened scan [{slot_id}]: 0 symbols from screen — skipping")
+                else:
+                    arena.run_scan(symbols, player_ids=frozenset({"ollama-plutus"}))
+                    console.log(
+                        f"[green]McCoy screened scan [{slot_id}]: {screen['n_found']}/{screen['n_requested']} "
+                        f"symbols (regime={screen['regime'].get('regime') if screen['regime'] else '?'})"
+                    )
+            except Exception as e:
+                console.log(f"[red]McCoy screened scan [{slot_id}] error: {e}")
+            finally:
+                _mccoy_screened_slots_done_today.add(slot_id)
+            break  # One slot per poll cycle
+
+
 @_hm_bq_instr("run_portfolio_monitor")
 def run_portfolio_monitor():
     """Ship's Computer: check Captain's Portfolio every 5 min during market hours."""
@@ -4782,6 +4854,7 @@ if __name__ == "__main__":
     schedule.every(5).minutes.do(run_kirk_advisory_job)      # Kirk Advisory: persist kirk_advisory_log at open/midday/close (AZ weekdays) — HM-KIRK-REHOME 2026-06-01. Was every(30) until HM-OPS-SENTINEL P3.8 (2026-07-06): a 30-min poll's phase (set by whenever main.py last restarted) can drift outside every one of the three 10-min-wide slot windows -- confirmed today all 3 slots (06:35/09:30/13:05) were missed because the post-restart tick landed at :17:28/:47:28, never inside :x5-:x5+10. 5-min cadence (< the 10-min window) guarantees a hit regardless of restart phase.
     schedule.every(30).minutes.do(run_ready_room)             # Ready Room: checks every 30 min, fires 4x daily (8:00/9:15/12:00/3:30 ET)
     schedule.every(30).minutes.do(run_team_advisor)           # Advisory Team (Grok/Ollie+Troi+Worf): fires at 9:30 AM and 1:30 PM ET
+    schedule.every(5).minutes.do(run_mccoy_screened_scan)     # HM-XO-PLAN-2026-09 Phase 1.2: McCoy screened top-100, fires 9:35 AM and 12:30 PM ET (replaces old _SCAN_TIER2 continuous membership)
     schedule.every(5).minutes.do(run_portfolio_monitor)       # Ship's Computer: Captain's Portfolio monitor (stop breaches, big moves, new advice)
     schedule.every(5).minutes.do(run_oi_morning_snapshot)    # OI Tracker: baseline snapshot at market open (9:30 ET)
 
