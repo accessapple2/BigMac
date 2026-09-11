@@ -765,6 +765,36 @@ class AIProvider(ABC):
         except Exception:
             pass
 
+        # --- Recall-in-prompt (HM-XO-PLAN-2026-09 Phase 2, dry-dock B8 wiring
+        # 2026-09-11): K nearest historical analogs by setup-text embedding.
+        # Gated on config.RECALL_IN_PROMPT_ENABLED (default OFF) inside
+        # build_recall_prompt_section itself -- this call is a no-op cost
+        # when the flag is off (one import + one attribute read), so it's
+        # safe to leave wired in for every agent while the flag stays off
+        # for everyone except whichever bakeoff arm gets it turned on.
+        # Latency floor confirmed live 2026-09-10: 0.035-0.171s warm
+        # (relay_2026-09-10_recall-url-fix-and-host-sweep.md), well under
+        # what would justify leaving this unwired.
+        recall_block = ""
+        try:
+            from engine.recall_prompt import build_recall_prompt_section
+            _setup_bits = []
+            if indicators:
+                rsi = indicators.get("rsi")
+                if rsi is not None:
+                    _setup_bits.append("RSI OVERSOLD" if rsi < 30 else "RSI OVERBOUGHT" if rsi > 70 else "RSI NEUTRAL")
+                if indicators.get("macd_histogram") is not None:
+                    _setup_bits.append("MACD BULLISH" if indicators["macd_histogram"] > 0 else "MACD BEARISH")
+                if indicators.get("sma_50") and indicators.get("sma_200"):
+                    _setup_bits.append("GOLDEN CROSS" if indicators["sma_50"] > indicators["sma_200"] else "DEATH CROSS")
+            _setup_text = ", ".join(_setup_bits) if _setup_bits else None
+            recall_block = build_recall_prompt_section(symbol, None, _setup_text)
+            if recall_block:
+                recall_block = "\n" + recall_block
+                self._sources.append("Recall")
+        except Exception:
+            pass
+
         # --- Supply/Demand Imbalance Zones (injected when price is near a zone) ---
         imbalance_block = ""
         try:
@@ -1496,7 +1526,7 @@ Current Portfolio:
 
 Technical Indicators for {symbol}:
 {indicators_block}
-{impulse_block}{sma_block}{imbalance_block}{theta_block}{gap_block}
+{impulse_block}{sma_block}{imbalance_block}{theta_block}{gap_block}{recall_block}
 {sentiment_block}
 
 {regime_block}
