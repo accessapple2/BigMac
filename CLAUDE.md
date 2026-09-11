@@ -776,23 +776,61 @@ is pulled, since it was never a thinking model to begin with.
 
 `plutus-v1` is heavily overloaded on olliemax. As of 2026-09-10 there are
 **three separate models with "v1" in the name**, and seating the wrong one
-puts an unbenchmarked model into production. Confirmed live via
-`/api/tags` (digest is authoritative — size alone is not, see the alias
-section above for why):
+puts an unbenchmarked model into production.
 
-| Tag | Digest | Family / size | What it actually is |
-|---|---|---|---|
-| `plutus-v1:latest` | `f112024b4d65a1ec6a84...` | qwen3, 8.2B | The qwen3:8b alias (see above) — what McCoy (`ollama-plutus`) runs **today**. NOT a Plutus fine-tune at all. |
-| `plutus-v1-real:latest` | `06148c3401a6d74bab0c...` | qwen2, 7.6B, size 4683075467 | The May build recovered from the X9 salvage 2026-09-09 — the restored HM-PLUTUS-V5-WIN checkpoint (`docs/XO_PLAN_2026-09.md` Phase 2 arm 5). |
-| `plutus-v1-may27:latest` | `d413dbe9839060cea51f...` | qwen2, 7.6B, size 4683075306 | A **different** May build — the one June's evaluation actually benchmarked. Confirmed genuinely distinct from `plutus-v1-real` by both digest and byte size despite matching family/param count. |
+**Two different digest concepts — don't compare them to each other.**
+`/api/tags`'s `digest` field is the TAG's manifest digest (template +
+params + blob together — matching this is what proves two tags are
+literal `ollama cp` duplicates, e.g. the qwen3 alias set above). `ollama
+show --modelfile <tag>`'s `FROM .../sha256-...` line is the underlying
+GGUF BLOB digest only — matching THIS is what proves two differently-named
+models were built from the exact same weights, even with different
+Modelfiles. Both tables below are independently authoritative for what
+they each check; a "mismatch" between them across sources is not a bug.
+
+**Manifest digest, confirmed live via `/api/tags` on olliemax (this session, 2026-09-10):**
+
+| Tag | Manifest digest | Family / size |
+|---|---|---|
+| `plutus-v1:latest` | `f112024b4d65a1ec6a84...` | qwen3, 8.2B |
+| `plutus-v1-real:latest` | `06148c3401a6d74bab0c...` | qwen2, 7.6B, size 4683075467 |
+| `plutus-v1-may27:latest` | `d413dbe9839060cea51f...` | qwen2, 7.6B, size 4683075306 |
+
+**Blob (FROM) digest + identity, per `~/modelworks/CLAUDE.md` on olliemax
+(the model-works session's own doc, read 2026-09-10 via `ssh olliemax` —
+authoritative for training/eval history that this repo has no other
+record of):**
+
+| Tag | Blob digest | What it actually is |
+|---|---|---|
+| `plutus-v1:latest` | `sha256-a3de86cd...` | The qwen3:8b alias (see above) — what McCoy (`ollama-plutus`) runs **today**. NOT a Plutus fine-tune at all. |
+| `plutus-v1-real` | `sha256-298c91aa...` | `plutus-v1-gguf/plutus-v1-q4_k_m.gguf` (May 26). A real May fine-tune, but **never benchmarked in any bakeoff** — stronger than this repo's own finding tonight (drops the Invalidation field in a live parse test); the model-works session reports it **emits ~100-char verdict-only replies**. |
+| `plutus-v1-may27` | `sha256-61bbfe8e...` | `plutus-v1-gguf/unsloth.Q4_K_M.gguf` (May 27 16:27) — **the same blob as the archived `plutus-v2`.** Every historic "plutus-v1" bakeoff number (June 11, and the 2026-09-10 rerun) actually refers to THIS model, under the `plutus-v2` weights. |
+
+**COLLISION RISK, in the model-works session's own words: "`v1-real`
+reads like 'the benchmarked v1' and is not. Seating it on v1's bakeoff
+record would put an unevaluated model in a live seat."**
 
 **Before any seat change (config.py, `ai_players.model_id`, or a bakeoff
 arm) that names anything starting `plutus-v1`, re-confirm which digest is
 meant** — do not assume from the tag name alone, and do not trust a
 target date or a prior comment (see the alias section above for why that
 already went wrong once). Full history and additional digests: `~/
-modelworks/CLAUDE.md` on olliemax (not in this repo — a separate working
-tree on that host).
+modelworks/CLAUDE.md` on olliemax — readable via `ssh olliemax` (fixed
+2026-09-10, was pointed at the decommissioned .168 with the wrong user;
+not in this repo, a separate working tree on that host). **Ownership
+boundary, per that file**: the model-works session on olliemax owns
+Ollama, the GPUs, model evaluation, and training there; this repo (Scotty,
+bigmac) owns the trader repo, `trader.db`, the crontab, and the fleet.
+Cross-machine questions get read-only `ssh olliemax` lookups from here —
+never a config/seat change made from that side, and never a restart/`.env`
+edit on bigmac from that side.
+
+Minor doc-lag note, not a live contradiction: olliemax's own "Current
+state" section still says `MAX_LOADED_MODELS=2` as of the same 2026-09-10
+read, though it was raised to 3 tonight and this repo independently
+confirmed the fix live (recall-in-prompt latency 10-17s -> 0.035-0.171s)
+— likely just an unrefreshed doc on that side, not a real discrepancy.
 
 **June's evaluation verdicts, corrected 2026-09-10:**
 - **"v6 tied v1" is withdrawn.** That tie came from `scripts/plutus_v6/
