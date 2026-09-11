@@ -14,3 +14,11 @@ healthy, centered distribution, not clustered at either edge.
 
 **Verdict: clears the bar on both pass rate and distribution shape.
 Proceeding to A3 — no prompt iteration needed.**
+
+## Reconfirmed before resuming B5-D16 (post dry-dock-breach fix)
+
+Re-ran fresh (n=1010, 39 more signals accumulated since the first read):
+**957/1010 (94.8%) — PASS.** Distribution recomputed directly (median
+2.51%, mean 2.94%, p95 6.53%, 963/1010 inside the 0.5-15% band) —
+materially unchanged shape from the original read. No drift from this
+morning's breach/restarts. Proceeding to B5.
