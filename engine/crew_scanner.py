@@ -196,9 +196,25 @@ def _is_agent_paused(player_id: str) -> bool:
 _MAX_DAILY_TRADES_PER_AGENT = 10  # raised from 2 on 2026-04-21 after PDT unblock
 _FLEET_EXPOSURE_MAX_PCT     = 60  # max % of total fleet invested at once
 
-# ── Sniper Mode live gate (matches triple_threat.py SNIPER_ALPHA_THRESHOLD) ──
-SNIPER_ALPHA_THRESHOLD    = 0.25  # composite_alpha >= 0.25 required (LLM agents only)
-SNIPER_MIN_CONFIDENCE     = 55    # LLM confidence >= 55 required (loosened from 65)
+# ── Sniper Mode live gate ─────────────────────────────────────────────────
+# HM-XO-PLAN-2026-09 Phase 2 item C (2026-09-10): "matches triple_threat.py
+# SNIPER_ALPHA_THRESHOLD" (the prior version of this comment) was itself
+# stale -- engine/triple_threat.py was archived 2026-04-26
+# (engine/_archive/2026-04-26/triple_threat.py), so there's nothing left
+# to match. These two values have also drifted from the original April
+# Sniper spec (composite_alpha >= 0.3, confidence >= 70%, PLUS a Signal
+# Center grade >= B check that doesn't exist in this gate at all) --
+# confirmed 2026-09-10 that drift was never a deliberate decision, it
+# accumulated (0.25 here, confidence loosened 65->55 below). Admiral
+# decision 2026-09-10: Phase 1.3 restores the original strict spec
+# (0.3/70%/grade-B) when it ships -- see docs/XO_PLAN_2026-09.md's
+# "Phase 1.3" section for the full spec, including the sizing tier and
+# the fail-closed-on-missing-calibration rule. NOT changed here yet --
+# Phase 1.3 itself is still blocked on Phase 1.2 landing. If the strict
+# gate proves too tight once it ships, that's a measurement to take
+# deliberately, not a threshold to loosen quietly again.
+SNIPER_ALPHA_THRESHOLD    = 0.25  # composite_alpha >= 0.25 required (LLM agents only) -- Phase 1.3 target: 0.3
+SNIPER_MIN_CONFIDENCE     = 55    # LLM confidence >= 55 required (loosened from 65) -- Phase 1.3 target: 70
 CSP_MIN_IVR               = 30    # CSP entries require IV Rank >= 30 (low-IV assignment risk)
 SPREAD_MIN_CONFIDENCE     = 55    # Min confidence for spread strategies (loosened from 60)
 OPTIONS_MIN_CONFIDENCE    = 50    # Min confidence for options directional (loosened from 55)
@@ -3878,7 +3894,13 @@ def _scan_single_agent(player_id: str, market_ctx: dict[str, Any]) -> dict[str, 
         return {"player_id": player_id, "action": "PASS", "reason": reason_np}
 
     # ── Gate 7: Sniper Mode alpha gate ────────────────────────────────────────
-    # Dual filter: composite_alpha >= 0.3 AND LLM confidence >= 55
+    # Dual filter: composite_alpha >= SNIPER_ALPHA_THRESHOLD (0.25 live today,
+    # Phase 1.3 target 0.3) AND LLM confidence >= SNIPER_MIN_CONFIDENCE (55
+    # live today, Phase 1.3 target 70) -- see the constants' own comments
+    # above for why these two no longer match the values in a comment here
+    # once did (2026-09-10 fix; the old text just said "0.3" and "55", which
+    # silently went stale against the 0.3->0.25 drift). No Signal Center
+    # grade check today -- also part of Phase 1.3's restoration.
     # Unrestricted agents (Neo) bypass alpha gate — they trust their own signals
     # Rules-based strategies in BYPASS_SNIPER_ALPHA bypass the alpha check only
     # (alpha scores go negative in bear markets, blocking valid bearish signals)

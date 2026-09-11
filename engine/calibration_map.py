@@ -10,6 +10,18 @@ consumes after it lands; Phase 1.3 itself (actually sizing off the
 calibrated number) is a separate, later, deliberate change. Nothing in
 this file is imported by any live decision or execution path today.
 
+IMPORTANT for whoever wires Phase 1.3's sizing (Admiral decision,
+2026-09-10, docs/XO_PLAN_2026-09.md's Phase 1.3 section): the fail-OPEN
+behavior below (returning stated_confidence unchanged when a bucket has
+too little data) is correct for a pass/fail GATE, where "no evidence
+either way" shouldn't block a trade. It is WRONG for SIZING -- a sizing
+tier built on top of this function must apply its own fail-CLOSED rule
+(base allocation only, never the top tier, when the bucket has no
+evidence), not treat this function's fail-open passthrough as if it were
+verified confidence. Do not change this function's own fail-open default
+to satisfy that -- the gate still needs it. Apply the fail-closed rule in
+the sizing layer instead.
+
 METHOD: simple binned, not isotonic -- deliberately, not by default.
 Per-regime sample sizes (live 2026-09-10, `trade_fire` events with a
 clean trade_id join): BULL_CROSS=131, CAUTIOUS_BEAR=32, CAUTIOUS_BULL=27,
