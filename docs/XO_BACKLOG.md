@@ -11243,3 +11243,30 @@ around this time, a plausible contributor — or whether the function is
 silently raising inside its own try/except and only logging to a
 different sink). Worth a look on its own before trusting A3's twice-daily
 cadence is actually firing as designed.
+
+## ROOT-CAUSED 2026-09-11 — McCoy's 12:30 PM ET no-fire: global scheduler stall, not a McCoy bug
+
+Traced per the Admiral's explicit checklist (timezone/registration/guards/
+scheduler-tick). Timezone ruled out (real pytz US/Eastern conversion, box
+MST irrelevant). Registration confirmed (6/6 restarts today). No guard
+rejected it -- it never got that far. Real finding: zero evidence of ANY
+`schedule.every(1/2/5).minutes` job firing anywhere in the exact
+09:30-09:50 AZ window (=12:30-12:50 ET) -- not just McCoy's, also
+run_scanner/run_crew_scanner_job/run_events_bus_consumer. The single-
+threaded `schedule.run_pending()` queue appears to have stalled globally
+for the whole 20-minute window, matching this codebase's own documented
+"avg 831s / max 1194s" loop-blocker pattern (1194s almost exactly equals
+this window's 20 minutes) and a prior near-identical incident already
+root-caused for `run_kirk_advisory_job`. Full trace:
+`relay_2026-09-11_mccoy_1230_nofire_trace.md`.
+
+**Two follow-ups, not done in this pass:**
+1. Identify which specific job blocked the queue for ~20 min today
+   (deeper log trace needed).
+2. Consider a dedicated thread/process for `run_mccoy_screened_scan`
+   (and any other narrow-window twice-daily job) instead of sharing the
+   single-threaded queue with everything else -- Phase 1.2's whole premise
+   (reliable twice-daily scans replacing noisy continuous ones) is
+   undermined if a twice-daily job can silently no-op with no same-day
+   recovery. Same fix class already applied elsewhere (WR daemon,
+   HM-EQ snapshot pass) for jobs that can't tolerate being starved.
