@@ -505,7 +505,7 @@ body{background:var(--hull);color:var(--tx);font-family:var(--ui);font-size:14px
 <!-- EQUITY CURVE vs SPY -->
 <div class="panel" style="margin-top:16px">
   <div class="phead" style="--accent:var(--info)">
-    <h2>Season 6 Equity · vs SPY Buy-and-Hold</h2>
+    <h2>Season <span id="equitySeasonLabel">—</span> Equity · vs SPY Buy-and-Hold</h2>
     <span class="meta" id="equityCurveMeta">loading…</span>
   </div>
   <canvas id="equityCurveChart" height="80"></canvas>
@@ -1457,7 +1457,14 @@ async function loadLeaderboard() {
   try {
     const d = await api('GET', '/api/arena/leaderboard');
     const rows = d.leaderboard || [];
-    if (d.season) document.getElementById('lbMeta').textContent = 'Season ' + d.season;
+    if (d.season) {
+      document.getElementById('lbMeta').textContent = 'Season ' + d.season;
+      // HM-BRIDGE-COSMETICS-2026-09-11 (XO P4 item 13): the Equity Curve heading
+      // below hardcoded "Season 6" text while THIS label already read the real
+      // season dynamically -- reuse the same fetch instead of a second call.
+      const _eqSeasonEl = document.getElementById('equitySeasonLabel');
+      if (_eqSeasonEl) _eqSeasonEl.textContent = d.season;
+    }
     if (!rows.length) {
       document.getElementById('lbBody').innerHTML = '<tr><td colspan="6" style="padding:14px;color:var(--tx-mute)">No data</td></tr>';
       return;

@@ -8495,7 +8495,13 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
       <div style="display:flex;align-items:center;gap:10px;">
         <span style="font-size:16px;">📊</span>
         <div class="card-title" style="margin:0;letter-spacing:1px;">PRODUCTION TRUTH</div>
-        <span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(37,99,235,0.15);color:#7cc8f8;font-family:var(--font-mono);letter-spacing:0.5px;font-weight:700;">Season 6</span>
+        <!-- HM-BRIDGE-COSMETICS-2026-09-11 (XO P4 item 13): was a hardcoded "Season 6"
+             badge, stale since S8 rotation -- but /api/performance/summary's own
+             docstring says "account equity vs SPY since inception", not season-scoped
+             at all (equity_curve normalizes to 2026-04-24, not a season start date).
+             A dynamic season number would still be conceptually wrong here; label
+             what the data actually is instead of picking a number to keep current. -->
+        <span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(37,99,235,0.15);color:#7cc8f8;font-family:var(--font-mono);letter-spacing:0.5px;font-weight:700;">SINCE INCEPTION</span>
       </div>
       <button onclick="fetchProductionSummary()" style="padding:5px 14px;border-radius:6px;border:1px solid #2563eb;background:rgba(37,99,235,0.1);color:#7cc8f8;font-size:12px;font-weight:700;cursor:pointer;">↻ Refresh</button>
     </div>
