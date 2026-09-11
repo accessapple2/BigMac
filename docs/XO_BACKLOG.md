@@ -11082,15 +11082,20 @@ The "create a dedicated OllieTrades Pushover app" TODO above was based on
 a wrong assumption — the app already exists, its `PUSHOVER_TOKEN`/
 `PUSHOVER_USER` were added to `.env` on 2026-09-09. Repointed
 `_send_pushover()` to read them (removed the now-pointless
-`PUSHOVER_OLLIETRADES_TOKEN`/`_USER` scheme). **Found live: `.env`'s
-`PUSHOVER_TOKEN` is 120 chars — Pushover's real format is 30 — and their
-API rejects it outright ("application token is invalid").** Code now
-falls back to the older file-based token on an actual send failure (not
-just absence), confirmed delivering at every tier. **Still needs a real
-fix**: correct the `.env` value so OllieTrades alerts actually go out
-under its own app identity instead of silently falling back to the old
-shared one every time. Full detail: `relay_2026-09-11_undock_followup_
-pushover_ntfy.md`.
+`PUSHOVER_OLLIETRADES_TOKEN`/`_USER` scheme). Found live: `.env`'s
+`PUSHOVER_TOKEN` was first 120 chars (wrong shape), then — after a first
+correction — 30 chars but still an unregistered value (Pushover's API
+kept rejecting it as invalid both times). A temporary fallback to the
+older shared "GPU Watch" file-based token covered delivery during both
+failures.
+
+**FULLY RESOLVED 2026-09-11**: real OllieTrades app token now in `.env`,
+confirmed delivering cleanly on the first attempt at both WARNING and
+RED_ALERT tiers, no fallback needed. Fallback code removed — `_send_
+pushover()` is back to a single, direct `.env` read, fails loud if it's
+ever missing or bad again rather than silently reverting to a different
+app's identity. Full detail: `relay_2026-09-11_pushover_token_fixed_
+fallback_removed.md`.
 
 ## BACKLOG — Kirk merge into engine/alert_channels.py's hardened primitives
 
