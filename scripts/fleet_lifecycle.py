@@ -56,6 +56,23 @@ ROOT = Path(__file__).resolve().parent.parent
 DB_PATH = ROOT / "data" / "trader.db"
 ORDERS_DIR = ROOT / "docs" / "orders"
 LAUNCHAGENTS_DIR = Path.home() / "Library" / "LaunchAgents"
+# HM-FLEET-LIFECYCLE-SYSTEM-DOMAIN-2026-09-11: a handful of fleet-adjacent
+# jobs are System LaunchDaemons (root-owned, /Library/LaunchDaemons/), not
+# user LaunchAgents -- CLAUDE.md's "LaunchAgent Reboot Lifecycle" section
+# documents this as deliberate (a calendar trigger needs to fire without an
+# active Aqua/GUI console session). This tool previously only knew about
+# LAUNCHAGENTS_DIR, so retiring a system-domain job hard-failed with a
+# confusing "no plist found" error (caught retiring hm-bridge-consensus-
+# monday-check, XO directive P4 item 11). launchctl operations on the
+# system/ domain require root; this session has no non-interactive sudo
+# (confirmed via `sudo -n -l`), so _apply_job_change degrades gracefully
+# for this domain -- it still writes the order doc + ledger row (the part
+# that matters for sentinel drift detection and a durable decision record)
+# and attempts the actual bootout via `sudo -n`, but does not fail the
+# whole command if that specific step needs a password this tool can't
+# supply (doctrine: scoped NOPASSWD sudoers for remote fixes, never
+# passwords in chat).
+LAUNCHDAEMONS_DIR = Path("/Library/LaunchDaemons")
 
 PAUSE_ACTIONS = {"bench", "shadow", "halt"}
 PERMANENT_ACTIONS = {"retire"}
@@ -85,9 +102,20 @@ _KNOWN_JOB_PREFIXES = ("com.ollietrades", "com.trademinds")
 def _resolve_job_label(name: str) -> Optional[str]:
     for prefix in _KNOWN_JOB_PREFIXES:
         label = f"{prefix}.{name}"
-        if (LAUNCHAGENTS_DIR / f"{label}.plist").exists():
+        if (LAUNCHAGENTS_DIR / f"{label}.plist").exists() or (LAUNCHDAEMONS_DIR / f"{label}.plist").exists():
             return label
     return None
+
+
+def _resolve_job_domain(label: str) -> str:
+    """'gui' (default, user LaunchAgent) or 'system' (root LaunchDaemon).
+    A label present in both is treated as 'gui' -- LAUNCHAGENTS_DIR is
+    checked first, matching _resolve_job_label's own precedence."""
+    if (LAUNCHAGENTS_DIR / f"{label}.plist").exists():
+        return "gui"
+    if (LAUNCHDAEMONS_DIR / f"{label}.plist").exists():
+        return "system"
+    return "gui"  # shouldn't happen if _resolve_job_label already found it
 
 
 def _detect_target_type(name: str, conn: sqlite3.Connection) -> Optional[str]:
@@ -249,10 +277,37 @@ def _job_is_loaded(label: str) -> bool:
     return r.returncode == 0
 
 
-def _apply_job_change(action: str, target_name: str) -> None:
+def _apply_job_change(action: str, target_name: str) -> Optional[str]:
+    """Returns None on a fully-applied change, or a warning string if the
+    ledger/order-doc side completed but the live launchctl action could not
+    (system-domain jobs without sudo -- see LAUNCHDAEMONS_DIR comment above)."""
     label = _resolve_job_label(target_name)
     if label is None:
         raise RuntimeError(f"no plist found for '{target_name}' under any of {_KNOWN_JOB_PREFIXES}")
+    domain = _resolve_job_domain(label)
+
+    if domain == "system":
+        # system/ launchctl operations require root. This session (and any
+        # non-interactive session) has no passwordless sudo for this -- try
+        # anyway via `sudo -n` (never prompts, fails clean if unavailable)
+        # so a future session WITH scoped NOPASSWD sudoers for exactly this
+        # gets full automatic behavior, but don't block the ledger/doc write
+        # (the durable, always-achievable part) on a step that needs a human
+        # at a terminal today.
+        cmd = ["sudo", "-n", "launchctl"] + (
+            ["enable", f"system/{label}"] if action == "revive"
+            else ["bootout", f"system/{label}"]
+        )
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        if r.returncode != 0:
+            return (f"could not apply live launchctl state for system-domain job "
+                    f"'{label}' (needs root, no non-interactive sudo available this "
+                    f"session): {r.stderr.strip() or r.stdout.strip()}. Order doc + "
+                    f"ledger row ARE recorded. Manual step: "
+                    f"`sudo launchctl bootout system/{label}` (retire/halt) or "
+                    f"`sudo launchctl enable system/{label}` (revive), run at a terminal.")
+        return None
+
     plist = LAUNCHAGENTS_DIR / f"{label}.plist"
     if action == "revive":
         subprocess.run(["launchctl", "enable", f"gui/501/{label}"], check=True, timeout=15)
@@ -264,6 +319,7 @@ def _apply_job_change(action: str, target_name: str) -> None:
     else:  # halt or retire
         subprocess.run(["launchctl", "bootout", f"gui/501/{label}"], timeout=15)  # ok if already unloaded
         subprocess.run(["launchctl", "disable", f"gui/501/{label}"], check=True, timeout=15)
+    return None
 
 
 # ── Ledger ────────────────────────────────────────────────────────────────
@@ -325,11 +381,12 @@ def cmd_apply(args: argparse.Namespace) -> int:
     _write_order_doc(doc_path, args.action, target_type, args.name, args.reason,
                       args.resume_by, args.review_by, today)
 
+    job_change_warning = None
     try:
         if target_type == "agent":
             _apply_agent_change(conn, args.action, args.name, args.reason, today)
         else:
-            _apply_job_change(args.action, args.name)
+            job_change_warning = _apply_job_change(args.action, args.name)
     except Exception as e:
         _mark_order_doc_failed(doc_path, f"{type(e).__name__}: {e}")
         print(f"ERROR: live state change failed, order doc marked FAILED, no ledger row "
@@ -350,8 +407,13 @@ def cmd_apply(args: argparse.Namespace) -> int:
               f"reconcile manually, do not re-run this command blindly.", file=sys.stderr)
         return 2
 
-    print(f"OK — {target_type} '{args.name}' -> {args.action}. "
-          f"Order: {_rel_or_abs(doc_path)}")
+    if job_change_warning:
+        print(f"OK (partial) — {target_type} '{args.name}' -> {args.action}. Ledger + order "
+              f"doc recorded. Order: {_rel_or_abs(doc_path)}")
+        print(f"  WARNING: {job_change_warning}")
+    else:
+        print(f"OK — {target_type} '{args.name}' -> {args.action}. "
+              f"Order: {_rel_or_abs(doc_path)}")
     return 0
 
 
