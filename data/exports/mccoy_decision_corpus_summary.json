@@ -1,0 +1,32 @@
+{
+  "total_rows": 3179,
+  "options_rows_dropped": 0,
+  "split_sizes": {
+    "train": 2225,
+    "val": 476,
+    "test": 478
+  },
+  "split_date_bounds": {
+    "train": [
+      "2026-09-10 00:07:20",
+      "2026-09-11 01:16:00"
+    ],
+    "val": [
+      "2026-09-11 01:16:24",
+      "2026-09-11 10:15:25"
+    ],
+    "test": [
+      "2026-09-11 10:15:55",
+      "2026-09-11 13:39:14"
+    ]
+  },
+  "forward_return_coverage": {
+    "1d": 2103,
+    "5d": 0
+  },
+  "decision_distribution": {
+    "BUY": 2978,
+    "HOLD": 201
+  },
+  "model_id": "plutus-v1"
+}

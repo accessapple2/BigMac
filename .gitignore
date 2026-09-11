@@ -40,6 +40,7 @@ data/danelfin_scores.json
 data/xo_briefs/
 data/signals/
 data/learning/
+data/exports/*.jsonl  # HM-DATASET-EXPORTER 2026-09-11: regenerable corpus files, too large for git (87MB+/file) -- summary.json stays tracked, regenerate via scripts/mccoy_dataset_exporter.py
 logs/
 
 # Migration artifacts (pre-cutover DB snapshots)
