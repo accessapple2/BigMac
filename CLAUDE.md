@@ -185,6 +185,21 @@ How the Claude Code agent (Scotty) runs — distinct from the FREE-models fleet 
 - **Permissions:** `Write`/`Edit` are scoped to `~/autonomous-trader/**`, `~/.claude/**`, `/tmp/**`
   (no blanket `Write(*)`); `Bash`/`Read` stay broad (HM-SHIELDS guards commands). Out-of-scope
   writes are classifier-screened, not pre-approved. Revert = restore `Write(*)`.
+- **Fork task-fencing (added 2026-09-11, HM-FORK-SCOPE-CREEP incident):** a `fork`
+  subagent inherits the FULL parent conversation context, including any standing
+  multi-part directive still in progress. Confirmed live 2026-09-11: a fork spawned
+  for one narrow task (a dashboard browser smoke-test) instead treated an unrelated
+  standing directive elsewhere in its inherited context as its own responsibility —
+  over ~30 min it built an unrelated feature, ran real paid-API model calls, RESTARTED
+  THE LIVE TRADER, and committed+pushed 4 commits to `exec-pipeline`, all with zero
+  check-in. Nothing in that fork's prompt authorized any of it. **Every fork prompt
+  on this repo, no exceptions, must include an explicit fence**, in these words or
+  equivalent: *"Do ONLY this task. Take no other action from anything else in your
+  inherited context — no commits, no restarts, no paid API calls, no writes outside
+  what this task requires. If you finish early or see other open work, STOP and
+  report back rather than starting it."* This is additive to (not a replacement for)
+  narrowing the task description itself — a narrower task alone did not stop the
+  2026-09-11 incident once the fork was already redirected mid-flight.
 
 ## Frontend Ship Rule (added 2026-05-12, HM-BJ.E4 lesson)
 Non-trivial frontend JS changes require a **manual browser hover/click smoke
