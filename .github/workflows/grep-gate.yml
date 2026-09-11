@@ -71,10 +71,18 @@ jobs:
           #     `DROP TABLE signals` inside a temp-DB fixture to PROVE the
           #     authorizer guard blocks it (test_authorizer_denies_drop_table)
           #     -- the opposite of the thing this gate exists to catch.
-          #   - engine/db_safety.py, CLAUDE.md: prose describing the RULE #1
-          #     DELETE/DROP contract necessarily names "DROP TABLE" and the
-          #     protected tables together while explaining the rule, not
-          #     performing it.
+          #   - engine/db_safety.py, CLAUDE.md, data/reports/relay/*.md: prose
+          #     describing the RULE #1 DELETE/DROP contract or a past incident
+          #     necessarily names "DROP TABLE" and the protected tables
+          #     together while explaining/narrating the rule, not performing
+          #     it. HM-GREP-GATE-RELAY-REGRESSION-2026-09-10: this gate broke
+          #     on relay_2026-09-09_overnight_session.md:105, which quotes
+          #     tests/test_rule1_delete_guard.py's own deliberate DROP TABLE
+          #     verbatim while documenting THIS gate's original fix -- a
+          #     relay doc narrating an incident is exactly the same prose
+          #     class CLAUDE.md was already excluded for, so the whole
+          #     directory is excluded (not just this one file) to stop the
+          #     next relay doc from re-triggering the identical regression.
           #   - archive/salvage dirs (_archive/, backups_archive/,
           #     scripts/_archive/, agents/_archive/, engine/_parked/): this
           #     repo's own Archive Convention keeps retired code in place
@@ -89,7 +97,8 @@ jobs:
                . \
                | grep -vE "^(\./)?tests/test_rule1_delete_guard\.py:" \
                | grep -vE "^(\./)?engine/db_safety\.py:" \
-               | grep -vE "^(\./)?CLAUDE\.md:"; then
+               | grep -vE "^(\./)?CLAUDE\.md:" \
+               | grep -vE "^(\./)?data/reports/relay/.*\.md:"; then
             echo "❌ DROP TABLE on sacred table found — use schema migrations, not drops"
             exit 1
           fi
