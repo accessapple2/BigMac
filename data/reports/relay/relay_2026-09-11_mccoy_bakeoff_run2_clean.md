@@ -30,17 +30,24 @@ overlap partially with today's screen).
 
 | | qwen3:8b (McCoy's live seat) | Fin-R1 | MiniMax-M3 |
 |---|---|---|---|
-| calls | 721 | 69 (65 scored) | 16 |
-| never returned | 0 | 4 (5.8%) | 0 |
-| strict contract valid | 100% (CI 99.5-100) | 46.2% (CI 34.6-58.1) | 100% (16/16) |
-| decision recovered (any parse) | 100% | 95.4% (CI 87.3-98.4) | 100% |
+| calls | 721 | 69 | 16 |
+| never returned (production: a timeout, not a decision) | 0 | 4 (5.8%) | 0 |
+| strict contract valid, of calls that returned | 100% (CI 99.5-100), 721/721 | 46.2% (CI 34.6-58.1), 30/65 | 100% (16/16) |
+| **strict contract valid, of all calls made (Trip's correction)** | 100%, 721/721 | **43.5%, 30/69** | 100%, 16/16 |
+| decision recovered (any parse), of calls that returned | 100% | 95.4% (CI 87.3-98.4) | 100% |
 | silent format-driven flips | 0 | 2 (3.1%), both BUY→HOLD | 0 |
 | CJK code-switching | 0/721 | 0/65 | 0/16 |
 | parsed actions | **BUY 721 (100%)** | HOLD 38 (55%), BUY 19 (28%), BUY_CALL 8 (12%) | **HOLD 16 (100%)** |
 | confidence mean | 0.82 | 0.64 | 0.38 |
-| wall_s mean | 6.8 (p90 8.7, under load test) | 20.1 (p90 30.8, 23% on CPU — upper bound) | 14.2 |
+| wall_s mean (see "do not compare latency" below — not comparable across arms) | 6.8 (p90 8.7) | 20.1 (p90 30.8) | 14.2 |
 | cost | $0 (local) | $0 (local) | $0.0514 for 16 calls |
 | reasoning:visible token ratio | n/a (no reasoning-mode split reported) | n/a | 5.1:1 (18,872 reasoning vs 3,670 visible) |
+
+**Do not compare wall_s across arms (Trip's correction).** qwen3:8b's 6.8s mean
+was measured during a deliberate 40-minute load test, not idle-box conditions.
+Fin-R1 ran 23% on CPU because it doesn't fit in VRAM beside McCoy/Riker at
+24576. Both numbers are real but are upper bounds under specific, different
+load conditions — neither is comparable to the other, nor to a clean idle box.
 
 ## The headline finding, now confirmed at scale
 
@@ -55,18 +62,32 @@ its decision (55% HOLD / 28% BUY / 12% BUY_CALL) — but pays for that variation
 in format reliability.
 
 **Trip's point, and it's the right one: validity alone cannot pick a winner
-here.** A seat that always answers BUY scores perfectly on format validity by
-construction — it never has to correctly identify a HOLD case, so it can never
-fail the "does the Decision: line parse" test in a way that would show up as
-low validity. Weighting validity heavily (as the directive asked, "format
-validity weighted heavily") without also scoring **decision spread** would rank
-qwen3:8b highest for exactly the behavior — always buying — that this
-session's independent 42-trade/71.4%-hit-rate overconfidence finding and the
-REASONING-DIRECTION-CONFLICT flags (4/10 in run 1) already suggest is a real
-problem, not a strength. **Recommendation for whoever scores this bakeoff
-formally: report validity and decision-spread as two separate axes, not one
-blended number** — an arm that's 100% valid and 100% one action is a finding
-about that arm's policy, not evidence it's the best one to seat.
+here.** A seat that always answers the same way scores perfectly on format
+validity by construction — it never has to correctly identify the other case,
+so it can never fail the "does the Decision: line parse" test in a way that
+would show up as low validity.
+
+**Correction to this doc's first draft, per Trip: decision spread is not
+itself a virtue, and the report should not read as if it were.** MiniMax-M3's
+16/16 HOLD is the exact mirror image of qwen3:8b's 721/721 BUY — both are
+one-answer arms on this prompt set, and both score 100% validity by
+construction for the same structural reason. An always-HOLD seat is exactly
+as uninformative as an always-BUY seat; it simply fails in the direction that
+never loses money, which makes it look safer without actually making it more
+discriminating. **On these 16 prompts, only Fin-R1 actually distinguished
+between symbols (55% HOLD / 28% BUY / 12% BUY_CALL) — and it's the arm with
+the format/runaway problems.** Taken together: none of the three arms has
+demonstrated, on this evidence, that it can tell these setups apart. That's
+the honest headline, not "Fin-R1 shows spread so spread is good." Weighting
+validity heavily (as the directive asked) without also checking for
+degenerate one-answer policies would still rank qwen3:8b or MiniMax-M3
+highest for a behavior neither has earned — qwen3:8b's always-BUY pattern in
+particular is consistent with this session's independent 42-trade/71.4%-hit-
+rate overconfidence finding and the REASONING-DIRECTION-CONFLICT flags (4/10
+in run 1). **Recommendation for whoever scores this bakeoff formally: treat a
+100%-one-action result as a flag to investigate (degenerate policy), not as a
+pass on validity, and don't award points for spread alone either — spread
+without accuracy is just a different way of not being useful.**
 
 ## Fin-R1, if ever considered for a seat (not recommended as-is)
 
@@ -78,8 +99,12 @@ problem is markdown wrapping — 1 in 5 answers wrap the contract as
 then falls back to a keyword scan and silently defaults confidence to 0.5. This
 flipped a real written BUY into a parsed HOLD twice (one confirmed case: JPM
 14:53:00, written BUY@0.85 → parsed HOLD@0.5) — a genuine, not cosmetic, scoring
-bug for this arm specifically. The 4/69 (5.8%) that never returned were Trip's
-own harness's 900s client timeout, not fleet traffic patterns — qwen3:8b (0/721)
+bug for this arm specifically. **The 4/69 (5.8%) that never returned are
+counted as failures against the full 69-call denominator above (Trip's
+correction) — in production a call that never returns is a timeout, a harder
+failure than a bad parse, not an absence that should quietly shrink the
+denominator.** Trip's own harness used a 900s client timeout for these, not a
+fleet traffic pattern — qwen3:8b (0/721)
 and gemma3:4b (0/915) saw zero runaways on the same no-`num_predict` request
 bodies, so a missing `num_predict` is the enabling condition, not the sole
 cause; the actual looping (one answer emitted ~30 repeated `---` before hitting
@@ -115,3 +140,10 @@ this pass, flagging as a live offer from Trip if a future session wants it;
 (3) going forward, GPU load windows get posted to the relay
 (`COORD_FROM_SCOTTY_*.md` / `FINDINGS_FOR_SCOTTY.md`) before either side runs,
 per this run's own coordination note.
+
+**Trip's official windows for the record** (the agreement in (3), applied
+retroactively to today's runs): qwen3:8b + gemma3:4b + bge-m3 load test,
+14:05:16-14:45:16 MST; Fin-R1, 14:50:34-15:33:07 MST. Box confirmed idle
+after (no active compute) — `plutus-v1`/`gemma3` still resident in VRAM
+(100% of that budget occupied, not 100% compute utilization), cards a cool
+46/42°C.
