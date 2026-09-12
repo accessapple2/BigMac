@@ -117,12 +117,35 @@ real picks for all three, additive-only per RULE #1.
   asked for, not a new test suite. Worth adding to whatever covers
   `engine/providers/` if one exists.
 
-## Restart note
+## Restart + live verification (2026-09-12 06:40 MST, Admiral-authorized outside market hours)
 
-Code changes are **not yet live** — same as the Friday `3daaa99` fix, this
-needs `launchctl kickstart -k gui/$(id -u)/com.trademinds.trader` to take
-effect in the actual running trader process (verification above ran the
-functions standalone via `.venv/bin/python3`, not through the live PID
-10282 process, which still has the old code in memory). The cron change
-(sentinel stagger) IS live immediately — cron reads the crontab fresh each
-tick, no restart needed.
+Market closed until Monday 04:37 MST — restarted now rather than leaving
+the old code in memory through the premarket window.
+
+1. **Backup first**: ran `scripts/db_snapshot.sh` manually ahead of
+   schedule — `data/backups/trader_2026-09-12.db` (1.3G, `integrity_check=ok`).
+2. **Restart**: `zsh scripts/trader_restart.sh` — single-writer gate passed
+   clean. Old PID 10282 killed, WAL checkpointed in the zero-reader window,
+   new PID **71567** bound :8080, started `2026-09-12 06:40:42`, i.e. after
+   commit `d639064` (`06:35:40`) — the running process reflects the fix.
+3. **Live Riker call, through the running process, not a standalone
+   script**: `curl -X POST http://127.0.0.1:8080/api/riker/synthesize` ->
+   `{"ok":true,"length":891}`, confirmed in `logs/trader.log`: `[06:41:19]
+   Commander Riker: Synthesis generated (891 chars)`. olliemax `/api/ps`
+   before and after: `gemma3:4b` stayed at `context_length: 12288` both
+   times.
+4. **Live sentinel probe** (fresh interpreter, exactly as cron invokes it):
+   `check_ollama_generate_probe([])` -> both `plutus-v1` and `qwen3:8b`
+   `ok:true`, 0.0s (already warm at the right context), zero alerts.
+   olliemax `/api/ps` before and after: `plutus-v1:latest` stayed at
+   `context_length: 24576` both times, `gemma3:4b` unaffected at `12288`.
+5. Post-restart `trader_error.log` tail: normal Saturday weekend-skip
+   activity only (`[BRIDGE_VOTE] Skipping — weekend`, routine 0-result
+   screener passes) — no new errors from this change. (One unrelated
+   pre-existing line, `evaluate_realized_pending failed: no such column:
+   realized_at`, is not touched by this fix — out of scope, noted not
+   silently ignored.)
+
+**HM-OLLIE-SILENT-SEAT is closed: code shipped, live in the running
+process, verified end-to-end against olliemax's own `/api/ps`, not just
+against the source file.**
