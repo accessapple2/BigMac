@@ -168,3 +168,33 @@ lead), this doc. Commits `447aa22`/`42d099e`/`edee331`/`bc38ad1` are the fork's,
 mine, but I've independently verified their content (diffs, dry-run output, py_compile,
 test suite) and stand behind them as accurate. `8382e3d` is the fourth session's,
 not independently re-verified by me.
+
+## FINAL UPDATE, later same session — do not reopen this
+
+Everything above this line describes an earlier, unresolved state. It is
+resolved now. **Phase 1.3's alpha-scaled sizing ladder is closed as
+SUPERSEDED, not paused** (`docs/XO_PLAN_2026-09.md`'s Phase 1.3 entry,
+commit `daf315c`) — code and both flags stay exactly as built, but there is
+no enablement ticket and no plan to revisit the ladder itself. Don't
+reopen it, and don't propose putting a `composite_alpha` gate anywhere in
+McCoy's real chain (`risk_manager.py`, `learning_engine.py`, or anywhere
+else) on the theory that Phase 1.3 just needs the gate it was missing —
+that exact option (Spec A, `relay_2026-09-11_alpha_universe_dynamic_
+spec_A.md`) was researched and explicitly not chosen.
+
+The reason isn't "not enough data yet" — it's structural, verified three
+separate ways this session: no code anywhere on McCoy's real execution
+path checks `composite_alpha` at all (the only place it's checked is a
+scan tier McCoy hasn't run since 2026-09-09); the alpha calculator's fixed
+24-symbol universe covers 1 of 46 (2.2%) of what McCoy's live screen
+actually surfaces on a given day; and the sizing ladder that leaned on
+this signal could only ever produce a 0.25 haircut in practice, on nearly
+everything — a gate wearing sizing's clothes, not sizing. None of these
+resolve by waiting or by re-running anything. The real, precise conclusion
+is that alpha-as-a-Sniper-gate on McCoy was the wrong control surface —
+not that alpha itself was a bad idea, which is why it isn't disproven,
+just untested. If a future session wants to revisit alpha as a feature,
+the fixed test conditions for doing that honestly (as-of at decision time,
+covering names McCoy actually screens, measured by whether it changes his
+action) are recorded in the plan doc's Phase 1.3 entry — read that first
+before building anything, rather than re-deriving this from scratch.
