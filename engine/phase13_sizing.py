@@ -50,12 +50,20 @@ every player. McCoy specifically has fired only 10 trade_fire events since
 confidence buckets applied on each of those 10 days, not all landing in one
 bucket. At that scatter rate, no single bucket reaches n=8 on any plausible
 horizon -- this is not "wait a few more weeks," it is a throughput the
-current design cannot cross. The real bottleneck, already filed separately
-(docs/XO_BACKLOG.md, "calibration_map.py's trade_fire->trade_id join is too
-narrow to ever be useful"), is upstream of trade volume: most real trades
-never get a populated trade_id on their trade_fire event at all, so the
-observation count this whole mechanism depends on is throttled by a logging
-gap, not by how often McCoy actually trades.
+current design cannot cross. **Corrected 2026-09-11 (an earlier version of
+this note was wrong): the bottleneck is NOT an unpopulated trade_id.**
+Verified directly: all 198 fleet-wide trade_fire events have a populated
+trade_id, and every one resolves to a real trades row (0 dangling). The
+real constraint is settlement lag -- 195 of those 198 are matched to a
+trade that hasn't closed yet (no realized P&L), only 3 have settled. This
+isn't a logging gap fixable by backfilling anything; a position's P&L
+doesn't exist until it closes, and closing faster isn't a code change.
+Filed: docs/XO_BACKLOG.md, "calibration_map.py's trade_fire->trade_id join
+is too narrow to ever be useful" -- owner Scotty, target date unslotted,
+no decision made yet between its two proposed directions (relax
+calibration_map to a direct player-scoped trades query, or find another
+way to raise the settled-trade count). Filing this correction alongside it
+rather than leaving the wrong "unpopulated trade_id" framing standing.
 
 **What this design does instead of waiting:** nothing, today -- the
 calibration dimension is built and testable in isolation but deliberately
@@ -66,11 +74,12 @@ conservative of the two? gate one on the other?), is an open design question
 this commit does not answer -- shipping a combination scheme for a dimension
 that structurally cannot accumulate evidence would be building on sand. The
 honest options, for a human decision, are: (a) leave this dimension
-permanently unwired until the trade_fire->trade_id linkage gap is fixed
-upstream, since fixing throughput here without fixing that gap changes
-nothing; (b) fix that linkage gap first, which raises the observation count
-for reasons unrelated to trade volume; or (c) lower MIN_BUCKET_N as a
-deliberate, documented tradeoff -- not something this file decides on its own.
+permanently unwired until settled-trade coverage improves upstream, since
+fixing throughput here without fixing that changes nothing; (b) relax
+calibration_map's own fleet-wide, trade_fire-gated query to something that
+can see more of the real, closed McCoy trade history directly (the backlog
+item's own suggestion); or (c) lower MIN_BUCKET_N as a deliberate, documented
+tradeoff -- not something this file decides on its own.
 """
 from __future__ import annotations
 
