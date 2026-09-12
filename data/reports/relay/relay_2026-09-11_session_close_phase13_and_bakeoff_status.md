@@ -198,3 +198,28 @@ the fixed test conditions for doing that honestly (as-of at decision time,
 covering names McCoy actually screens, measured by whether it changes his
 action) are recorded in the plan doc's Phase 1.3 entry — read that first
 before building anything, rather than re-deriving this from scratch.
+
+## FINAL HANDOFF — Scotty owns everything from here
+
+**Three DO NOT REOPEN items, stated plainly:**
+
+1. **Phase 1.3 ladder/enablement** — superseded, both flags off. Not a
+   dark ship waiting for coverage. Don't "just turn it on."
+2. **Alpha as a McCoy gate** — wrong control surface on a no-discrimination
+   model over a post-1.2 universe. Don't add `composite_alpha >= 0.3` to
+   his live chain as the next task.
+3. **Alpha as prompt context** — a recorded hypothesis, not queued, not
+   "Phase 1.4." Revisited only after the bakeoff conclusions are actually
+   used, and only with the test conditions in the plan doc.
+
+**STILL LIVE — the alpha stack itself is not cursed, only this use of it:**
+
+- `composite_alpha` has real daily history back to April; as-of lookup
+  (`as_of_date <= decision date`, latest) is the correct rule for any
+  future use.
+- Positions that never settle / the `trade_fire`→`trade_id` join is a
+  fleet fact with an owner (Scotty), not an alpha problem.
+- The 2.2% coverage gap is a universe question, not a reason to rebuild
+  1.3.
+
+Work closed. Nothing further from this session.
