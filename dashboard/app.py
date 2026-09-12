@@ -20299,12 +20299,14 @@ def _build_computer_context() -> str:
                 ts = (t["executed_at"] or "")[ 11:16]
                 lines.append(f"  {ts} {t['display_name']} {t['action']} {t['symbol']} x{t['qty']:.1f} @ ${t['price']:.2f}")
 
-        # Fleet Agent Standings (Season 5 leaderboard) — use cached leaderboard for accuracy
+        # Fleet Agent Standings — use cached leaderboard for accuracy
         try:
             _lb = leaderboard()
             lb_agents = _lb.get("leaderboard", [])
             if lb_agents:
-                lines.append("Fleet Standings (Season 5):")
+                # HM-BRIDGE-SEASON-HARDCODE-2026-09-12: was a literal "Season 5"
+                _cc_season = _lb.get("current_season") or _lb.get("season") or "—"
+                lines.append(f"Fleet Standings (Season {_cc_season}):")
                 for a in lb_agents:
                     nm = (a.get("name") or a.get("player_id", "?"))[:20]
                     eq = float(a.get("current_equity", 10000))
@@ -22584,6 +22586,13 @@ def v1_options():
 @app.get("/api/v1/docs", response_class=HTMLResponse)
 def v1_docs():
     """Human-readable API documentation."""
+    # HM-BRIDGE-SEASON-HARDCODE-2026-09-12: footer season was a literal
+    # "Season 5" that would go stale at rollover -- derive it live instead.
+    try:
+        from engine.season_manager import get_current_season as _v1_get_season
+        _v1_season = _v1_get_season()
+    except Exception:
+        _v1_season = "—"
     html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -22712,7 +22721,7 @@ def v1_docs():
   <h2>CORS</h2>
   <p style="font-size:15px">All <code>/api/v1/</code> endpoints include <code>Access-Control-Allow-Origin: *</code> headers for browser access.</p>
 
-  <footer>TradeMinds USS Enterprise · Season 5 · Phase 3.2 Public API</footer>
+  <footer>TradeMinds USS Enterprise · Season {_v1_season} · Phase 3.2 Public API</footer>
 </div>
 </body>
 </html>"""

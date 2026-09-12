@@ -91,7 +91,21 @@ def get_uhura_signals() -> list[dict]:
               AND signal IN ('STRONG_BUY', 'BUY', 'STRONG_SELL', 'SELL')
             ORDER BY created_at DESC LIMIT 10
         """).fetchall()
-        return [{"ticker": r[0], "signal": r[1], "reason": r[2]} for r in rows]
+        # HM-ARCHER-DEDUPE-2026-09-12: a ticker with multiple distinct
+        # institutional_signals rows in the lookback window (e.g. several
+        # separate insider filings) used to appear once per row in the
+        # briefing -- confirmed live as "NUKZ" listed 3x. Keep only the
+        # most recent (first, since the query is already DESC) row per
+        # ticker.
+        seen: set = set()
+        deduped = []
+        for r in rows:
+            ticker = r[0]
+            if ticker in seen:
+                continue
+            seen.add(ticker)
+            deduped.append({"ticker": ticker, "signal": r[1], "reason": r[2]})
+        return deduped
     except Exception as e:
         log.warning(f"Uhura signals fetch failed: {e}")
         return []
@@ -211,9 +225,17 @@ def build_briefing() -> str:
     lines.append("")
     lines.append("Archer out. Good hunting, Admiral.")
 
-    # Strip any non-latin-1 chars so ntfy Title header doesn't explode
-    return "\n".join(lines).encode("ascii", errors="replace").decode("ascii")
-
+    # HM-ARCHER-MOJIBAKE-2026-09-12: this used to ASCII-strip the whole body
+    # (errors="replace" turns every em-dash etc. into a literal "?" --
+    # confirmed live as "STRONG_SELL ? 6 insider sells"), on the theory that
+    # ntfy's Title header would choke on non-ASCII. It wouldn't have: the
+    # notification title is the hardcoded "Morning Briefing -- Archer" in
+    # send_briefing() below, never built from this text, and
+    # engine.alert_channels._send_ntfy() already ASCII-safes its own title
+    # param independently while sending the message body as plain UTF-8
+    # (Content-Type: text/plain; charset=utf-8). Nothing downstream --
+    # ntfy body, archer_briefings DB row, or the dashboard display that
+    # reads that row -- needs this text restricted to ASCII.
     return "\n".join(lines)
 
 

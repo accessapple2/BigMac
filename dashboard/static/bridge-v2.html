@@ -541,6 +541,11 @@ body{background:var(--hull);color:var(--tx);font-family:var(--ui);font-size:14px
       <span class="bpd" id="bsPositionText">No active 0DTE position</span>
       <button class="btn red sm" id="bs0dteCloseBtn" style="display:none" onclick="close0dtePosition()">Close</button>
     </div>
+    <!-- HM-BRIDGE-HISTORY-LABEL-2026-09-12: bsHistory shows the last 4
+         trades regardless of date (each row does carry its own date) --
+         sitting directly under "Trades today" above with no label of its
+         own, it read as if these were today's trades. -->
+    <div class="bpt" style="margin-top:6px;font-size:10px;color:var(--tx-mute);text-transform:uppercase;letter-spacing:.05em">Recent history (any date)</div>
     <div class="bhistory" id="bsHistory"></div>
     <div class="actbar"><button class="btn ghost sm" onclick="loadBattleStation()">↻ Refresh</button></div>
   </div>
@@ -2296,7 +2301,16 @@ async function loadBakeoffStandings() {
       const grad    = s.graduation || {};
       const verdict = grad.verdict || (i === 0 ? 'BASELINE' : 'HOLD');
       const vc      = verdict === 'PASS' ? 'pass' : verdict === 'FAIL' ? 'fail' : 'hold';
-      const dsr     = s.dsr != null ? Number(s.dsr).toFixed(3) : '—';
+      // HM-BRIDGE-DSR-MIN-N-2026-09-12: scripts/archive_harness.py's own
+      // MIN_N_DEFAULT=5 is the threshold below which it refuses to report a
+      // DSR at all ("INSUFFICIENT_N"). engine/shadow_csp_scorecard.compute()
+      // doesn't apply that same gate to the number it returns, so a seat
+      // with e.g. n_closed=3 can carry a real-looking dsr=0.9876 -- a
+      // statistically meaningless number for that sample size, presented
+      // with no caveat. Match the harness's own bar here rather than
+      // trusting s.dsr != null alone.
+      const nClosed = s.n_closed ?? 0;
+      const dsr     = (s.dsr != null && nClosed >= 5) ? Number(s.dsr).toFixed(3) : ('— (N=' + nClosed + ')');
       return '<tr>'
         + '<td style="font-weight:' + (i === 0 ? '700' : '400') + '">' + (s.agent || '—') + '</td>'
         + '<td class="r">' + (s.n_closed ?? 0) + '</td>'

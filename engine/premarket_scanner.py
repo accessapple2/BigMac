@@ -362,6 +362,21 @@ def get_sector_heatmap() -> list:
     except Exception:
         pass
 
+    # HM-SECTOR-ZERO-FILL-2026-09-12: Finviz genuinely returns 0.00% for
+    # every sector while the market is closed (confirmed live on a Saturday:
+    # all 11 sectors == 0.0, source stamped "finviz", not an error/empty
+    # dict). The per-sector loop below treats "sector in finviz_perf" as
+    # sufficient to call it fresh, so this flat-zero response short-circuits
+    # past the stale-disk-cache fallback that exists specifically for this
+    # situation and does hold real data (proven the same instant:
+    # Defense/Aero, which skips Finviz and uses Yahoo, showed a real 0.22%).
+    # A flat zero across every sector simultaneously is not a real market
+    # state worth trusting over honest stale data -- discard it here so the
+    # existing Finviz -> Yahoo -> stale-disk -> 0.0-placeholder chain can
+    # actually reach its stale-disk step.
+    if finviz_perf and all(v == 0.0 for v in finviz_perf.values()):
+        finviz_perf = {}
+
     # --- Step 2: Bulk-fetch ALL symbols (SPY + 11 sector ETFs + all holdings + Defense/Aero) ---
     all_symbols = ["SPY"]  # SPY first so we can compute "beating SPY" in the frontend
     for info in SECTOR_ETFS.values():

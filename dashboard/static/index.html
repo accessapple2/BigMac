@@ -4931,8 +4931,16 @@ async function fetchRikerRecommendation() {
     var el = document.getElementById('rikerRecommendation');
     var ts = document.getElementById('rikerTimestamp');
     if (d.recommendation) {
-      // C1 HM-RIKER-LLM-TOKENIZER-ARTIFACT: strip <unusedNNNN> tokenizer leakage from LLM output
-      el.textContent = String(d.recommendation).replace(/<unused\d+>\s*/g, '');
+      // C1 HM-RIKER-LLM-TOKENIZER-ARTIFACT: strip <unusedNNNN> tokenizer leakage from LLM output.
+      // HM-RIKER-SILENT-DROP-2026-09-12: this used to replace with '', which
+      // is silent when the artifact lands where the model's actual verdict
+      // word should have been (confirmed live cause of "Riker's reasoning
+      // starts mid-sentence at 'all positions. Here's why'" -- the model's
+      // "HOLD" token came back corrupted as a raw <unused####> special token
+      // and vanished with no trace). Replace with a visible marker instead
+      // so a dropped word reads as dropped, not as a seamlessly-wrong
+      // sentence -- we can't recover what the token should have said.
+      el.textContent = String(d.recommendation).replace(/<unused\d+>\s*/g, '[?] ');
       el.style.color = 'var(--text)';
       // HM-DRYDOCK 2026-06-09: parse the verdict → badge (raw narrative above stays as the fallback).
       var _vb = document.getElementById('rikerVerdictBadge');
@@ -4966,8 +4974,15 @@ async function fetchRikerRecommendation() {
     var cel = document.getElementById('xoConsensus');
     if (cd && cd.tickers) {
       var h = '';
+      // HM-CONSENSUS-EMPTY-VOTES-2026-09-12: cd.tickers carries the full
+      // scan universe (confirmed live: 316 tickers, 301 with zero votes
+      // from all three of Spock/Data/Uhura) -- rendering every key showed
+      // ~300 rows of "— — —" with nothing to compare. Show only tickers
+      // with at least one real vote; collapse the rest behind a count.
+      var _consEmptyCount = 0;
       for (var tk in cd.tickers) {
         var t = cd.tickers[tk];
+        if (!t.spock && !t.data && !t.uhura) { _consEmptyCount++; continue; }
         var sa = t.spock ? t.spock.action : '—';
         var da = t.data ? t.data.action : '—';
         var ua = t.uhura ? t.uhura.action : '—';
@@ -4981,6 +4996,9 @@ async function fetchRikerRecommendation() {
         h += '<span style="min-width:70px;"><span style="display:inline-block;width:16px;height:16px;border-radius:50%;background:#3b82f6;text-align:center;line-height:16px;font-size:13px;font-weight:700;color:#fff;margin-right:3px;">D</span>'+_ai(da)+' '+da+'</span>';
         h += '<span style="min-width:70px;"'+_uTip+'><span style="display:inline-block;width:16px;height:16px;border-radius:50%;background:#14b8a6;text-align:center;line-height:16px;font-size:13px;font-weight:700;color:#fff;margin-right:3px;">U</span>'+_ai(ua)+' '+ua+'</span>';
         h += '<span>'+cmp+'</span></div>';
+      }
+      if (_consEmptyCount > 0) {
+        h += '<div style="padding:6px 8px;font-size:11px;color:var(--muted);">+ '+_consEmptyCount+' more tickers scanned with no crew votes yet</div>';
       }
       h += '<div style="padding:8px;font-size:12px;color:var(--muted);">Overall: '+cd.overall_agreement+'% agreement (3-way: Spock + Data + Uhura)</div>';
       cel.innerHTML = h;
@@ -6385,7 +6403,7 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
     </div>
     <div class="glance-row" onclick="toggleGlance('g-metals')">
       <span class="glance-icon">🪙</span>
-      <span class="glance-label" data-tip="Physical gold & silver tracker. Captain's physical strategic reserve. Crisis hedge outside the paper trading arena.">Metals</span>
+      <span class="glance-label" data-tip="Physical gold & silver tracker. Captain's physical strategic reserve. Crisis hedge outside the paper trading arena. The % here is unrealized P&L vs. purchase cost basis -- a different number from the Metals Exposure panel's live spot-price daily change.">Metals</span>
       <span class="glance-detail" id="g-metals-text">Loading...</span>
       <span class="glance-chevron" id="g-metals-chev">▼</span>
     </div>
@@ -24018,9 +24036,16 @@ var _LB_BENCHED = { 'qwen3-14b-pro': 1, 'dayblade-sulu': 1 };
 function buildArenaLbRows(players, expandPrefix, includeHomeBody) {
   var medals = ['\u{1F947}', '\u{1F948}', '\u{1F949}'];
   var html = '';
+  // HM-BRIDGE-RANK-SKIP-2026-09-12: rank used to be the raw loop index `i`,
+  // which keeps advancing even when a benched player is skipped below --
+  // e.g. a bench at array position 2 left rank 3 never assigned to any
+  // rendered row (1, [skip], 3->shown as 4, ...). Track rendered count
+  // separately so rank is always sequential over what's actually shown.
+  var _shown = 0;
   for (var i = 0; i < players.length; i++) {
     var p = players[i];
     if (p && _LB_BENCHED[p.player_id]) continue; // skip Seven, Sulu
+    var rankIdx = _shown++;
     var mc = MCOLORS[p.name] || '#888';
 
     var value = (p.current_equity != null ? Number(p.current_equity) : (p.total_value != null ? Number(p.total_value) : 0));
@@ -24036,7 +24061,7 @@ function buildArenaLbRows(players, expandPrefix, includeHomeBody) {
     var dayCol = dayPnl >= 0 ? 'var(--green)' : 'var(--red)';
     var totalPnlCol = totalPnl >= 0 ? 'var(--green)' : 'var(--red)';
 
-    var rank = i < 3 ? medals[i] : (i + 1);
+    var rank = rankIdx < 3 ? medals[rankIdx] : (rankIdx + 1);
     var rowId = expandPrefix + p.player_id;
 
     var isActive = ACTIVE_PLAYER_IDS.has(p.player_id) ? 'true' : 'false';
@@ -36830,19 +36855,27 @@ function loadGlanceData() {
     var color = ret >= 0 ? 'var(--green)' : 'var(--red)';
     el.innerHTML = '<span style="color:var(--text);font-weight:600;">$' + val.toLocaleString('en',{minimumFractionDigits:2}) + '</span> | <span style="color:'+color+';">' + icon + ' ' + (ret>=0?'+':'') + ret.toFixed(2) + '%</span>';
     // Metals expand: per-metal breakdown
+    // HM-METALS-FIELD-MISMATCH-2026-09-12: /api/metals/portfolio's real
+    // field is "positions" (confirmed live: 2 rows, GC=F/SI=F, each
+    // carrying unrealized_pnl_pct) -- this checked "holdings", which
+    // doesn't exist on the response, so it always fell to "No metals
+    // data." despite the header directly above reading real data
+    // (return_pct) from the very same response.
     var mInner = document.getElementById('g-metals-inner');
-    if (mInner && d.holdings && d.holdings.length > 0) {
-      var mRows = d.holdings.map(function(h) {
-        var mCol = (h.return_pct||0) >= 0 ? '#22c55e' : '#ef4444';
-        var mIco = (h.return_pct||0) >= 0 ? '▲' : '▼';
+    if (mInner && d.positions && d.positions.length > 0) {
+      var mRows = d.positions.map(function(h) {
+        var mPct = h.unrealized_pnl_pct != null ? h.unrealized_pnl_pct : (h.day_change_pct || 0);
+        var mCol = mPct >= 0 ? '#22c55e' : '#ef4444';
+        var mIco = mPct >= 0 ? '▲' : '▼';
+        var mName = (h.symbol||'').replace('=F','').replace('GC','GOLD').replace('SI','SILVER').replace('PL','PLATINUM').replace('PA','PALLADIUM') || h.symbol || '';
         return '<div style="display:flex;gap:6px;align-items:center;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:12px;font-family:var(--font-mono);">'
-          + '<b style="min-width:50px;">'+(h.metal||h.name||'')+'</b>'
-          + ' <span style="color:var(--muted);">'+(h.quantity||0)+' oz</span>'
-          + ' <span style="flex:1;text-align:right;color:var(--text);">$'+(h.current_value||0).toLocaleString('en',{minimumFractionDigits:0})+'</span>'
-          + ' <span style="color:'+mCol+';min-width:52px;text-align:right;">'+mIco+' '+(h.return_pct||0).toFixed(1)+'%</span>'
+          + '<b style="min-width:50px;">'+mName+'</b>'
+          + ' <span style="color:var(--muted);">'+(h.qty||0)+' '+(h.unit||'oz')+'</span>'
+          + ' <span style="flex:1;text-align:right;color:var(--text);">$'+(h.market_value||0).toLocaleString('en',{minimumFractionDigits:0})+'</span>'
+          + ' <span style="color:'+mCol+';min-width:52px;text-align:right;">'+mIco+' '+mPct.toFixed(1)+'%</span>'
           + '</div>';
       });
-      mInner.innerHTML = '<div style="font-size:11px;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:1px;">Physical Holdings</div>' + mRows.join('');
+      mInner.innerHTML = '<div style="font-size:11px;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:1px;">Physical Holdings (unrealized vs cost basis)</div>' + mRows.join('');
     } else if (mInner) {
       mInner.innerHTML = '<span style="color:var(--muted);font-size:13px;">No metals data.</span>';
     }
@@ -37290,7 +37323,12 @@ function loadGlanceData() {
           + '<span style="font-family:var(--font-mono);font-weight:700;color:'+col+';">'+icon+' '+(Math.abs(ret)).toFixed(1)+'%</span>'
           + '</div>';
       });
-      fpInner.innerHTML = '<div style="font-size:11px;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:1px;">Agent Returns — Season 5</div>' + fpRows.join('');
+      // HM-BRIDGE-SEASON-HARDCODE-2026-09-12: was a literal "Season 5" that
+      // would go stale at every season rollover (bridge-v2's equivalent tile
+      // fixed this 2026-08-29, HM-BRIDGE-SEASON-PNL -- this one was missed).
+      // /api/arena/leaderboard's response already carries current_season.
+      var fpSeasonLbl = resp && resp.current_season ? ('Season ' + resp.current_season) : 'Season —';
+      fpInner.innerHTML = '<div style="font-size:11px;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:1px;">Agent Returns — ' + fpSeasonLbl + '</div>' + fpRows.join('');
     }
   }).catch(function(){ var el=document.getElementById('g-fleetpnl-text'); if(el) el.textContent='Fleet data unavailable'; });
 
