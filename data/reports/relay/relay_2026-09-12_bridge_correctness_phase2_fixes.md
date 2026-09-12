@@ -131,6 +131,16 @@ lands where the model's verdict word should be, the sentence loses its
 first word with no trace. Now replaces with a visible `[?] ` marker
 instead — a dropped word now reads as dropped.
 
+## Restart + live verification (2026-09-12 07:34 MST)
+
+Backup-first (`db_snapshot.sh`), `trader_restart.sh` clean restart (PID
+74944 -> 88836, started 07:34:25, 7s after commit `3ab0b14` at 07:34:18 —
+the running process reflects this pass). Verified from the running
+process, not the file: `curl http://127.0.0.1:8080/api/v1/docs` (a public
+endpoint) now returns `Season 8 · Phase 3.2 Public API` where it used to
+say `Season 5`. Post-restart `trader_error.log`: clean startup, `ALL
+SYSTEMS OPERATIONAL — ENGAGE`, no new errors.
+
 ## What's still open
 
 - Item 8's sort-direction claim (Dilithium Reserve ranking first) —
