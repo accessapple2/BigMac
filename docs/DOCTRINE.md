@@ -364,6 +364,25 @@ a failure mode" (multi-path scanning, above): both are about a protective
 mechanism (or a feature's own dependency) failing exactly where and when
 it's needed most, with nothing else positioned to catch it.
 
+### A third-party score is not a gate, and sizing is not a substitute for one (2026-09-11)
+Phase 1.3 (`docs/XO_PLAN_2026-09.md`) built alpha-scaled position sizing for
+McCoy on the assumption that `composite_alpha` functioned as a real
+pre-trade filter (the "Sniper" design). Three rounds of review found:
+no check anywhere on McCoy's real execution path rejects on `composite_
+alpha` at all (the one place the check exists is a scan tier McCoy hasn't
+run since 2026-09-09); the alpha calculator's fixed 24-symbol universe
+covers 1 of 46 (2.2%) of what McCoy's live screen actually surfaces; and a
+sizing tier built to lean on this signal can only ever produce a `0.25`
+haircut in practice, on almost everything, which is a gate wearing sizing's
+clothes, not sizing. Superseded, not built — see that doc's Phase 1.3
+entry for the full closure and the fixed test conditions for revisiting
+alpha as a feature later. **Rule, verbatim: third-party scores don't
+replace a model that never says no, and sizing isn't a substitute for a
+gate that never ran.** If a signal is meant to filter what a model is
+allowed to do, wire it into the actual gate on the actual path that fires
+— don't bolt it onto position size after the fact and call the result
+equivalent.
+
 ### Measurement-instrument bugs: boundary-isolate before reporting rates (2026-05-29)
 The analysis tooling keeps biting us as badly as the bugs. Two instances: **date-less
 log lines** (2026-05-29 — `trader_error.log` `[LRS]` lines carry HH:MM:SS but no date, so

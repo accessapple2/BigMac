@@ -108,7 +108,14 @@ GRADE_B_REVERSAL_MIN_MA8_MARGIN_PCT = 0.3   # SPY % above its 8MA to count as a 
 # no shadow call. Live-flip via settings.
 SHADOW_WITNESS_ENABLED = False
 
-# === HM-XO-PLAN-2026-09 Phase 1.3 — position sizing (spec v2, docs/XO_PLAN_2026-09.md) ===
+# === HM-XO-PLAN-2026-09 Phase 1.3 — position sizing (SUPERSEDED 2026-09-11, docs/XO_PLAN_2026-09.md) ===
+# SUPERSEDED, not paused -- no enablement ticket, no plan to flip these flags later.
+# Conclusion: alpha-as-Sniper-gate on McCoy was the wrong control surface (alpha as a
+# feature is untested, not disproven -- see the plan doc's Phase 1.3 entry for the full
+# closure and the fixed test conditions for revisiting alpha as a feature later). Code
+# and both flags stay exactly as built/reviewed, for the record -- nothing below this
+# line should be read as an active plan.
+#
 # REBUILT 2026-09-11 after Admiral review rejected the first version (fail-open on the
 # alpha dimension: missing/low alpha sized the same as high alpha -- see engine/
 # phase13_sizing.py's module docstring for the full rebuild rationale). Two
