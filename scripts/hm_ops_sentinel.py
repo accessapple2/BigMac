@@ -556,7 +556,13 @@ def check_source_health_watcher_heartbeat(alerts: list[AlertTuple]) -> dict:
 
 
 def check_mlx_qwen3_heartbeat(alerts: list[AlertTuple]) -> dict:
-    """HM-MLX-QWEN3-REVIVAL-2026-08-29: mlx-qwen3's local MLX server (port
+    """RETIRED 2026-09-12 (HM-MLX-QWEN3-DECOMMISSION) -- no longer called from
+    main(). The service this watches is dead (unresponsive on 8899 since
+    2026-09-09) and unused (no live AI_PLAYERS entry routes through it).
+    Left defined, not deleted, for revival if a local MLX server returns.
+    See the retirement comment at this function's former call site for detail.
+
+    HM-MLX-QWEN3-REVIVAL-2026-08-29: mlx-qwen3's local MLX server (port
     8899) died 2026-07-18 with ZERO supervision -- no launchd, no cron,
     nothing watching it -- and stayed dead six weeks until this fix.
     Revived under com.ollietrades.mlx-qwen3.plist (KeepAlive=true); this
@@ -1523,7 +1529,21 @@ def main() -> int:
         collector_status = check_collector_freshness(alerts)
         status_page_status = check_status_page_heartbeat(alerts)
         source_health_status = check_source_health_watcher_heartbeat(alerts)
-        mlx_qwen3_status = check_mlx_qwen3_heartbeat(alerts)
+        # check_mlx_qwen3_heartbeat(alerts) — RETIRED 2026-09-12, HM-MLX-QWEN3-DECOMMISSION.
+        # com.ollietrades.mlx-qwen3 (port 8899, mlx_lm.server) crashed 2026-09-09
+        # 11:19 MST ("Address already in use" on KeepAlive respawn) and never
+        # recovered -- confirmed unreachable, no listener on 8899. No live caller:
+        # config.py has zero AI_PLAYERS entries with provider="mlx" (the
+        # "mlx-qwen3" agent id itself was repointed to provider="ollama" on
+        # olliemax back in 2026-05-17, HM-BN.1), so engine/ai_brain.py's
+        # mlx_providers tier is permanently empty regardless of this server's
+        # health. Coincides with bigmac's broader 2026-09-09 local-model
+        # stand-down (~/.ollama/models deleted). Retired together with the
+        # LaunchAgent + its probe (com.ollietrades.mlx-qwen3{,-probe}.plist,
+        # unloaded and archived to ~/Library/LaunchAgents/_retired/) rather than
+        # leaving a dead-but-unused service alerting hourly on a decommission
+        # nobody finished. Function definition kept below, undeleted, for
+        # revival if a local MLX server is ever reinstated.
         cron_status = check_cron_missing_scripts(alerts)
         launchd_status = check_launchd_jobs_health(alerts)
         lifecycle_drift_status = check_fleet_lifecycle_drift(alerts)
@@ -1537,7 +1557,7 @@ def main() -> int:
 
     print(f"[sentinel] fd={fd_status} lock={lock_status} queue={queue_status} "
           f"collectors={collector_status} status_page={status_page_status} "
-          f"source_health={source_health_status} mlx_qwen3={mlx_qwen3_status} cron={cron_status} "
+          f"source_health={source_health_status} cron={cron_status} "
           f"launchd={launchd_status} lifecycle_drift={lifecycle_drift_status} "
           f"doc_revisit={doc_revisit_status} disk={disk_status} "
           f"expected_work={expected_work_status} ollama_probe={ollama_probe_status}")

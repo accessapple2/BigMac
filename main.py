@@ -594,6 +594,21 @@ def check_scan_liveness():
         return
     if _get_scan_interval() is None:
         return  # market closed — no cadence to violate
+    from engine.market_calendar import is_trading_day
+    if not is_trading_day(az_now().date()):
+        # HM-SCAN-LIVENESS-WEEKEND-FALSE-ALARM 2026-09-12: _get_scan_interval()
+        # never returns None on weekends (it returns SCAN_INTERVAL_WEEKEND=3600s,
+        # same cadence the fleet legitimately stands down to — see
+        # engine/bridge_vote.py's own "[BRIDGE_VOTE] Skipping — weekend"), so the
+        # guard above never caught this. A fixed 2x-T1 (60min) threshold against
+        # an actual 60min weekend cadence leaves zero slack — any scheduler
+        # jitter trips it every cycle. Skip on non-trading days entirely, same
+        # predicate bridge_vote already uses to recognize the stand-down as
+        # intentional rather than a stall.
+        if _scan_liveness_alert_sent:
+            console.log("[green][HM-SCAN-LIVENESS] recovered — non-trading day")
+            _scan_liveness_alert_sent = False
+        return
     age = time.time() - _last_scan_complete_ts
     threshold = 2 * _TIER1_INTERVAL
     if age > threshold:
