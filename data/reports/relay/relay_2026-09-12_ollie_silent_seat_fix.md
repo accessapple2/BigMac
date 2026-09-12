@@ -149,3 +149,44 @@ the old code in memory through the premarket window.
 **HM-OLLIE-SILENT-SEAT is closed: code shipped, live in the running
 process, verified end-to-end against olliemax's own `/api/ps`, not just
 against the source file.**
+
+## HM-OLLIE-SEAT-OVERSIZE-2026-09-12 — same-day correction
+
+Trip found the other half of this fix: the first pass set BOTH gemma3:4b
+and phi3:mini to a uniform 12288, which fixed undersizing but created
+oversizing — phi3:mini at 12288 measures **7.7GB VRAM single-card** and was
+evicting plutus-v1's seat. Same underlying bug (a caller's stated
+requirement silently reconfigures a live seat for whoever runs next), just
+in the opposite direction from the original incident.
+
+**Confirmed before changing anything** (per the Admiral's explicit
+instruction to check first): every real caller of phi3:mini measured well
+under 3.5K:
+- `agents/janeway.py`'s actual daily thesis prompt — **182 tokens**,
+  measured live via `prompt_eval_count` in Ollama's own response, not an
+  estimate.
+- `engine/crew_scanner.py`'s `mlx-qwen3` (advisory tier, "Ensign Ro",
+  currently halted) scan prompt — a similarly small templated
+  market-context string.
+- `engine/crew_scanner.py::_ensure_warm()` keep-alive ping — 5 tokens.
+- `engine/chart_analyzer.py`/`bull_bear.py`/`premarket_scanner.py` each
+  have a `model=="ollama"` branch reaching `config.OLLAMA_MODEL`
+  (phi3:mini), but only via an explicit, non-default model selection
+  nothing currently makes (`chart_analyze`'s default is `"codex"`) — dormant,
+  flagged rather than sized against.
+
+**Fix**: `phi3:mini` override dropped `12288 -> 4096` (3.7GB single-card,
+clear headroom over every real prompt seen, stops competing with
+plutus-v1 for a fleet seat). `gemma3:4b` unchanged at `12288` — Riker's
+real prompts run 8.2-8.4K tokens and genuinely need it; also confirmed
+this matches gemma3:4b's own Modelfile default exactly.
+
+**Restart + live verification** (2nd restart this session, same
+Admiral-authorized outside-market-hours posture): backup re-run (no-op,
+today's snapshot already existed), `trader_restart.sh` clean restart, PID
+74944 (was 71567). Live Janeway call: olliemax `/api/ps` showed
+`phi3:mini` reload from stale `12288` to correct `4096`, `gemma3:4b`
+untouched at `12288`. Live Riker call immediately after (dashboard
+`/api/riker/synthesize`): `{"ok":true,"length":949}`, `gemma3:4b` still
+`12288`, `phi3:mini` still `4096` — both seats stable and correct
+together.

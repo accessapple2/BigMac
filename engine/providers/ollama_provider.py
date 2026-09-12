@@ -159,22 +159,42 @@ _NUM_CTX_OVERRIDES = {
     # small "resident" models outside the qwen3-weight family (see
     # _QWEN3_ALIAS_MODEL_IDS) -- the 24576 default below is sized for
     # qwen3:8b's real prompt distribution and is unnecessary VRAM for these
-    # two. Sized instead for Riker's crew-intelligence synthesis prompt
-    # (engine/riker_xo.py, ~8.2K tokens observed) plus headroom: 12288
-    # covers that with ~4K to spare. Before this override existed, three
-    # independent callers (agents/sarek.py, janeway.py, surak.py) each
-    # hardcoded "num_ctx": 4096 locally instead of importing a shared value,
-    # and engine/riker_xo.py sent no num_ctx at all (inheriting whatever
-    # context happened to be resident) -- both are the same underlying bug:
-    # a caller that doesn't state its own context requirement silently
-    # reconfigures a live seat for whoever runs next. Confirmed live
-    # 2026-09-12 05:45-05:52: Surak's daily brief loaded gemma3:4b at 4096,
-    # and Riker's next 10-min tick rode on that same undersized seat purely
-    # by scheduling accident -- no truncation that time only because no
-    # Riker prompt that cycle needed more than 4096 tokens of room. All four
-    # callers now route through num_ctx_for() below instead of a literal.
+    # two. Before this override existed, three independent callers
+    # (agents/sarek.py, janeway.py, surak.py) each hardcoded "num_ctx": 4096
+    # locally instead of importing a shared value, and engine/riker_xo.py
+    # sent no num_ctx at all (inheriting whatever context happened to be
+    # resident) -- both are the same underlying bug: a caller that doesn't
+    # state its own context requirement silently reconfigures a live seat
+    # for whoever runs next. Confirmed live 2026-09-12 05:45-05:52: Surak's
+    # daily brief loaded gemma3:4b at 4096, and Riker's next 10-min tick
+    # rode on that same undersized seat purely by scheduling accident -- no
+    # truncation that time only because no Riker prompt that cycle needed
+    # more than 4096 tokens of room.
+    #
+    # HM-OLLIE-SEAT-OVERSIZE-2026-09-12 (same-day correction): the first
+    # pass set BOTH to a uniform 12288, fixing undersizing but creating
+    # oversizing -- phi3:mini at 12288 measures 7.7GB VRAM (single-card) and
+    # was evicting plutus-v1's seat, the exact "one caller silently
+    # reconfigures the seat for whoever runs next" failure this override
+    # exists to prevent, just in the opposite direction. gemma3:4b genuinely
+    # needs 12288 (Riker's real crew-intelligence prompts run 8.2-8.4K
+    # tokens) and stays there -- gemma3:4b's own Modelfile default is also
+    # 12288 (`ollama show gemma3:4b --modelfile`), matching the tag's own
+    # truth exactly, same philosophy as the Friday qwen3 fix. phi3:mini has
+    # no caller that comes close: agents/janeway.py's real daily thesis
+    # prompt measures 182 tokens live (prompt_eval_count, not an estimate);
+    # crew_scanner.py's mlx-qwen3 advisory-tier scan prompt is a similarly
+    # small templated market-context string; crew_scanner.py's
+    # _ensure_warm() keep-alive ping is 5 tokens. Dropped to 4096 -- 3.7GB
+    # single-card, well clear of every real prompt seen, and no longer
+    # competes with plutus-v1 for a fleet seat. (chart_analyzer.py/
+    # bull_bear.py/premarket_scanner.py each have a dormant model=="ollama"
+    # branch reachable only via an explicit, non-default selection nothing
+    # currently makes -- not exercised today, flagged rather than sized
+    # against, since sizing a value for traffic that doesn't happen would be
+    # the same unverified-guess mistake this override exists to avoid.)
     "gemma3:4b": 12288,
-    "phi3:mini": 12288,
+    "phi3:mini": 4096,
 }
 # HM-OLLIE-TRUNCATION-2026-09-11: was 10240, sized off qwen3:8b's p95 from
 # HM-PERF-FLEET-THROUGHPUT (2026-07-07) -- that p95 no longer reflects real
