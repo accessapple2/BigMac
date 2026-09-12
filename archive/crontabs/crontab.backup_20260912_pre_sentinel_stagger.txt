@@ -1,0 +1,172 @@
+0 20 * * * /Users/bigmac/autonomous-trader/venv/bin/python3 /Users/bigmac/autonomous-trader/scripts/git_push_health_check.py >> /Users/bigmac/autonomous-trader/logs/push_health_cron.log 2>&1
+# HM-SCHWAB-LIVE-SYNC 2026-06-05 — live API primary, CSV snapshot fallback (||); script self-gates ET RTH
+*/15 6-14 * * 1-5 /opt/homebrew/bin/python3 /Users/bigmac/autonomous-trader/scripts/sync_schwab_live.py >> /Users/bigmac/autonomous-trader/logs/schwab_live_sync.log 2>&1 || /Users/bigmac/autonomous-trader/venv/bin/python3 /Users/bigmac/autonomous-trader/scripts/sync_schwab_to_real_holdings.py >> /Users/bigmac/autonomous-trader/logs/schwab_live_sync.log 2>&1
+# HM-Q-DISSENT-WATCH 2026-06-06 — NTFY Q's first live crew-dissents, market hours (6-13 AZ = RTH ET)
+# REVIVED 2026-08-30 (HM-QUIETDOWN-STALE-JOBS-CLASSIFICATION): ntfy migrated off raw urllib+IPv4-
+# monkeypatch to engine.alert_channels.send_alert (which already carries the same IPv4 fix). Clean
+# no-op verified: state file (last_id=9285) matches crew_dissent_log's real max Q-dissent id
+# exactly, zero new rows since 2026-07-18, script exits 0 with no alert.
+*/20 6-13 * * 1-5 /opt/homebrew/bin/python3 /Users/bigmac/autonomous-trader/scripts/q_dissent_watch.py >> /Users/bigmac/autonomous-trader/logs/q_dissent_watch.log 2>&1
+# HM-Q-MARKET-OPEN-PING — ONE-SHOT 2026-06-09 (Mon) 6:30 AZ (9:30 ET open); script date-guards to fire once
+30 6 9 6 * /opt/homebrew/bin/python3 /Users/bigmac/autonomous-trader/scripts/q_market_open_ping.py >> /Users/bigmac/autonomous-trader/logs/q_market_open_ping.log 2>&1
+# HM-KIMI-CUT-WATCH 2026-06-06 — NTFY when ollama-kimi hits 25 closed AND Sharpe<0 (no auto-halt)
+# RETIRED 2026-08-30 (HM-QUIETDOWN-STALE-JOBS-CLASSIFICATION, Admiral-approved): purpose fulfilled --
+# ollama-kimi was already cut 2026-06-19 ("door1-cut: -$1368 realized, negative-expectancy bleeder",
+# halt_mode=full, confirmed via fleet_lifecycle_ledger backfill). The decision this watcher existed
+# to trigger happened two months ago. Not restoring -- permanent, not a stand-down artifact.
+# 0 14 * * 1-5 /opt/homebrew/bin/python3 /Users/bigmac/autonomous-trader/scripts/kimi_cut_watch.py >> /Users/bigmac/autonomous-trader/logs/kimi_cut_watch.log 2>&1
+7 13 10 6 * /bin/bash /Users/bigmac/autonomous-trader/scripts/hm_forge_phase15.sh >> /Users/bigmac/autonomous-trader/logs/hm_forge_phase15_cron.log 2>&1 # HM-FORGE-1.5-oneshot remove-after-2026-06-10
+46 5 * * 1-5 /Users/bigmac/autonomous-trader/.venv/bin/python3 /Users/bigmac/autonomous-trader/kirk_briefing.py --mode premarket >> /Users/bigmac/autonomous-trader/logs/kirk_briefing_cron.log 2>&1
+59 6 * * 1-5 /Users/bigmac/autonomous-trader/.venv/bin/python3 /Users/bigmac/autonomous-trader/kirk_briefing.py --mode open_check >> /Users/bigmac/autonomous-trader/logs/kirk_briefing_cron.log 2>&1
+45 12 * * 1-5 /Users/bigmac/autonomous-trader/.venv/bin/python3 /Users/bigmac/autonomous-trader/kirk_briefing.py --mode power_hour >> /Users/bigmac/autonomous-trader/logs/kirk_briefing_cron.log 2>&1
+15 13 * * 1-5 /Users/bigmac/autonomous-trader/.venv/bin/python3 /Users/bigmac/autonomous-trader/kirk_briefing.py --mode after_close >> /Users/bigmac/autonomous-trader/logs/kirk_briefing_cron.log 2>&1
+# REMOVED 2026-08-28 (HM-429-REMEDIATION-D): dead HM-FORGE-PAGER oneshot, marked remove-after-2026-06-11, long expired
+# HM-HARDEN A1 — off-host DB backup → Crucial X9, nightly 20:30 MST (script NTFYs on FAILURE only)
+# HM-OFFHOST-TCC-CRON-LOOPBACK (2026-09-03): cron's own responsible-process
+# has no TCC AllFiles grant (confirmed absent from TCC.db for /usr/sbin/cron)
+# and granting FDA to /bin/bash directly does not transfer to it -- TCC
+# attributes a cron-launched child to cron itself, not the interpreter.
+# bigmac is headless (no display to grant FDA to /usr/sbin/cron via System
+# Settings), so this loops the invocation through a dedicated-key SSH call to
+# localhost instead: sshd's own responsible-process (/usr/libexec/sshd-
+# keygen-wrapper) DOES carry the grant, confirmed live in TCC.db (auth_value
+# =2, the only entry present), and a pty-backed session run through it
+# inherits it. Verified via real unattended */5 cron ticks 2026-09-03 06:00-
+# 06:15 MST, not from an interactive shell: rsync writes AND the sqlite3
+# integrity-check reads (both previously "authorization denied") succeeded.
+# See docs/runbooks -- or data/reports/relay/DESIGN_2026-09-02_offhost-
+# backup-option-b.md's TCC section -- for the fragility note: this relies on
+# undocumented Apple behavior, not a supported API, and should be revisited
+# (revert to a straight FDA grant on /usr/sbin/cron) the moment a display is
+# ever attached to this box.
+30 20 * * * ssh -tt -o BatchMode=yes localhost 'bash /Users/bigmac/autonomous-trader/scripts/offhost_backup.sh' >> /Users/bigmac/autonomous-trader/logs/offhost_backup.log 2>&1
+# HM-HARDEN A2 — Daemon Graveyard survival crons (re-homed from retired launchd plists; .venv canonical)
+# STAYS RETIRED 2026-08-30 (HM-QUIETDOWN-STALE-JOBS-CLASSIFICATION, Admiral-approved): v1 fleet_auditor
+# not reviving -- v2 direction decided, not a stand-down artifact. Not restoring.
+# */15 * * * * cd /Users/bigmac/autonomous-trader && /Users/bigmac/autonomous-trader/.venv/bin/python3 /Users/bigmac/autonomous-trader/engine/fleet_auditor.py --quiet >> /Users/bigmac/autonomous-trader/logs/fleet_auditor_cron.log 2>&1
+# HM-DIRECTIVE-2026-07-01 Deck2 #8 — riker-synthesis re-homed from com.ollietrades.riker-synthesis.plist
+# (never bootstrapped since the 2026-05-23 reboot; launchctl bootstrap fails "Domain does not support
+# specified action" over SSH-only sessions, same class as the schwab-watcher launchd->cron migration).
+# Admiral-approved 2026-07-02.
+# DISABLED 2026-08-29 per ORDER_2026-08-29_retire_job_riker-synthesis (code-retired 06-24, tombstoned): */10 * * * * cd /Users/bigmac/autonomous-trader && /Users/bigmac/autonomous-trader/.venv/bin/python3 /Users/bigmac/autonomous-trader/engine/riker_synthesis.py >> /Users/bigmac/autonomous-trader/logs/riker_synthesis.log 2>&1
+# HM-DIRECTIVE-2026-07-02 — origin HTTP healthcheck (bridge/signal/swingdesk), cron per
+# repo doctrine (launchd/systemd bootstrap fails over SSH-only sessions on this box).
+# Checks actual HTTP response, not just process liveness -- a wedged-but-alive process
+# (2026-07-02 swingdesk incident) passes pgrep but fails this. Admiral-approved 2026-07-02.
+# REVIVED 2026-08-30 (HM-QUIETDOWN-STALE-JOBS-CLASSIFICATION): ntfy migrated off raw curl to
+# engine.alert_channels.send_alert (DECOM-SILENCE/Pushover/rate-limit aware) first -- real
+# monitoring gap while dark (no substitute for actual HTTP-response checks). Clean-tick verified
+# (real run: all services passed, no restart triggered; isolated failure-path test: ntfy correctly
+# suppressed by DECOM-SILENCE, browser notification landed).
+*/5 * * * * /bin/bash /Users/bigmac/autonomous-trader/scripts/origin_healthcheck.sh >> /Users/bigmac/autonomous-trader/logs/origin_healthcheck_cron.log 2>&1
+# STAYS DARK 2026-08-30 (HM-QUIETDOWN-STALE-JOBS-CLASSIFICATION, Admiral decision): revisit ~2026-09-06
+# against kirk_briefing.py's live coverage (4x/day, already revived) before deciding whether this is
+# redundant. Not restoring now. (Both duplicate schedules below, neither enabled.)
+# 30 6,13 * * * cd /Users/bigmac/autonomous-trader && /Users/bigmac/autonomous-trader/.venv/bin/python3 /Users/bigmac/autonomous-trader/scripts/situation_report.py >> /Users/bigmac/autonomous-trader/logs/sitrep_cron.log 2>&1
+# 0 10 * * * cd /Users/bigmac/autonomous-trader && /Users/bigmac/autonomous-trader/.venv/bin/python3 /Users/bigmac/autonomous-trader/scripts/situation_report.py >> /Users/bigmac/autonomous-trader/logs/sitrep_cron.log 2>&1
+# REVIVED 2026-08-30 (HM-QUIETDOWN-STALE-JOBS-CLASSIFICATION): no substitute writer found for
+# institutional_holdings/institutional_signals/insider_trades -- Admiral-approved revive, manual
+# clean-tick verified live (19,676 holdings/7 funds, 227 insider txns/26 tickers, 10 signals).
+30 5 * * * cd /Users/bigmac/autonomous-trader && /Users/bigmac/autonomous-trader/.venv/bin/python3 /Users/bigmac/autonomous-trader/agents/uhura_agent.py >> /Users/bigmac/autonomous-trader/logs/uhura_cron.log 2>&1
+45 13 * * * cd /Users/bigmac/autonomous-trader && /Users/bigmac/autonomous-trader/.venv/bin/python3 /Users/bigmac/autonomous-trader/scripts/snapshot_real_portfolio.py >> /Users/bigmac/autonomous-trader/logs/real_portfolio_cron.log 2>&1
+# HM-WATCHDOG-SUPERVISOR 2026-06-10 — relaunch watchdog.py if absent (restart-capable via trader_restart.sh; survives crash+reboot, cron always-alive). healthcheck stays OFF — return-trip ticket: restart_server() must call trader_restart.sh first.
+*/5 * * * * /bin/bash /Users/bigmac/autonomous-trader/scripts/watchdog_supervisor.sh >> /Users/bigmac/autonomous-trader/logs/watchdog_cron.log 2>&1
+# HM-TRADER-KEEPALIVE 2026-06-12 — relaunch main.py if dead; NTFY on every revive
+*/5 * * * * /usr/bin/pgrep -f "[m]ain.py" >/dev/null || { /bin/zsh /Users/bigmac/autonomous-trader/scripts/trader_restart.sh >> /Users/bigmac/autonomous-trader/logs/trader_keepalive_cron.log 2>&1; /usr/bin/curl -s -m 10 -H "Title: TRADER REVIVED by keepalive" -d "main.py was down - trader_restart.sh fired $(date)" https://ntfy.sh/ollietrades-admin; }
+@reboot /bin/zsh -lc 'cd $HOME/autonomous-trader && pkill -f tour_api.py 2>/dev/null; nohup zsh scripts/tour_api_start.sh >> logs/tour_api.log 2>&1 &!' # tour-api
+# STAYS DARK 2026-08-30 (HM-QUIETDOWN-STALE-JOBS-CLASSIFICATION, Admiral decision): revisit after the
+# 2026-09-04 qwen3:8b un-aliasing -- OLLAMA_KEEP_ALIVE=-1 (set 08-27) may have already eliminated the
+# cold-start failure mode this exists to prevent, and its target model/host predates the current
+# aliasing situation. Not restoring now.
+# 45 6 * * 1-5 /bin/zsh /Users/bigmac/autonomous-trader/scripts/ollama_prewarm.sh >> /Users/bigmac/autonomous-trader/logs/ollama_warmup_cron.log 2>&1 # ollama-prewarm
+@reboot /bin/zsh /Users/bigmac/autonomous-trader/scripts/signal_center_reboot_start.sh # signalcenter-reboot
+# REVIVED 2026-08-30 (HM-QUIETDOWN-STALE-JOBS-CLASSIFICATION): confirmed still-live root cause
+# (regime_history froze intraday, 08-27..08-30 all one-row-per-day) -- Admiral-approved revive,
+# manual clean-tick verified (correctly no-ops on non-trading day). First real trading-day
+# verification due Monday 08-31.
+*/15 6-13 * * 1-5 /Users/bigmac/autonomous-trader/.venv/bin/python3 /Users/bigmac/autonomous-trader/scripts/regime_refresh_runner.py >> /Users/bigmac/autonomous-trader/logs/regime_refresh_cron.log 2>&1  # HM-REGIME-REFRESH-FIX
+30 13 * * 1-5 /Users/bigmac/autonomous-trader/.venv/bin/python3 /Users/bigmac/autonomous-trader/scripts/strategy_outcome_tracker.py >> /Users/bigmac/autonomous-trader/logs/strategy_outcome_tracker_cron.log 2>&1  # HM-STRATEGY-OUTCOME-TRACKER
+# HM-DEJAVU 2026-06-15 — incremental recall-corpus refresh (after-close); keeps vec_trades_bge/recall_corpus fresh; .venv-recall only; NTFY on fail. 15:00 MST = ~18:00 ET(EDT). Cron (not LaunchAgent) for SSH-reboot survival per CLAUDE.md.
+# ENABLED 2026-08-30 (HM-QUIETDOWN-STALE-JOBS-CLASSIFICATION, Admiral-approved). ntfy migrated
+# to engine.alert_channels.send_alert. CORRECTION: the earlier "blocked on Ollie Max" note was
+# wrong -- Ollie Max (192.168.1.168) is DECOMMISSIONED (2026-07), not down, and was never coming
+# back. Repointed off decommissioned olliemax to local com.ollama.serve
+# (engine/setup_similarity_signal.py:56, bge-m3 pulled locally, embedding-only model, does not
+# compete with the qwen3:8b chat alias set). Verified live: embedded count moved 252->255 across
+# 3 runs, then stabilized at 0 new (the remaining ~1,340-row gap is older than this script's
+# fixed 500-most-recent-trade window -- unreachable by design, not a bug; see
+# docs/XO_BACKLOG.md HM-QUIETDOWN-FINAL-DISPOSITIONS for detail).
+0 15 * * 1-5 /bin/zsh /Users/bigmac/autonomous-trader/scripts/recall_refresh_run.sh >> /Users/bigmac/autonomous-trader/logs/recall_refresh_cron.log 2>&1
+@reboot /bin/zsh /Users/bigmac/autonomous-trader/scripts/trader_restart.sh >> /Users/bigmac/autonomous-trader/logs/trader_reboot_start.log 2>&1 # trader-reboot
+@reboot /bin/zsh /Users/bigmac/autonomous-trader/scripts/cloudflared_reboot_start.sh >> /Users/bigmac/autonomous-trader/logs/cloudflared_reboot_start.log 2>&1 # cloudflared-reboot
+# HM-KIRK-SCAN-INGEST 2026-06-22 — parse OBSERVATION_BLOCK from daily newsletter, stamp Polygon anchors, insert signal_observations (is_context=1). NTFY+exit1 if file or block missing.
+# STOOD DOWN 2026-06-30 (missing upstream feed): 32 13 * * 1-5 cd /Users/bigmac/autonomous-trader && /Users/bigmac/autonomous-trader/.venv/bin/python3 /Users/bigmac/autonomous-trader/scripts/scotty_kirk_ingest.py data/kirk/$(date +\%Y-\%m-\%d).txt >> /Users/bigmac/autonomous-trader/logs/kirk_ingest.log 2>&1
+# DRAWDOWN-DRYRUN-GATE 2026-06-23 — ONE-SHOT 7:00 AZ (14:00 UTC); remove after Captain confirms 8-position book. CRON GATE: recurring */5 6-13 M-F goes in only after confirm.
+# HM-DRAWDOWN-CRON-2026-07-01: elapsed one-shot dry-run (June 23, Admiral-gated) — superseded by recurring line below. Archived, not deleted.
+# 0 14 23 6 * /Users/bigmac/autonomous-trader/.venv/bin/python3 /Users/bigmac/autonomous-trader/scripts/schwab_drawdown_alert.py >> /Users/bigmac/autonomous-trader/logs/drawdown_alert_dryrun.log 2>&1
+7,22,37,52 6-13 * * 1-5 /Users/bigmac/autonomous-trader/.venv/bin/python3 /Users/bigmac/autonomous-trader/scripts/schwab_drawdown_alert.py >> /Users/bigmac/autonomous-trader/logs/drawdown_alert.log 2>&1
+# HM-REALIZED-WEEKLY-SNAPSHOT 2026-06-29 — every Friday 21:00 UTC (after close); writes drafts/REALIZED_WEEKLY_YYYY-MM-DD.md + logs/realized_weekly_snapshot.log
+0 21 * * 5 /Users/bigmac/autonomous-trader/.venv/bin/python3 /Users/bigmac/autonomous-trader/scripts/realized_weekly_snapshot.py >> /Users/bigmac/autonomous-trader/logs/realized_weekly_snapshot.log 2>&1
+# HM-DAILY-REPORT 2026-06-29 — after-close snapshot Mon-Fri 22:00 UTC; writes drafts/DAILY_REPORT_YYYY-MM-DD.md + appends daily_ledger.csv
+# RETIRED 2026-08-30 (HM-QUIETDOWN-STALE-JOBS-CLASSIFICATION, Admiral-approved). CORRECTION on record:
+# the original "superseded by eod_report.py" premise was checked and is factually wrong -- the two
+# scripts do not collide (eod_report.py writes eod_report_log + ntfy only, never touches
+# drafts/DAILY_REPORT_*.md/daily_ledger.csv). Retiring per explicit Admiral directive anyway, on
+# consolidation grounds (one daily archival mechanism, eod_report.py's DB-log/ntfy heartbeat) rather
+# than the disproven collision. Revive candidate if the markdown-archive/CSV-ledger output is
+# wanted back specifically.
+# 0 22 * * 1-5 /Users/bigmac/autonomous-trader/.venv/bin/python3 /Users/bigmac/autonomous-trader/scripts/daily_report.py >> /Users/bigmac/autonomous-trader/logs/daily_report.log 2>&1
+15 20 * * * /bin/bash /Users/bigmac/autonomous-trader/scripts/db_snapshot.sh
+45 20 * * * ssh -tt -o BatchMode=yes localhost 'bash /Users/bigmac/autonomous-trader/scripts/backup_freshness_check.sh'
+0 5 * * * /bin/bash /Users/bigmac/autonomous-trader/scripts/rotate_logs.sh
+
+
+# HM-SWEEP-CADENCE-2026-07-05 — weekly clean-window fleet-realism sweep, Sunday 22:10 MST (~40min after the 9:00-9:30PM tuning crew window). Admiral-approved.
+# REVIVED 2026-08-30 (HM-QUIETDOWN-STALE-JOBS-CLASSIFICATION): no substitute sweep found -- Admiral-
+# approved revive, manual clean-tick verified (launched clean, processing the fixed 22-agent roster).
+10 22 * * 0 cd /Users/bigmac/autonomous-trader && /Users/bigmac/autonomous-trader/.venv/bin/python -u fleet_realism_sweep_clean_window.py >> /Users/bigmac/autonomous-trader/logs/fleet_sweep_clean.log 2>&1
+# REVIVED 2026-08-30 (HM-QUIETDOWN-STALE-JOBS-CLASSIFICATION): re-checked the "collision with
+# daily_report.py" premise from the classification report -- WRONG, eod_report.py writes
+# eod_report_log (DB) + ntfy only, never touches drafts/DAILY_REPORT_*.md/daily_ledger.csv (that's
+# daily_report.py's own output, only mentioned here in a comparison docstring paragraph). No
+# actual collision, no doc mismatch to fix. Revived anyway per Admiral directive; daily_report.py
+# retired separately below on corrected grounds.
+0 14 * * 1-5 /Users/bigmac/autonomous-trader/.venv/bin/python3 /Users/bigmac/autonomous-trader/scripts/eod_report.py >> /Users/bigmac/autonomous-trader/logs/eod_report_cron.log 2>&1  # HM-EOD-REPORT-2026-07-05
+# RESTORED 2026-08-29 (HM-GEX-COLLECTOR-DEAD remediation): script un-renamed from
+# the 2026-07-22 stand-down + extended with check_collector_freshness() (GEX +
+# fred_carts staleness, market-hours-aware) + retired the now-permanently-dead
+# check_riker_heartbeat. Independent of the standdown-reversal question (still
+# open in QUESTION_fleet-standdown-reversal.md) -- this specific check was asked
+# for directly, not part of a general fleet reversal.
+*/5 * * * * /Users/bigmac/autonomous-trader/.venv/bin/python3 /Users/bigmac/autonomous-trader/scripts/hm_ops_sentinel.py >> /Users/bigmac/autonomous-trader/logs/hm_ops_sentinel_cron.log 2>&1  # HM-OPS-SENTINEL-2026-07-06
+# RETIRED 2026-08-30 (HM-QUIETDOWN-STALE-JOBS-CLASSIFICATION, Admiral-approved): Admiral dropped IREN
+# alerts -- not fixing the pre-existing 429-era error, retiring outright. Permanent, not a
+# stand-down artifact. File stays at *.quietdown-disabled-2026-07-22, not restoring.
+# */15 * * * * /Users/bigmac/autonomous-trader/.venv/bin/python3 /Users/bigmac/autonomous-trader/scripts/iren_flip_watch.py >> /Users/bigmac/autonomous-trader/logs/iren_flip_watch.log 2>&1 # HM-FLEET-REBASELINE-2026-07-04 IREN watch, self-removing
+# RETIRED 2026-08-30 (HM-GEX-RETIRED): /v3/snapshot/options 403 NOT_AUTHORIZED -- options chain requires a paid Polygon/Massive plan, cancelled 7/22. Verified 8/30. Data preserved in data/flow_gex.db; see XO_BACKLOG.
+# 5 13 * * 1-5 /Users/bigmac/autonomous-trader/.venv/bin/python3 /Users/bigmac/autonomous-trader/scripts/hm_gex_daily_collect.py >> /Users/bigmac/autonomous-trader/logs/gex_collector.log 2>&1  # HM-GEX-COLLECTOR-2026-07-06 (P2-4)
+
+55 15 * * 1-5 /Users/bigmac/autonomous-trader/.venv/bin/python3 /Users/bigmac/autonomous-trader/scripts/refresh_mtm_intrinsic.py >> /Users/bigmac/autonomous-trader/logs/mtm_refresh.log 2>&1  # HM-MTM-INTRINSIC-2026-07-07 (P0-A item 3)
+50 20 * * 0 /Users/bigmac/autonomous-trader/.venv/bin/python3 /Users/bigmac/autonomous-trader/scripts/counterfactual_report.py >> /Users/bigmac/autonomous-trader/logs/counterfactual_report.log 2>&1  # HM-COUNTERFACTUAL-REPORT-2026-07-07 (P1 measurement layer)
+# HM-SOURCE-HEALTH-WATCHER 2026-06-02 -- RESTORED 2026-07-10 (cron entry was found missing during
+# HM-BUG-BATCH-2026-07-10 item 7 verification; dropped from crontab sometime 2026-06-07..2026-06-10,
+# script itself was never broken -- see logs/source_health_watcher_cron.log). Independent dead-man's-
+# switch alarm for per-source data freshness; heartbeat read by the trader's in-process staleness check.
+*/10 * * * * /Users/bigmac/autonomous-trader/.venv/bin/python3 /Users/bigmac/autonomous-trader/scripts/source_health_watcher.py >> /Users/bigmac/autonomous-trader/logs/source_health_watcher_cron.log 2>&1
+
+# HM-DEPARTURE-HARDENING-P1-ITEM-3 2026-07-10 -- disk-space alert (WARN 85%/ALARM 95%),
+# independent of backup scripts by construction. 3x/day, every day (disk doesn't take weekends).
+0 6,13,20 * * * /bin/bash /Users/bigmac/autonomous-trader/scripts/disk_space_alert.sh
+# HM-DEPARTURE-HARDENING-P1-ITEM-4a 2026-07-10 -- Door-1 G1-G4 kill-gate compute-and-push,
+# never acts. Daily weekday, 5min after eod_report.py to avoid an exact-minute collision.
+# DISABLED 2026-08-29 (HM-CRON-STANDDOWN-CLEANUP): scripts/door1_kill_gate_check.py was renamed away in the 2026-07-22 fleet stand-down (see *.quietdown-disabled-2026-07-22 siblings) -- this line was left active in crontab, failing silently every tick since. Not restoring the file (open standdown-reversal question, see data/reports/relay/QUESTION_fleet-standdown-reversal.md) -- just stopping the noise:
+# 5 14 * * 1-5 /Users/bigmac/autonomous-trader/.venv/bin/python3 /Users/bigmac/autonomous-trader/scripts/door1_kill_gate_check.py >> /Users/bigmac/autonomous-trader/logs/door1_kill_gate_check.log 2>&1
+# HM-DEPARTURE-HARDENING-P1-ITEM-4b 2026-07-10 -- ollie-machine single-agent kill-gate
+# compute-and-push, never acts. Daily weekday, 10min after eod_report.py.
+# DISABLED 2026-08-29 (HM-CRON-STANDDOWN-CLEANUP): scripts/ollie_machine_kill_gate_check.py was renamed away in the 2026-07-22 fleet stand-down (see *.quietdown-disabled-2026-07-22 siblings) -- this line was left active in crontab, failing silently every tick since. Not restoring the file (open standdown-reversal question, see data/reports/relay/QUESTION_fleet-standdown-reversal.md) -- just stopping the noise:
+# 10 14 * * 1-5 /Users/bigmac/autonomous-trader/.venv/bin/python3 /Users/bigmac/autonomous-trader/scripts/ollie_machine_kill_gate_check.py >> /Users/bigmac/autonomous-trader/logs/ollie_machine_kill_gate_check.log 2>&1
+# HM-ARCHIVE-TTL 2026-08-31 — 30-day retention on data/backups/_archive; the dir had no policy and grew to 8G (~213MB/day), which is what put the volume at 100% on 8/31
+30 21 * * * /usr/bin/find /Users/bigmac/autonomous-trader/data/backups/_archive \( -name "trader_*.db.gz" -o -name "*.db-shm" -o -name "*.db-wal" \) -mtime +30 -delete >> /Users/bigmac/autonomous-trader/logs/archive_ttl_cron.log 2>&1
+*/5 * * * * /Users/bigmac/autonomous-trader/.venv/bin/python3 /Users/bigmac/autonomous-trader/scripts/olliemax_health_probe.py >> /Users/bigmac/autonomous-trader/logs/olliemax_health_probe_cron.log 2>&1  # HM-OLLIEMAX-PROBE-2026-09-08
+10 13 * * 1-5 /Users/bigmac/autonomous-trader/.venv/bin/python3 /Users/bigmac/autonomous-trader/scripts/mccoy_baseline_tracker.py >> /Users/bigmac/autonomous-trader/logs/mccoy_baseline_cron.log 2>&1
+45 19 * * 0 /Users/bigmac/autonomous-trader/.venv/bin/python3 /Users/bigmac/autonomous-trader/scripts/signal_center_archive_rotate.py --apply >> /Users/bigmac/autonomous-trader/logs/signal_center_archive_rotate.log 2>&1  # HM-SIGNAL-CENTER-RETENTION-2026-09-10 (weekly, before the 20:15/20:30/20:45 daily backup chain)

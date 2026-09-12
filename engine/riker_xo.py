@@ -13,6 +13,7 @@ from datetime import datetime
 from rich.console import Console
 
 from engine.halt_gate import HALTED_EMIT_FILTER
+from engine.providers.ollama_provider import num_ctx_for, require_num_ctx
 
 console = Console()
 
@@ -221,8 +222,19 @@ def _do_riker_synthesis() -> str | None:
             # stopping at 400 tokens). Moved into "options" where Ollama
             # actually reads it. found via olliemax's ~/modelworks/
             # fleet_checks/ollama_churn/FINDINGS_FOR_SCOTTY.md.
+            # HM-OLLIE-SILENT-SEAT-2026-09-12: this call previously sent no
+            # num_ctx at all, silently inheriting whatever context olliemax
+            # happened to have resident for gemma3:4b -- e.g. 4096 right
+            # after agents/surak.py's daily Elder Council brief. Confirmed
+            # live 2026-09-12: this exact collision happened (Surak loaded
+            # gemma3:4b at 4096, Riker's next 10-min tick rode on it) with
+            # no truncation only because that cycle's prompt happened to
+            # fit. Now sourced from the same shared seat-size constant
+            # every other olliemax caller uses -- see
+            # ollama_provider.num_ctx_for().
             json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False,
-                  "options": {"num_predict": 400}},
+                  "options": {"num_predict": 400,
+                              "num_ctx": require_num_ctx(OLLAMA_MODEL, num_ctx_for(OLLAMA_MODEL))}},
             timeout=180,
         )
         resp.raise_for_status()

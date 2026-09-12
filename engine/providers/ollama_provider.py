@@ -155,6 +155,26 @@ _NUM_CTX_OVERRIDES = {
     # left in place rather than removed since a future 30B re-bakeoff would
     # need the same sizing.
     "qwen3:30b-a3b-instruct-2507-q4_K_M": 16384,
+    # HM-OLLIE-SILENT-SEAT-2026-09-12: gemma3:4b and phi3:mini are the two
+    # small "resident" models outside the qwen3-weight family (see
+    # _QWEN3_ALIAS_MODEL_IDS) -- the 24576 default below is sized for
+    # qwen3:8b's real prompt distribution and is unnecessary VRAM for these
+    # two. Sized instead for Riker's crew-intelligence synthesis prompt
+    # (engine/riker_xo.py, ~8.2K tokens observed) plus headroom: 12288
+    # covers that with ~4K to spare. Before this override existed, three
+    # independent callers (agents/sarek.py, janeway.py, surak.py) each
+    # hardcoded "num_ctx": 4096 locally instead of importing a shared value,
+    # and engine/riker_xo.py sent no num_ctx at all (inheriting whatever
+    # context happened to be resident) -- both are the same underlying bug:
+    # a caller that doesn't state its own context requirement silently
+    # reconfigures a live seat for whoever runs next. Confirmed live
+    # 2026-09-12 05:45-05:52: Surak's daily brief loaded gemma3:4b at 4096,
+    # and Riker's next 10-min tick rode on that same undersized seat purely
+    # by scheduling accident -- no truncation that time only because no
+    # Riker prompt that cycle needed more than 4096 tokens of room. All four
+    # callers now route through num_ctx_for() below instead of a literal.
+    "gemma3:4b": 12288,
+    "phi3:mini": 12288,
 }
 # HM-OLLIE-TRUNCATION-2026-09-11: was 10240, sized off qwen3:8b's p95 from
 # HM-PERF-FLEET-THROUGHPUT (2026-07-07) -- that p95 no longer reflects real
@@ -192,6 +212,44 @@ _DEFAULT_NUM_CTX = 24576
 
 def _num_ctx_for(model_id: str) -> int:
     return _NUM_CTX_OVERRIDES.get(model_id, _DEFAULT_NUM_CTX)
+
+
+def num_ctx_for(model_id: str) -> int:
+    """Public accessor -- the one shared source of a model's configured seat
+    context size. Every caller that hits olliemax's /api/generate for a
+    given model_id should source num_ctx from here rather than a local
+    literal (see HM-OLLIE-SILENT-SEAT-2026-09-12 above)."""
+    return _num_ctx_for(model_id)
+
+
+class UndersizedNumCtxError(ValueError):
+    """Raised by require_num_ctx() -- a caller asked for less context than
+    the model's configured seat size, which would silently shrink a live
+    seat for whoever runs next."""
+
+
+def require_num_ctx(model_id: str, requested_num_ctx: int) -> int:
+    """HM-OLLIE-SILENT-SEAT-2026-09-12 systemic guard: fail loudly, before
+    the request goes out, if a caller asks for less context than the
+    model's configured seat size. Same shape as the Friday done_reason==
+    "length" guard in engine/riker_xo.py -- the bug there wasn't that a
+    call could truncate, it's that truncation was silent. This is the same
+    fix one step earlier: a caller that doesn't state its real requirement
+    (or hardcodes a stale/too-small literal) must not be allowed to run
+    quietly -- it must error, not degrade the seat for the next caller.
+    Returns requested_num_ctx unchanged when it's sufficient, so call sites
+    can wrap their options value: "num_ctx": require_num_ctx(model_id, N).
+    """
+    expected = _num_ctx_for(model_id)
+    if requested_num_ctx < expected:
+        raise UndersizedNumCtxError(
+            f"num_ctx={requested_num_ctx} requested for model {model_id!r} is "
+            f"below its configured seat size ({expected}). This would silently "
+            f"reconfigure a live olliemax seat for whoever runs next -- use "
+            f"engine.providers.ollama_provider.num_ctx_for({model_id!r}) instead "
+            f"of a hardcoded or omitted value."
+        )
+    return requested_num_ctx
 
 # HM-MODEL-LOUD 2026-06-01: a missing/failing model must ALARM, not silently return "".
 # (How devstral-small-2 etc. went dark — _do_request swallowed the 404 to an empty string.)

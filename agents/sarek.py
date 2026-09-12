@@ -28,6 +28,8 @@ from typing import Any
 
 import requests
 
+from engine.providers.ollama_provider import num_ctx_for, require_num_ctx
+
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
@@ -120,7 +122,11 @@ def _call_ollama(prompt: str, timeout: int = 90) -> str:
                 "model": _MODEL,
                 "prompt": prompt,
                 "stream": False,
-                "options": {"temperature": 0.2, "num_ctx": 4096},
+                # HM-OLLIE-SILENT-SEAT-2026-09-12: was a hardcoded 4096 --
+                # see engine/providers/ollama_provider.py's num_ctx_for()
+                # docstring for why every caller must source this from the
+                # shared per-model seat size instead of a local literal.
+                "options": {"temperature": 0.2, "num_ctx": require_num_ctx(_MODEL, num_ctx_for(_MODEL))},
             },
             timeout=timeout,
         )

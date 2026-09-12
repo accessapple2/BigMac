@@ -1382,6 +1382,7 @@ _OLLAMA_PROBE_TIMEOUT_S = 15
 def check_ollama_generate_probe(alerts: list[AlertTuple]) -> dict:
     import requests
     from config import OLLAMA_URL
+    from engine.providers.ollama_provider import num_ctx_for, require_num_ctx
 
     results: dict = {}
     for model in _OLLAMA_PROBE_MODELS:
@@ -1390,8 +1391,20 @@ def check_ollama_generate_probe(alerts: list[AlertTuple]) -> dict:
         try:
             resp = requests.post(
                 f"{OLLAMA_URL}/api/generate",
+                # HM-OLLIE-SILENT-SEAT-2026-09-12: this probe is deliberately
+                # a REAL /api/generate call (see the block comment above --
+                # /api/tags and /api/ps both stayed green through the
+                # 2026-09-10 stale-socket outage, this is the only canary
+                # that actually exercises generation). But a real generate
+                # call still loads a seat, and until now it loaded one with
+                # no num_ctx at all -- the same silent-undersize bug as
+                # every other caller fixed today. Sourcing it from the
+                # shared seat-size constant means the probe can no longer
+                # undersize the very seat it's checking.
                 json={"model": model, "prompt": "ping", "stream": False,
-                      "think": False, "options": {"num_predict": 1}},
+                      "think": False,
+                      "options": {"num_predict": 1,
+                                  "num_ctx": require_num_ctx(model, num_ctx_for(model))}},
                 timeout=(5, _OLLAMA_PROBE_TIMEOUT_S),
             )
             wall = time.time() - t0
