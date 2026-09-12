@@ -15,91 +15,84 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # HM-GREP-GATE-PROSE-FALSE-POSITIVE-2026-09-11: all four checks below
+      # now run through scripts/ci/grep_gate_scan.py instead of raw `grep -r`.
+      # Two false positives from prose narrating these rules (not performing
+      # them) hit this gate -- a relay doc quoting tests/test_rule1_delete_
+      # guard.py's own deliberate DROP TABLE (HM-GREP-GATE-RELAY-REGRESSION-
+      # 2026-09-10), then docs/XO_BACKLOG.md doing the same thing (2026-09-
+      # 11). The scanner excludes docs/** and data/reports/relay/** entirely
+      # (prose directories, not executable code) and, for *.py files, blanks
+      # out comments and docstring-shaped bare string statements before
+      # matching -- NOT every string literal, so a real `conn.execute(
+      # "DROP TABLE signals")` in actual code still fires. See the script's
+      # own docstring for the full mechanism.
+
       - name: Check — no qwen3.5 model references (replaced by qwen3:8b/14b)
         run: |
-          # Exclude .bak files, REPAIR_LOG (has historical notes), this workflow itself,
-          # and the three files that deliberately reference the qwen3.5 shadow-CSP A/B
-          # test seat (engine/shadow_csp.py itself, main.py's scheduler wiring for it,
-          # dashboard/app.py's agent-name display mapping) -- a real, intentional
-          # feature, not a stray/accidental reference. Excluded by exact full path, not
-          # by loosening the qwen3.5 pattern itself, so a genuinely new/accidental
-          # qwen3.5 reference anywhere else still fails the gate.
-          if grep -r "qwen3\.5" \
-               --include="*.py" --include="*.json" --include="*.yaml" --include="*.yml" \
-               --exclude-dir=".git" \
-               . | grep -v "\.bak\." | grep -v "was qwen3\.5" | grep -v "grep-gate\.yml" \
-                 | grep -vE "^(\./)?main\.py:" \
-                 | grep -vE "^(\./)?engine/shadow_csp\.py:" \
-                 | grep -vE "^(\./)?dashboard/app\.py:"; then
-            echo "❌ Found qwen3.5 reference in source files — replace with qwen3:8b or qwen3:14b"
-            exit 1
-          fi
-          echo "✅ No qwen3.5 references found"
+          # The three exact-path excludes below are a real, intentional
+          # feature (the qwen3.5 shadow-CSP A/B test seat), not a stray
+          # reference -- excluded by exact path, not by loosening the
+          # pattern, so a genuinely new/accidental reference anywhere else
+          # still fails the gate.
+          python3 scripts/ci/grep_gate_scan.py \
+            --pattern 'qwen3\.5' \
+            --include-ext .py .json .yaml .yml \
+            --exclude-path-prefix docs/ \
+            --exclude-path-contains .bak. \
+            --exclude-path-exact main.py engine/shadow_csp.py dashboard/app.py .github/workflows/grep-gate.yml \
+            --exclude-line-contains "was qwen3.5" \
+          && echo "✅ No qwen3.5 references found" \
+          || { echo "❌ Found qwen3.5 reference in source files — replace with qwen3:8b or qwen3:14b"; exit 1; }
 
       - name: Check — no hardcoded Alpaca LIVE keys (paper only allowed)
         run: |
-          # Reject PK (live) keys; PKTEST (paper) keys are allowed
-          if grep -r "APCA_API_KEY_ID\s*=\s*['\"]PK[^T]" \
-               --include="*.py" --include="*.env*" \
-               --exclude-dir=".git" .; then
-            echo "❌ Possible Alpaca LIVE key hardcoded — use paper (PKTEST) only"
-            exit 1
-          fi
-          echo "✅ No Alpaca live-key patterns found"
+          # Reject PK (live) keys; PKTEST (paper) keys are allowed.
+          python3 scripts/ci/grep_gate_scan.py \
+            --pattern "APCA_API_KEY_ID\s*=\s*['\"]PK[^T]" \
+            --include-ext .py \
+            --include-name-contains .env \
+            --exclude-path-prefix docs/ \
+          && echo "✅ No Alpaca live-key patterns found" \
+          || { echo "❌ Possible Alpaca LIVE key hardcoded — use paper (PKTEST) only"; exit 1; }
 
       - name: Check — no rm -rf on data directories
         run: |
-          if grep -rn "rm\s*-rf.*\(trader\.db\|arena\.db\|tractor\.db\|autonomous-trader\|ollietrades\)" \
-               --include="*.sh" --include="*.py" \
-               --exclude-dir=".git" .; then
-            echo "❌ Destructive rm -rf on protected data paths found"
-            exit 1
-          fi
-          echo "✅ No destructive rm -rf on data paths"
+          python3 scripts/ci/grep_gate_scan.py \
+            --pattern 'rm\s*-rf.*(trader\.db|arena\.db|tractor\.db|autonomous-trader|ollietrades)' \
+            --include-ext .sh .py \
+            --exclude-path-prefix docs/ \
+          && echo "✅ No destructive rm -rf on data paths" \
+          || { echo "❌ Destructive rm -rf on protected data paths found"; exit 1; }
 
       - name: Check — no DROP TABLE on sacred databases
         run: |
-          # HM-RULE1-DELETE-LAYERS 2026-09-09: table list expanded to match
+          # HM-RULE1-DELETE-LAYERS 2026-09-09: table list matches
           # engine/db_safety.py::RULE1_TABLES (the actual current protected
-          # set) UNIONED with the original list, so nothing already covered
-          # loses coverage -- this closes a real gap (decision_audit,
-          # signals_v2, agent_ratings, desk_execution_trace, crew_decisions,
-          # notifications weren't in the original 6-table list at all).
+          # set) UNIONED with the original list.
           #
           # Excluded by exact path, not by loosening the pattern:
           #   - tests/test_rule1_delete_guard.py: deliberately calls
           #     `DROP TABLE signals` inside a temp-DB fixture to PROVE the
-          #     authorizer guard blocks it (test_authorizer_denies_drop_table)
-          #     -- the opposite of the thing this gate exists to catch.
-          #   - engine/db_safety.py, CLAUDE.md, data/reports/relay/*.md: prose
-          #     describing the RULE #1 DELETE/DROP contract or a past incident
-          #     necessarily names "DROP TABLE" and the protected tables
-          #     together while explaining/narrating the rule, not performing
-          #     it. HM-GREP-GATE-RELAY-REGRESSION-2026-09-10: this gate broke
-          #     on relay_2026-09-09_overnight_session.md:105, which quotes
-          #     tests/test_rule1_delete_guard.py's own deliberate DROP TABLE
-          #     verbatim while documenting THIS gate's original fix -- a
-          #     relay doc narrating an incident is exactly the same prose
-          #     class CLAUDE.md was already excluded for, so the whole
-          #     directory is excluded (not just this one file) to stop the
-          #     next relay doc from re-triggering the identical regression.
-          #   - archive/salvage dirs (_archive/, backups_archive/,
-          #     scripts/_archive/, agents/_archive/, engine/_parked/): this
-          #     repo's own Archive Convention keeps retired code in place
-          #     rather than deleting it, and retired code predating a given
-          #     doctrine can legitimately contain a real DROP TABLE from
-          #     before it was forbidden.
-          if grep -rni "DROP\s\+TABLE\s\+\(IF\s\+EXISTS\s\+\)\?\(trades\|portfolio_positions\|arena\|signals\|rikers_log\|war_room\|decision_audit\|signals_v2\|agent_ratings\|desk_execution_trace\|crew_decisions\|notifications\)" \
-               --include="*.py" --include="*.sql" --include="*.md" \
-               --exclude-dir=".git" \
-               --exclude-dir="_archive" --exclude-dir="backups_archive" \
-               --exclude-dir="_parked" \
-               . \
-               | grep -vE "^(\./)?tests/test_rule1_delete_guard\.py:" \
-               | grep -vE "^(\./)?engine/db_safety\.py:" \
-               | grep -vE "^(\./)?CLAUDE\.md:" \
-               | grep -vE "^(\./)?data/reports/relay/.*\.md:"; then
-            echo "❌ DROP TABLE on sacred table found — use schema migrations, not drops"
-            exit 1
-          fi
-          echo "✅ No DROP TABLE on sacred tables"
+          #     authorizer guard blocks it -- the opposite of the thing
+          #     this gate exists to catch.
+          #   - engine/db_safety.py: implements the guard itself, names the
+          #     tables it protects.
+          #   - archive/salvage dirs: this repo's own Archive Convention
+          #     keeps retired code in place rather than deleting it, and
+          #     retired code predating a given doctrine can legitimately
+          #     contain a real DROP TABLE from before it was forbidden.
+          # docs/** and data/reports/relay/** (and CLAUDE.md, which lives at
+          # the repo root, not under docs/) are prose describing the RULE #1
+          # contract or narrating a past incident -- excluded as directories/
+          # exact paths, same as before, now centralized in the scanner
+          # rather than four independent grep -v chains.
+          python3 scripts/ci/grep_gate_scan.py \
+            --pattern 'DROP\s+TABLE\s+(IF\s+EXISTS\s+)?(trades|portfolio_positions|arena|signals|rikers_log|war_room|decision_audit|signals_v2|agent_ratings|desk_execution_trace|crew_decisions|notifications)' \
+            --ignore-case \
+            --include-ext .py .sql .md \
+            --exclude-path-prefix docs/ data/reports/relay/ \
+            --exclude-dir _archive backups_archive _parked \
+            --exclude-path-exact tests/test_rule1_delete_guard.py engine/db_safety.py CLAUDE.md \
+          && echo "✅ No DROP TABLE on sacred tables" \
+          || { echo "❌ DROP TABLE on sacred table found — use schema migrations, not drops"; exit 1; }
