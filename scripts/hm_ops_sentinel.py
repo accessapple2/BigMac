@@ -1197,16 +1197,20 @@ def check_signals_v2_queue(alerts: list[AlertTuple]) -> dict:
 # === HM-OPS-SENTINEL-EXPECTED-WORK 2026-09-11 (XO Priority 2, items 5+6) ===
 # Generic dead-man's-switch class: alert when EXPECTED WORK DOESN'T HAPPEN,
 # parameterized by (what should run, how often, what evidence proves it ran)
-# instead of hand-coding a new one-off staleness check per component. Five
+# instead of hand-coding a new one-off staleness check per component. Six
 # real failures this week were exactly this shape -- silence, not errors:
 # the archive job dead since April, expired REVISIT-BY tags (already covered
 # by check_doc_revisit_dates above), the off-host sync excluding ad-hoc
 # files, McCoy's learning_engine coverage lapse (see the row in
 # docs/XO_BACKLOG.md, "McCoy fell out of learning_engine coverage
-# 2026-07-09"), and the Advisory Team's 'grok' sub-advisor silent since
-# 2026-06-24. This class + the concrete instances below cover the two of
-# those five that don't already have their own dedicated check in this
-# file (advisor staleness, per-player decision silence) plus the olliemax
+# 2026-07-09"), the Advisory Team's 'grok' sub-advisor silent since
+# 2026-06-24, and dashboard/app.py's _ollama_chat silently posting to a
+# dead localhost:11434 for eleven weeks (2026-06-24 retirement to
+# 2026-09-11 discovery, commit a1b8e64 -- caught by accident during an
+# unrelated sweep, not by any alert). This class + the concrete instances
+# below cover the two of those six that don't already have their own
+# dedicated check in this file (advisor staleness, per-player decision
+# silence) plus the olliemax
 # generate-path probe the Admiral asked for by name.
 def _parse_ts_any(s: str) -> datetime:
     """Parse either 'YYYY-MM-DD HH:MM:SS' (sqlite CURRENT_TIMESTAMP/datetime('now'))

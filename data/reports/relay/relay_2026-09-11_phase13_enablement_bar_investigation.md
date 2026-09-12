@@ -98,3 +98,18 @@ settled fills so calibration is scoring against a real table (currently:
 198/198 join, 3/198 settled — a volume-of-closed-trades problem, not a
 join-integrity problem). None of these three are Phase 1.3 code changes;
 all three are upstream of it.
+
+## Status: CLOSED (Admiral, 2026-09-11) — built-and-off, not pending
+
+Phase 1.3 is done for this session. Its three preconditions are structural,
+not a "wait and recheck" list: (a) no gate rejects low/missing alpha
+anywhere McCoy's real chain runs — the check exists but on a bench McCoy
+doesn't execute; (b) alpha covers 1/46 of what McCoy actually screens
+today, not a transient dip; (c) calibration's blocker is settlement lag,
+not something that resolves by re-running a script. None of the three
+change on their own. The real finding underneath all three is the same
+one: **alpha isn't a usable dimension on McCoy's live path today** — see
+`relay_2026-09-11_alpha_universe_dynamic_spec_A.md` for the two options
+this surfaces (make the universe dynamic and add a real gate, or drop
+alpha as a McCoy dimension entirely) and the cost/location spec for the
+first option, not built, pending an Admiral choice.
