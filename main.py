@@ -5872,30 +5872,20 @@ if __name__ == "__main__":
     schedule.every(15).minutes.do(run_debate_pipeline)       # Debate pipeline: weekdays 5 PM MST post-close
 
     # Season rotation: every Sunday at 11:59 PM MST
+    # HM-SEASON-AUTOROTATE-GATE-2026-09-13: seasons are started deliberately now (S8 was a
+    # manual run). Gated behind SEASON_AUTOROTATE_ENABLED (default off) in
+    # engine/season_autorotate.py: 5-min poll + once-per-Sunday sentinel, so restart phase
+    # no longer decides whether a 30-min poll lands in the window. rotate_season() unchanged.
+    # HOLD: no rotation, auto or manual, until rotate_season() stops orphaning broker-backed
+    # position rows (next task).
     def run_season_rotation():
-        """Auto-rotate season every Sunday at 11:59 PM MST."""
-        from datetime import datetime as _dt
-        import pytz
-        az = pytz.timezone("US/Arizona")
-        now = az_now()
-        # Sunday (weekday 6) at 11:59 PM MST
-        if now.weekday() != 6 or now.hour != 23 or now.minute < 55:
-            return
         try:
-            from engine.season_manager import rotate_season
-            new = rotate_season(caller="cron-sunday")
-            if new is not None:
-                console.log(f"[bold green]⭐ Season auto-rotation complete → Season {new}")
-            else:
-                console.log(
-                    "[bold red]⭐ Season auto-rotation ABORTED by reactivation-scope "
-                    "safety check — no DB writes made, NTFY sent, season NOT advanced. "
-                    "Will retry next Sunday's window once investigated."
-                )
+            from engine.season_autorotate import run_scheduled_rotation
+            run_scheduled_rotation(az_now())
         except Exception as e:
-            console.log(f"[red]Season rotation error: {e}")
+            console.log(f"[red]Season rotation job error: {e}")
 
-    schedule.every(30).minutes.do(run_season_rotation)        # Season rotation: checks every 5 min, fires Sunday 11:59 PM MST
+    schedule.every(5).minutes.do(run_season_rotation)         # Season rotation: GATED by SEASON_AUTOROTATE_ENABLED (default off); 5-min poll, once per Sunday 23:50-23:59 AZ
 
     # Trade Memory Loop: backfill closed trade outcomes every 5 minutes (no market hours gate)
     def run_trade_outcomes_backfill():

@@ -6,6 +6,20 @@ load_dotenv(override=True)
 PAPER_TRADING = True
 TRADING_MODE = os.environ.get("TRADING_MODE", "paper")  # "paper" or "live"
 
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    """True only for an explicit 1/true/yes/on; absent or anything else -> default (fail-closed)."""
+    v = os.environ.get(name)
+    if v is None:
+        return default
+    return v.strip().lower() in ("1", "true", "yes", "on")
+
+
+# HM-SEASON-AUTOROTATE-GATE-2026-09-13: unattended Sunday season rotation (main.py ->
+# engine/season_autorotate.py). Default OFF — seasons are started deliberately. HOLD: do not
+# enable until rotate_season() stops orphaning broker-backed position rows.
+SEASON_AUTOROTATE_ENABLED = _env_flag("SEASON_AUTOROTATE_ENABLED")
+
 # HM-AF-α 2026-05-06: spread cannibalization guard.
 # Halts P1 (Battle Station 2-min monitor), P2 (12:45 MST EOD sweep), and
 # P3 (dayblade.py post-trade close_all_options) until HM-AF-β (Layer 1
