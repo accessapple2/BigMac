@@ -160,7 +160,17 @@ def _parse_gex(raw: dict, ticker: str) -> dict | None:
         magnets = sorted_by_gex[:3]
         magnet_data = []
         for m in magnets:
-            gex_type = "call_wall" if m["net_gex"] > 0 else "put_wall"
+            # HM-GEX-WALL-LABEL-FIX-2026-09-12: was `"call_wall" if net_gex > 0 else
+            # "put_wall"` -- labeled by SIGN of net GEX at the winning strike, with no
+            # constraint on which side of spot it landed. That's the exact defect named
+            # in dashboard/app.py:6725's 2026-06-09 comment (HM-DRYDOCK A1: "sign-based
+            # regime that contradicted Archer and wrong/collapsed walls") -- CBOE was
+            # routed around for this once already, never actually fixed. Every consumer
+            # (ready_room.py, gex_calculator.py, options_flow_gex.py) agrees call_wall
+            # means "above spot, resistance" and put_wall means "below spot, support";
+            # label by POSITION relative to spot instead of sign so that contract can
+            # never be violated again, structurally, regardless of magnet selection.
+            gex_type = "call_wall" if m["strike"] >= spot else "put_wall"
             magnet_data.append({
                 "strike": m["strike"],
                 "net_gex": m["net_gex"],
@@ -172,7 +182,7 @@ def _parse_gex(raw: dict, ticker: str) -> dict | None:
         secondary = sorted_by_gex[3:6]
         secondary_data = []
         for m in secondary:
-            gex_type = "call_wall" if m["net_gex"] > 0 else "put_wall"
+            gex_type = "call_wall" if m["strike"] >= spot else "put_wall"  # see fix note above
             secondary_data.append({
                 "strike": m["strike"],
                 "net_gex": m["net_gex"],
@@ -252,23 +262,28 @@ def build_gex_prompt_section(symbol: str) -> str:
     lines.append(f"Spot: ${gex['spot']:.2f} | Total Net GEX: {gex['total_gex']:+,.0f}")
     lines.append("")
 
+    # HM-GEX-WALL-LABEL-FIX-2026-09-12: these labels used to say the opposite of what
+    # every other consumer in this codebase means by call_wall/put_wall (call wall =
+    # "support/pin", put wall = "resistance/accelerator") -- backwards from
+    # ready_room.py's "Call Wall (resistance)" / "Put Wall (support)" and
+    # gex_calculator.py's identical convention. Corrected to match.
     lines.append("PRIMARY LEVELS:")
     for i, m in enumerate(gex["magnets"], 1):
-        label = "CALL WALL (support/pin)" if m["type"] == "call_wall" else "PUT WALL (resistance/accelerator)"
+        label = "CALL WALL (resistance)" if m["type"] == "call_wall" else "PUT WALL (support)"
         lines.append(f"  Magnet #{i}: ${m['strike']:.2f} — {label} (GEX: {m['net_gex']:+,.0f})")
 
     secondary = gex.get("secondary_levels", [])
     if secondary:
         lines.append("SECONDARY LEVELS:")
         for i, m in enumerate(secondary, 4):
-            label = "call wall" if m["type"] == "call_wall" else "put wall"
+            label = "call wall (resistance)" if m["type"] == "call_wall" else "put wall (support)"
             lines.append(f"  Level #{i}: ${m['strike']:.2f} — {label} (GEX: {m['net_gex']:+,.0f})")
 
     lines.append("")
     lines.append("GEX interpretation:")
-    lines.append("- Positive GEX (call walls) = dealers sell into rallies, buy dips → price tends to PIN near these levels")
-    lines.append("- Negative GEX (put walls) = dealers amplify moves → expect momentum/volatility near these levels")
-    lines.append("- Trade WITH the gamma: fade moves toward call walls, ride momentum through put walls")
+    lines.append("- Call wall = ceiling above spot; put wall = floor below spot — trade within this range or break with conviction")
+    lines.append("- Positive total GEX = dealers long gamma (sell rallies, buy dips) → price tends to PIN inside the range")
+    lines.append("- Negative total GEX = dealers short gamma (amplify moves) → expect momentum/volatility through the walls")
 
     return "\n".join(lines)
 

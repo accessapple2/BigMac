@@ -92,6 +92,75 @@ def test_threshold_is_one_day_and_visible():
     assert canonical_gex_mod.CANONICAL_GEX_MAX_AGE_DAYS == 1.0
 
 
+# ── HM-GEX-ALPACA-REPOINT-2026-09-12: Alpaca tier-0 ────────────────────────
+
+def test_alpaca_threshold_is_thirty_minutes_and_visible():
+    """Deliberately tighter than the 1-day Polygon threshold -- this tier is
+    supposed to be real-time, refreshed every 15min RTH, not once-daily."""
+    assert abs(canonical_gex_mod.ALPACA_GEX_MAX_AGE_DAYS - (30.0 / 1440)) < 1e-9
+
+
+def _mk_alpaca_snapshot(created_at, **kw):
+    d = {
+        "symbol": "SPY", "created_at": created_at, "spot_price": 764.0,
+        "call_wall": 775.0, "put_wall": 750.0, "gamma_flip": 761.0,
+        "max_gamma_strike": 775.0, "total_gex": -100.0,
+        "levels": [{"strike": 775.0, "net_gex": 500.0, "call_gex": 500.0, "put_gex": 0.0}],
+    }
+    d.update(kw)
+    return d
+
+
+def test_alpaca_tier_used_when_fresh():
+    fresh = (datetime.now(timezone.utc) - timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M:%S")
+    with patch("gex_calculator.get_latest_snapshot", return_value=_mk_alpaca_snapshot(fresh)):
+        result = canonical_gex_mod.canonical_gex("SPY")
+    assert result["_src"] == "alpaca"
+    assert result["call_wall"] == 775.0
+    assert result["put_wall"] == 750.0
+    assert result["_asof"] == fresh
+
+
+def test_alpaca_tier_falls_through_when_stale():
+    """A stalled refresh (scheduler dead, Alpaca entitlement issue, etc.) must
+    not silently serve an old Alpaca row as if it were live -- this is the
+    exact class of incident (HM-GEX-FRESHNESS-GATE-2026-09-01) the Polygon
+    tier already learned from; the new primary tier gets the same discipline
+    from day one instead of waiting for its own two-month incident first."""
+    stale = (datetime.now(timezone.utc) - timedelta(minutes=45)).strftime("%Y-%m-%d %H:%M:%S")
+    with patch("gex_calculator.get_latest_snapshot", return_value=_mk_alpaca_snapshot(stale)), \
+         patch("engine.canonical_gex.latest_snapshot", return_value=None), \
+         patch("engine.options_flow_gex.get_latest", return_value={}), \
+         patch("engine.options_flow_gex.compute_gex", return_value={"underlying": "SPY", "error": "no polygon"}):
+        result = canonical_gex_mod.canonical_gex("SPY")
+    assert result.get("_src") != "alpaca"
+    assert "error" in result  # falls all the way through since Polygon is also dead
+
+
+def test_alpaca_tier_ignored_when_missing():
+    with patch("gex_calculator.get_latest_snapshot", return_value=None), \
+         patch("engine.canonical_gex.latest_snapshot", return_value=None), \
+         patch("engine.options_flow_gex.get_latest", return_value={}), \
+         patch("engine.options_flow_gex.compute_gex", return_value={"underlying": "SPY", "error": "no polygon"}):
+        result = canonical_gex_mod.canonical_gex("SPY")
+    assert result.get("_src") != "alpaca"
+
+
+def test_alpaca_wall_labels_are_position_correct_not_sign_based():
+    """A strike below spot with POSITIVE net_gex must still resolve to
+    put_wall through this adapter -- the exact case HM-DRYDOCK A1 (2026-06-09)
+    named in gex_scanner.py; canonical_gex's Alpaca adapter must not
+    reintroduce it. call_wall/put_wall here come straight from
+    gex_calculator.py (which already enforces the position constraint), so
+    this guards the adapter doesn't corrupt them in transit."""
+    fresh = (datetime.now(timezone.utc) - timedelta(minutes=1)).strftime("%Y-%m-%d %H:%M:%S")
+    snap = _mk_alpaca_snapshot(fresh, call_wall=775.0, put_wall=750.0, spot_price=764.0)
+    with patch("gex_calculator.get_latest_snapshot", return_value=snap):
+        result = canonical_gex_mod.canonical_gex("SPY")
+    assert result["call_wall"] >= result["spot"]
+    assert result["put_wall"] <= result["spot"]
+
+
 # ── 3. ready_room.py overlay: fresh applies, stale falls through ──────────
 
 class _FakeProfile:

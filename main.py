@@ -1511,35 +1511,25 @@ def run_battle_station_monitor():
         console.log(f"[red]Battle Station monitor error: {e}")
 
 
-# Alpaca GEX: 4x per trading day at key times (MST = ET - 3h)
-# ET 9:00 = 6:00 MST, ET 9:35 = 6:35 MST, ET 12:00 = 9:00 MST, ET 15:00 = 12:00 MST
-_ALPACA_GEX_WINDOWS_MST = [(6, 0), (6, 35), (9, 0), (12, 0)]
-_last_alpaca_gex_window: dict = {}
-
 @_hm_bq_instr("run_alpaca_gex_refresh")
 def run_alpaca_gex_refresh():
-    """Refresh Alpaca GEX at 4 key ET times. Runs on 5-min polling; deduplicates per window."""
-    import datetime as _dt
-    from engine.risk_manager import RiskManager
-    if not RiskManager.is_market_hours():
-        return
-    now = _dt.datetime.now()
-    h, m = now.hour, now.minute
-    in_window = any(wh == h and abs(wm - m) <= 3 for wh, wm in _ALPACA_GEX_WINDOWS_MST)
-    if not in_window:
-        return
-    window_key = f"{h}:{m // 6}"  # 6-minute bucket
-    import time as _t
-    last_run = _last_alpaca_gex_window.get(window_key, 0)
-    if _t.time() - last_run < 300:
-        return
-    _last_alpaca_gex_window[window_key] = _t.time()
+    """HM-GEX-ALPACA-REPOINT-2026-09-12: canonical GEX (engine.canonical_gex) now
+    reads this table as its primary tier -- real-time only if actually kept warm,
+    so this refreshes every 15 min RTH, same cadence as Polygon's own
+    run_gex_snapshot_refresh, matching main.py:794. Was 4 fixed times/day
+    (6:00/6:35/9:00/12:00 MST) from before HM-GEX-CANONICAL demoted this path to
+    "legacy fallback" on 2026-05-31 -- that cadence predates Alpaca becoming the
+    canonical source again and is too sparse for it (confirmed live 2026-09-12:
+    the gex_snapshots table sat stale for day-plus stretches under it)."""
     try:
+        from engine.market_calendar import is_us_market_open
+        if not is_us_market_open():
+            return
         from gex_calculator import refresh_alpaca_gex
         results = refresh_alpaca_gex()
-        console.log(f"[cyan]Alpaca GEX: refreshed {len(results)} symbols at {h:02d}:{m:02d} MST")
+        console.log(f"[cyan]Alpaca GEX: refreshed {len(results)} symbols")
     except Exception as e:
-        console.log(f"[red]Alpaca GEX refresh error: {e}")
+        console.log(f"[red]Alpaca GEX refresh error: {type(e).__name__}: {e}")
 
 
 _last_war_room_time = 0
@@ -4812,12 +4802,16 @@ if __name__ == "__main__":
     # manual / gated auto-close for auto. Bound at startup (lifecycle doctrine).
     from engine.spread_exit_manager import run_spread_exit_cycle as _run_spread_exit_cycle
     schedule.every(5).minutes.do(_run_spread_exit_cycle)
-    # HM-GEX-CANONICAL 2026-05-31: /api/gex-snapshot (engine.options_flow_gex, Polygon) is the
-    # SINGLE GEX source. The 3 legacy refreshers are DISABLED (modules preserved/dormant — see
-    # XO_BACKLOG). One canonical intraday refresh replaces them; feeds all displays via adapters.
-    schedule.every(15).minutes.do(run_gex_snapshot_refresh)  # canonical GEX (Polygon): 15 min during RTH
+    # HM-GEX-CANONICAL 2026-05-31, repointed HM-GEX-ALPACA-REPOINT-2026-09-12:
+    # engine.canonical_gex now reads Alpaca (gex_calculator.py) as its primary tier,
+    # Polygon (engine.options_flow_gex) as an optional secondary if that
+    # subscription is ever restored -- see engine/canonical_gex.py's module
+    # docstring. Both intraday refreshers run at the same 15-min RTH cadence so
+    # neither tier goes stale by construction. CBOE/gex_scanner and gex_overlay
+    # stay dormant (modules preserved — see XO_BACKLOG).
+    schedule.every(15).minutes.do(run_gex_snapshot_refresh)  # Polygon (secondary tier): 15 min during RTH
+    schedule.every(15).minutes.do(run_alpaca_gex_refresh)    # Alpaca (primary/canonical tier): 15 min during RTH
     # schedule.every(15).minutes.do(run_gex_refresh)        # DISABLED HM-GEX-CANONICAL — CBOE/gex_scanner
-    # schedule.every(30).minutes.do(run_alpaca_gex_refresh)  # DISABLED HM-GEX-CANONICAL — Alpaca/gex_calculator
     # schedule.every(15).minutes.do(run_gex_overlay_update) # DISABLED HM-GEX-CANONICAL — gex_overlay
     schedule.every().day.at("06:00").do(run_morning_briefing)         # Battle Station: 6:00 AM AZ (was every 5 min)
     schedule.every().day.at("06:00").do(run_archer_morning_briefing)  # Phase 3.6: Archer briefing 6:00 AM AZ

@@ -2,13 +2,22 @@
 
 Single importable source of truth for a symbol's gamma-exposure profile so that
 EVERY consumer (Bridge endpoints, Ready Room / Troi, etc.) reads the SAME numbers.
-Polygon-native, gamma×OI, BS-re-gamma flip, ±20% / ≤60DTE band — observation-only.
 
-Priority:
-  1) intraday in-process cache (engine.options_flow_gex, refreshed ~15m RTH by
-     main.run_gex_snapshot_refresh)
-  2) latest daily row in data/flow_gex.db
-  3) live compute
+Priority (HM-GEX-ALPACA-REPOINT-2026-09-12 -- see relay doc of the same date):
+  0) Alpaca live/cached snapshot (gex_calculator.py, data/trader.db's own
+     gex_snapshots table) -- real-time, already funded, already the source the
+     one real decision-path gate (risk_manager.py) and the fleet-wide LLM
+     prompt injection (providers/base.py) have used unconditionally the whole
+     time. Accepted only if fresher than ALPACA_GEX_MAX_AGE_DAYS -- being
+     real-time doesn't mean it can't stall (main.run_alpaca_gex_refresh keeps
+     it warm every 15min RTH; this gate is what happens if that ever stops).
+  1) Polygon intraday in-process cache (engine.options_flow_gex, refreshed
+     ~15m RTH by main.run_gex_snapshot_refresh) -- kept as an optional
+     secondary tier in case the Polygon subscription is ever restored; dead
+     since the 2026-07-22 entitlement 403, tier 0 above supersedes it in
+     practice today.
+  2) latest daily row in data/flow_gex.db (Polygon)
+  3) Polygon live compute
 
 Returns a dict. On total failure returns {"underlying": sym, "error": "..."} —
 callers must check for "error" before trusting the values.
@@ -22,6 +31,14 @@ Kept Python 3.9-safe (no PEP 604 unions) — imported by engine code that may ru
 under either interpreter.
 """
 from typing import Optional
+
+# HM-GEX-ALPACA-REPOINT-2026-09-12: tier-0 freshness bar. Deliberately much
+# tighter than CANONICAL_GEX_MAX_AGE_DAYS below (1 day, calibrated for a
+# once-daily Polygon collector) -- this tier is supposed to be real-time,
+# refreshed every 15min RTH (main.run_alpaca_gex_refresh), so 2x that
+# interval (30min, same "2x tier cadence" margin as HM-SCAN-LIVENESS-WATCHDOG)
+# is the right bar for "did the refresh stall," not 24 hours.
+ALPACA_GEX_MAX_AGE_DAYS = 30.0 / (24 * 60)  # 30 minutes, expressed in days
 
 # HM-GEX-FRESHNESS-GATE-2026-09-01: gamma exposure is intraday regime data —
 # walls/flip move with the day's flow. A day-old snapshot is already stale
@@ -122,9 +139,61 @@ def latest_snapshot(symbol: str) -> Optional[dict]:
         return None
 
 
+def _alpaca_snapshot_fresh(symbol: str) -> Optional[dict]:
+    """Tier 0: latest Alpaca-sourced gex_snapshots row (data/trader.db), reshaped
+    to this module's canonical dict shape, IF fresher than ALPACA_GEX_MAX_AGE_DAYS.
+
+    Uses `created_at` (SQLite `datetime('now')`, genuinely UTC) as the age basis,
+    NOT gex_calculator.GEXProfile's own `timestamp` field -- that one is written
+    via naive `datetime.now().isoformat()` (local/Arizona, per this repo's server
+    TZ), and snapshot_age_days() assumes a naive input is UTC. Using `timestamp`
+    here would silently misjudge every row's age by the local UTC offset (7h) --
+    exactly the class of bug HM-TRADES-TZ-GATE-2026-09-12 fixed everywhere else
+    in this repo today, so it must not be reintroduced here.
+    """
+    try:
+        from gex_calculator import get_latest_snapshot
+        snap = get_latest_snapshot(symbol)
+        if not snap:
+            return None
+        age = snapshot_age_days(snap.get("created_at"))
+        if age is None or age >= ALPACA_GEX_MAX_AGE_DAYS:
+            return None
+        levels = snap.get("levels") or []
+        strikes = [
+            {"strike": lv["strike"], "net_gex": lv.get("net_gex"),
+             "call_gex": lv.get("call_gex"), "put_gex": lv.get("put_gex")}
+            for lv in levels
+        ]
+        magnets = sorted(strikes, key=lambda x: -abs(x.get("net_gex") or 0))[:5]
+        spot = snap.get("spot_price")
+        flip = snap.get("gamma_flip")
+        total_gex = snap.get("total_gex")
+        if spot is not None and flip is not None:
+            regime = ("LONG GAMMA · stable (spot above flip)" if spot >= flip
+                       else "SHORT GAMMA · volatile (spot below flip)")
+        else:
+            regime = ("LONG GAMMA · stable" if (total_gex or 0) > 0
+                       else "SHORT GAMMA · volatile")
+        return {
+            "underlying": symbol.upper(), "spot": spot, "total_gex": total_gex,
+            "regime": regime, "gamma_flip": flip,
+            "call_wall": snap.get("call_wall"), "put_wall": snap.get("put_wall"),
+            "king_node": snap.get("max_gamma_strike"),
+            "magnets": magnets, "strikes": strikes,
+            "_asof": snap.get("created_at"), "_src": "alpaca",
+        }
+    except Exception:
+        return None
+
+
 def canonical_gex(symbol: str) -> dict:
     sym = (symbol or "").upper()
-    # 1) intraday in-process cache
+    # 0) Alpaca live snapshot — HM-GEX-ALPACA-REPOINT-2026-09-12, see module docstring
+    a = _alpaca_snapshot_fresh(sym)
+    if a:
+        return a
+    # 1) Polygon intraday in-process cache
     try:
         from engine import options_flow_gex as _ofg
         latest = _ofg.get_latest()

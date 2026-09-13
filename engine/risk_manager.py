@@ -797,13 +797,26 @@ class RiskManager:
         effective_cap *= fg_mult
 
         # GEX regime check — reduce size in volatile gamma, block near call wall
+        # HM-GEX-ALPACA-REPOINT-2026-09-12: this has always read gex_calculator's
+        # Alpaca snapshot directly (never the frozen Polygon path), but had no
+        # freshness check of its own -- confirmed live 2026-09-12 that this table
+        # sat stale for day-plus stretches with nothing refreshing it (the
+        # scheduler that keeps it warm was disabled 2026-05-31). Now that a real
+        # 15-min refresh is restored (main.run_alpaca_gex_refresh), a stale row
+        # here means the refresh itself has stalled -- reuse the same freshness
+        # bar canonical_gex.py's tier-0 uses rather than defining a second one.
         try:
             import sys, os
             _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             if _root not in sys.path:
                 sys.path.insert(0, _root)
             from gex_calculator import get_latest_snapshot
+            from engine.canonical_gex import snapshot_age_days, ALPACA_GEX_MAX_AGE_DAYS
             gex = get_latest_snapshot("SPY")
+            if gex:
+                age = snapshot_age_days(gex.get("created_at"))
+                if age is None or age >= ALPACA_GEX_MAX_AGE_DAYS:
+                    gex = None  # stale — skip the GEX adjustment rather than size off an old snapshot
             if gex:
                 is_volatile = (gex.get("total_gex") or 0) < 0
                 if is_volatile:
