@@ -9124,6 +9124,26 @@ def quorum_status(quorum_id: str):
     }
 
 
+def _annotate_smart_money(items):
+    """HM-FIRE-TARGETS-LIVE-FLEET-2026-09-13: stamp each buyer with its LIVE halt_mode and
+    count active buyers, so the panel can't present a halted-only 'consensus' as an
+    actionable fleet buy."""
+    try:
+        from engine.fire_targets import halt_modes
+        modes = halt_modes()
+    except Exception as e:
+        _logging.getLogger(__name__).warning("smart-money halt annotate failed: %s", e)
+        modes = {}
+    out = []
+    for s in items or []:
+        s = dict(s)
+        buyers = [dict(b, halt_mode=modes.get(b.get("player_id"), "unknown")) for b in (s.get("buyers") or [])]
+        s["buyers"] = buyers
+        s["active_buyers"] = sum(1 for b in buyers if b["halt_mode"] == "active")
+        out.append(s)
+    return out
+
+
 @app.get("/api/smart-money")
 def smart_money(limit: int = 20):
     """Get recent Smart Money signals. Auto-rescans with 24h window if stored data is >7 days old."""
@@ -9169,10 +9189,10 @@ def smart_money(limit: int = 20):
                     save_smart_money_signal(sig)
                     fresh.append(sig)
             if fresh:
-                return fresh
+                return _annotate_smart_money(fresh)
         except Exception:
             pass
-    return stored
+    return _annotate_smart_money(stored)
 
 
 @app.get("/api/autopilot/status")
@@ -21986,6 +22006,17 @@ class ManualTradeRequest(BaseModel):
     notional: float | None = None  # dollar amount → qty = max(1, int(notional/price))
 
 
+@app.get("/api/fleet/fire-targets")
+def fleet_fire_targets():
+    """HM-FIRE-TARGETS-LIVE-FLEET-2026-09-13: live, server-authoritative manual fire targets
+    (engine/fire_targets.py) — replaces the Research tab's hardcoded roster."""
+    try:
+        from engine.fire_targets import fire_targets
+        return fire_targets()
+    except Exception as e:
+        return {"targets": [], "eligible_ids": [], "excluded": [], "error": f"{type(e).__name__}: {e}"}
+
+
 @app.post("/api/paper-trader/manual-trade")
 async def api_manual_trade(req: ManualTradeRequest):
     """Execute a manual paper trade on behalf of a named agent."""
@@ -22005,6 +22036,15 @@ async def api_manual_trade(req: ManualTradeRequest):
                 break
         if not player_id:
             return {"error": f"Unknown agent: {req.agent}"}
+
+        # HM-FIRE-TARGETS-LIVE-FLEET-2026-09-13: refuse up front (fail-closed, before any
+        # price fetch or order path) — buy() also gates halt_mode, but the UI must never be
+        # able to route a halted agent this far.
+        if action == "buy":
+            from engine.fire_targets import fire_target_refusal
+            _refusal = fire_target_refusal(player_id)
+            if _refusal:
+                return {"error": f"{display_name} is not a fire target: {_refusal}"}
 
         # Get current price
         from engine.market_data import get_stock_price

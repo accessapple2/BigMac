@@ -33560,6 +33560,7 @@ function openAlertPopup(idx) {
   var isBuy = !isSpike && !isSell;
   var agentName = String(a.display_name || a.model || a.player_id || 'System');
   var playerId = String(a.player_id || '');
+  var buyBlocked = isBuy && !(_otFireEligible && _otFireEligible.has(playerId));
   var conf = a.confidence ? Math.round(a.confidence * 100) : 50;
   var confColor = conf >= 75 ? '#22c55e' : conf >= 50 ? '#eab308' : '#ef4444';
   var msg = a.reasoning || a.message || '';
@@ -33612,7 +33613,11 @@ function openAlertPopup(idx) {
       ? '<button class="alert-execute-btn" style="background:#eab308;margin-bottom:8px;" onclick="quickScanAlert(\'' + sym + '\')">'
         + '🔍 QUICK SCAN — Run Neo, Spock, Q on ' + sym
         + '</button>'
-      : '<button class="alert-execute-btn' + (isSell ? ' sell-btn' : '') + '" onclick="executeAlertTrade(\'' + sym + '\',\'' + (isBuy?'buy':'sell') + '\',\'' + agentName.replace(/'/g,"\\'") + '\',\'' + playerId + '\')">'
+      : buyBlocked
+        ? '<button class="alert-execute-btn" disabled style="opacity:.55;cursor:not-allowed;" title="Live fleet check (/api/fleet/fire-targets)">'
+          + '⛔ BUY unavailable — ' + agentName + ' is not an active fire target'
+          + '</button>'
+        : '<button class="alert-execute-btn' + (isSell ? ' sell-btn' : '') + '" onclick="executeAlertTrade(\'' + sym + '\',\'' + (isBuy?'buy':'sell') + '\',\'' + agentName.replace(/'/g,"\\'") + '\',\'' + playerId + '\')">'
         + (isBuy ? '✅ EXECUTE BUY — ' : '✅ EXECUTE SELL — ') + sym
         + '</button>')
 
@@ -33823,6 +33828,18 @@ function showTradeToast(msg, isSuccess, ms) {
   document.body.appendChild(t);
   setTimeout(function(){ t.style.opacity='0'; t.style.transform='translateY(-8px)'; setTimeout(function(){ if(t.parentNode) t.remove(); }, 500); }, ms || 5000);
 }
+
+// HM-FIRE-TARGETS-LIVE-FLEET-2026-09-13: alert-card BUY is only offered for agents the live
+// fleet check says may open positions (same gates the server enforces on manual-trade).
+// Fail-closed: until the list loads, BUY renders unavailable.
+var _otFireEligible = null;
+function loadOtFireEligible() {
+  return fetch('/api/fleet/fire-targets')
+    .then(function(r) { return r.ok ? r.json() : null; })
+    .then(function(d) { _otFireEligible = new Set((d && d.eligible_ids) || []); })
+    .catch(function() { _otFireEligible = new Set(); });
+}
+loadOtFireEligible();
 
 // ── Execute trade from alert card ──────────────────────────
 async function executeAlertTrade(symbol, action, agentName, playerId) {

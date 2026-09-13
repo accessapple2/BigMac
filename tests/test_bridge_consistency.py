@@ -12,6 +12,7 @@ failures (XPASS) the moment the underlying bug is fixed, forcing the marker off:
 """
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
 import re
@@ -368,3 +369,72 @@ def test_consensus_filters_empty_votes():
     assert "NVDA" in h
     assert "ZZEMPTYA" not in h and "ZZEMPTYB" not in h
     assert "+ 2 more tickers scanned with no crew votes" in h
+
+
+# ── order-path controls never offer a halted agent ──────────────────────────
+
+HALTED_IDS = {"ollama-qwen3", "neo-matrix", "ollama-coder", "ollama-llama"}
+
+
+def test_no_halted_agent_on_order_path(tmp_path, monkeypatch):
+    """Fire Agent list, manual-trade BUY, Smart Money rows and Classic alert-card BUY all
+    derive from live ai_players; a halted agent is never offered or routed."""
+    db = tmp_path / "fleet.db"
+    c = sqlite3.connect(db)
+    c.execute("CREATE TABLE ai_players (id TEXT PRIMARY KEY, display_name TEXT, provider TEXT, "
+              "model_id TEXT, halt_mode TEXT, is_active INTEGER, is_human INTEGER, crew_role TEXT)")
+    c.executemany("INSERT INTO ai_players VALUES (?,?,?,?,?,?,?,?)", [
+        ("ollama-plutus", "Dr. McCoy", "ollama", "plutus-v1", "active", 1, 0, "active"),
+        ("qwen3-8b-flash", "Lt. Cmdr. Worf", "ollama", "qwen3:8b", "active", 1, 0, "active"),
+        ("ollama-qwen3", "Lt. Jadzia Dax (ministral-3:3b)", "ollama", "ministral-3:3b", "full", 1, 0, None),
+        ("neo-matrix", "Neo", "matrix", "8000 / Independent", "full", 1, 0, None),
+        ("ollama-coder", "Lt. Cmdr. Data", "ollama", "qwen2.5-coder:7b", "full", 1, 0, None),
+        ("ollama-llama", "Lt. Cmdr. Uhura", "ollama", "qwen3:8b", "exit_only", 1, 0, None),
+        ("capitol-trades", "Capitol Trades", "system", "congress-copycat", "active", 1, 0, "advisory"),
+        ("enterprise-computer", "Dilithium Reserve", "system", "metals-tracker", "active", 1, 1, "active"),
+    ])
+    c.commit()
+    c.close()
+    import engine.fire_targets as ft
+    import engine.paper_trader as pt
+    monkeypatch.setattr(ft, "DB_PATH", db)
+    monkeypatch.setattr(pt, "_bench_block_reason", lambda pid: None)
+
+    # 1. Fire Agent list: live, halted excluded, real model_id shown
+    d = app.fleet_fire_targets()
+    targets = {t["player_id"]: t["model_id"] for t in d["targets"]}
+    assert targets == {"ollama-plutus": "plutus-v1", "qwen3-8b-flash": "qwen3:8b"}, d
+    assert not HALTED_IDS & set(d["eligible_ids"])
+    assert "enterprise-computer" not in d["eligible_ids"], "human seat is not a fire target"
+    assert {"ollama-qwen3", "ollama-coder"} <= {x["player_id"] for x in d["excluded"]}
+
+    # 2. Server refuses a halted BUY before price fetch or the order path
+    calls = []
+    monkeypatch.setattr(pt, "buy", lambda **k: calls.append(k) or {"ok": True})
+    monkeypatch.setattr(pt, "get_portfolio", lambda pid: {"total_value": 10000})
+    import engine.market_data as md
+    monkeypatch.setattr(md, "get_stock_price", lambda s: {"price": 100.0})
+    for pid in ("ollama-qwen3", "neo-matrix", "ollama-coder"):
+        r = asyncio.run(app.api_manual_trade(app.ManualTradeRequest(symbol="SPY", action="buy", agent=pid, source="test")))
+        assert "not a fire target" in r.get("error", ""), (pid, r)
+    assert calls == []
+    ok = asyncio.run(app.api_manual_trade(app.ManualTradeRequest(symbol="SPY", action="buy", agent="ollama-plutus", source="test")))
+    assert ok.get("status") == "executed" and len(calls) == 1, ok
+
+    # 3. Smart Money rows carry live halt state; halted-only consensus has no active buyer
+    import engine.smart_money as sm
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    monkeypatch.setattr(sm, "get_recent_smart_money", lambda limit=20: [
+        {"symbol": "NVDA", "detected_at": now, "buyers": [{"player_id": "ollama-qwen3"}, {"player_id": "neo-matrix"}]},
+        {"symbol": "AAPL", "detected_at": now, "buyers": [{"player_id": "ollama-plutus"}, {"player_id": "neo-matrix"}]},
+    ])
+    rows = {s["symbol"]: s for s in app.smart_money()}
+    assert rows["NVDA"]["active_buyers"] == 0 and rows["AAPL"]["active_buyers"] == 1
+    assert {b["halt_mode"] for b in rows["NVDA"]["buyers"]} == {"full"}
+
+    # 4. Front ends: no hardcoded roster; every order control is gated on the live list
+    sel = re.search(r'<select id="fireAgent"[^>]*>(.*?)</select>', V2, re.S).group(1)
+    assert "value=\"ollama-" not in sel and "value=\"neo-" not in sel, "fire roster must not be hardcoded"
+    assert "/api/fleet/fire-targets" in V2 and "_fireTargetIds.has(agent)" in V2
+    assert "live > 0" in V2 and "active_buyers" in V2
+    assert "/api/fleet/fire-targets" in INDEX and "buyBlocked" in INDEX

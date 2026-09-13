@@ -644,10 +644,8 @@ body{background:var(--hull);color:var(--tx);font-family:var(--ui);font-size:14px
 <!-- Fire control bar -->
 <div class="rbar">
   <span class="rbar-lbl">Fire agent</span>
-  <select id="fireAgent" class="fire-sel">
-    <option value="ollama-plutus" selected>Dr. McCoy · plutus-v1</option>
-    <option value="ollama-qwen3">Lt. Jadzia Dax · qwen3:8b</option>
-    <option value="neo-matrix">Lt. Cmdr. Data · neo-matrix</option>
+  <select id="fireAgent" class="fire-sel" disabled>
+    <option value="">loading live fleet…</option>
   </select>
   <span class="rbar-note">auto 5% equity · Alpaca PAPER · confirm-guarded · no real money</span>
 </div>
@@ -2186,7 +2184,41 @@ async function pausePlayer(playerId, displayName) {
 }
 
 // ─── Research tab ─────────────────────────────────────────────────────────────
+// ── Fire targets: /api/fleet/fire-targets ────────────────────────────────────
+// HM-FIRE-TARGETS-LIVE-FLEET-2026-09-13: built from live ai_players (halt, human, audition,
+// bench gates — the same ones the server enforces) with each agent's real model_id.
+let _fireTargetIds = new Set();
+async function loadFireTargets() {
+  const sel = document.getElementById('fireAgent');
+  if (!sel) return;
+  try {
+    const d = await api('GET', '/api/fleet/fire-targets');
+    const targets = d.targets || [];
+    _fireTargetIds = new Set(targets.map(t => t.player_id));
+    sel.innerHTML = '';
+    if (!targets.length) {
+      const o = document.createElement('option');
+      o.value = ''; o.textContent = 'no eligible agent (live fleet: all halted/benched)';
+      sel.appendChild(o); sel.disabled = true;
+      return;
+    }
+    targets.forEach(function(t) {
+      const o = document.createElement('option');
+      o.value = t.player_id;
+      o.textContent = (t.display_name || t.player_id) + ' · ' + (t.model_id || '?');
+      sel.appendChild(o);
+    });
+    sel.value = _fireTargetIds.has('ollama-plutus') ? 'ollama-plutus' : targets[0].player_id;
+    sel.disabled = false;
+  } catch (e) {
+    _fireTargetIds = new Set();
+    sel.innerHTML = '<option value="">fleet status unavailable</option>';
+    sel.disabled = true;
+  }
+}
+
 function loadResearchTab() {
+  loadFireTargets();
   loadConsensus();
   loadSmartMoney();
   loadOptionsFlow();
@@ -2245,12 +2277,16 @@ async function loadSmartMoney() {
     document.getElementById('smartMoneyBody').innerHTML = items.slice(0, 10).map(function(s) {
       const sym    = s.symbol || '—';
       const buyers = (s.buyers || []);
-      const names  = buyers.map(b => b.display_name || b.player_id).join(' · ');
+      const names  = buyers.map(b => (b.display_name || b.player_id)
+        + (b.halt_mode && b.halt_mode !== 'active' ? ' (halted)' : '')).join(' · ');
+      const live   = Number(s.active_buyers || 0);
       const conf   = buyers.length ? (buyers.reduce((a, b) => a + (Number(b.confidence) || 0), 0) / buyers.length * 100).toFixed(0) + '%' : '—';
       return '<div class="sm-row">'
         + '<span class="sm-sym">' + sym + '</span>'
         + '<span class="sm-crew">' + names + ' · conf avg ' + conf + '</span>'
-        + '<button class="btn go sm" onclick="fireCandidate(\'' + sym + '\')">▸ BUY</button>'
+        + (live > 0
+            ? '<button class="btn go sm" onclick="fireCandidate(\'' + sym + '\')">▸ BUY</button>'
+            : '<span class="sm-crew" title="Every buyer behind this signal is halted — not a live fleet consensus">halted-only</span>')
         + '</div>';
     }).join('');
   } catch (e) {
@@ -2413,7 +2449,11 @@ async function loadVolumeRadar() {
 // Body: {symbol, action:"buy", agent:<player_id>, source:"research-tab"}
 // Qty auto-sized at 5% agent equity by the server.
 async function fireCandidate(sym) {
-  const agent     = document.getElementById('fireAgent')?.value || 'ollama-plutus';
+  const agent     = document.getElementById('fireAgent')?.value || '';
+  if (!agent || !_fireTargetIds.has(agent)) {
+    act('Fire blocked · ' + sym, 'No eligible fire agent selected (live fleet check)', true);
+    return;
+  }
   const agentLbl  = document.getElementById('fireAgent')?.options[document.getElementById('fireAgent').selectedIndex]?.text || agent;
   if (!window.confirm(
     'Open paper BUY ' + sym + '?\n\n'
