@@ -7819,6 +7819,39 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
     </div>
   </div>
   <script>
+  // HM-BRIDGE-STALENESS-CONTRACT-2026-09-13: ONE render rule for payloads stamped by
+  // engine/bridge_staleness.stamp(). stale -> grey the data + visible "STALE · as of" text;
+  // never hides the data. Grey + text carry the signal, not colour. Same code in bridge-v2.html.
+  (function(){
+    if (document.getElementById('ot-stale-css')) return;
+    var st = document.createElement('style'); st.id = 'ot-stale-css';
+    st.textContent = '.ot-stale > :not(.phead):not(.ot-stale-banner){opacity:.5;filter:grayscale(1)}'
+      + ' table.ot-stale{opacity:.5;filter:grayscale(1)}'
+      + ' .ot-stale-banner{font-size:11px;font-weight:700;letter-spacing:.02em;color:#9ca3af;border:1px dashed #9ca3af;border-radius:4px;padding:3px 8px;margin:4px 0}';
+    (document.head || document.documentElement).appendChild(st);
+  })();
+  function otStaleText(d) {
+    if (!d || !d.stale) return '';
+    var a = d.as_of ? String(d.as_of).replace('T', ' ').slice(0, 16) : 'unknown time';
+    var h = d.age_hours;
+    var age = (h == null) ? 'age unknown' : (h >= 48 ? Math.round(h / 24) + 'd old' : Math.round(h) + 'h old');
+    return 'STALE · as of ' + a + ' · ' + age;
+  }
+  function otStaleApply(el, d, banner) {
+    if (!el) return;
+    var stale = !!(d && d.stale);
+    el.classList.toggle('ot-stale', stale);
+    var old = el.querySelector(':scope > .ot-stale-banner');
+    if (old) old.parentNode.removeChild(old);
+    if (!stale || banner === false) return;
+    var b = document.createElement('div');
+    b.className = 'ot-stale-banner';
+    b.textContent = otStaleText(d) + (d.source ? ' · ' + d.source : '');
+    var head = el.querySelector(':scope > .phead');
+    if (head) head.parentNode.insertBefore(b, head.nextSibling); else el.insertBefore(b, el.firstChild);
+  }
+  </script>
+  <script>
   (function() {
     function loadGexOverlay() {
       const symbols = ['SPY', 'QQQ'];
@@ -7834,6 +7867,7 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
             document.getElementById(p + 'GammaFlip').textContent = fmtP(d.gamma_flip);
             document.getElementById(p + 'PutWall').textContent = fmtP(d.put_wall);
             document.getElementById(p + 'CallWall').textContent = fmtP(d.call_wall);
+            otStaleApply(document.getElementById(p + 'KingNode').closest('table'), d, false);
             const regime = d.regime || '';
             const rEl = document.getElementById(p + 'GexRegime');
             if (regime === 'positive_gamma') {
@@ -7862,6 +7896,7 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
               const t = d.calc_time.includes('T') ? d.calc_time.split('T')[1].slice(0,5) : d.calc_time.slice(11,16);
               latestTime = 'Updated ' + t;
             }
+            if (sym === 'SPY' && d.stale) latestTime = otStaleText(d);
           }
           loaded++;
           if (loaded === symbols.length) {
@@ -18473,6 +18508,8 @@ async function fetchGex() {
     mHtml += '</div>';
     mHtml += '<div style="font-size:12px;color:var(--muted);margin-top:6px;">Spot: <b>$' + (data.spot||0).toFixed(2) + '</b> | Total Net GEX: <b>' + ((data.total_gex||0) >= 0 ? '+' : '') + (data.total_gex||0).toLocaleString() + '</b></div>';
     magnetsDiv.innerHTML = mHtml;
+    otStaleApply(magnetsDiv, data);
+    otStaleApply(chartDiv, data, false);
 
     // Bar chart
     var strikes = data.strikes;
@@ -28966,6 +29003,8 @@ async function fetchGex() {
     mHtml += '</div>';
     mHtml += '<div style="font-size:12px;color:var(--muted);margin-top:4px;">Spot: <b>$' + data.spot.toFixed(2) + '</b> &nbsp;|&nbsp; Total Net GEX: <b>' + (data.total_gex >= 0 ? '+' : '') + data.total_gex.toLocaleString() + '</b></div>';
     magnetsDiv.innerHTML = mHtml;
+    otStaleApply(magnetsDiv, data);
+    otStaleApply(chartDiv, data, false);
 
     // Bar chart
     var strikes = data.strikes;
@@ -34212,6 +34251,7 @@ async function fetchGammaEnv() {
     html += '</div>';
 
     c.innerHTML = html;
+    otStaleApply(c, d);
   } catch(e) { c.innerHTML = '<div style="color:var(--red);">Error loading gamma data</div>'; }
 }
 // [LazyInit] fetchGammaEnv();

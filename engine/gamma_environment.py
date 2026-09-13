@@ -95,6 +95,7 @@ def detect_gamma_environment() -> dict:
             "call_walls": call_walls,
             "put_walls": put_walls,
             "magnets": magnets,
+            "as_of": spy_gex.get("updated"),  # gex_scanner compute time (local, tz-less); display staleness
         }
 
         with _cache_lock:

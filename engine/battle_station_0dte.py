@@ -554,6 +554,7 @@ def get_status() -> dict[str, Any]:
         "put_wall":       put_wall,
         "call_wall":      call_wall,
         "gamma_flip":     gamma_flip,
+        "levels_as_of":   levels.get("generated_at"),  # Ready Room briefing time (UTC); display staleness
         "dist_put_pct":   round(dist_put, 2) if dist_put is not None else None,
         "dist_call_pct":  round(dist_call, 2) if dist_call is not None else None,
         "trades_today":   today_count,

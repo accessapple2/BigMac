@@ -6797,7 +6797,8 @@ def gex_all():
             "age_days": _age_days,
             "stale": _gex_is_stale(_as_of),
         })
-    return out
+    from engine.bridge_staleness import stamp as _stamp, gex_max_age_hours
+    return [_stamp(item, item.get("as_of"), item["source"], gex_max_age_hours()) for item in out]
 
 
 def _gex_age_days(as_of) -> float | None:
@@ -7001,7 +7002,8 @@ def gex_ticker(ticker: str):
     # since 2026-07-21) never sets it. age_days/stale are computed the same
     # way regardless of which serve path produced this response.
     _age_days = _gex_age_days(c.get("_asof"))
-    return {
+    from engine.bridge_staleness import stamp as _stamp, gex_max_age_hours
+    return _stamp({
         "symbol": c.get("underlying"), "spot": c.get("spot"),
         "total_gex": c.get("total_gex"), "gamma_flip": c.get("gamma_flip"),
         "call_wall": c.get("call_wall"), "put_wall": c.get("put_wall"),
@@ -7010,7 +7012,7 @@ def gex_ticker(ticker: str):
         "stale_since": c.get("_stale_since"),
         "age_days": _age_days,
         "stale": _gex_is_stale(c.get("_asof")),
-    }
+    }, c.get("_asof"), "gex-snapshot canonical (" + str(c.get("_src", "")) + ")", gex_max_age_hours())
 
 
 # --- Alpaca GEX Endpoints ---
@@ -8677,7 +8679,8 @@ def gex_overlay_levels(symbol: str = "SPY"):
     spot = c.get("spot"); flip = c.get("gamma_flip")
     stable = (spot is not None and flip is not None and spot >= flip)
     _as_of = c.get("_asof")
-    return {
+    from engine.bridge_staleness import stamp as _stamp, gex_max_age_hours
+    return _stamp({
         "symbol": c.get("underlying"), "spot": spot,
         "king_node": c.get("king_node"), "gamma_flip": flip,
         "put_wall": c.get("put_wall"), "call_wall": c.get("call_wall"),
@@ -8685,7 +8688,7 @@ def gex_overlay_levels(symbol: str = "SPY"):
         "as_of": _as_of, "source": "gex-snapshot canonical (" + str(c.get("_src", "")) + ")",
         "age_days": _gex_age_days(_as_of),
         "stale": _gex_is_stale(_as_of),
-    }
+    }, _as_of, "gex-snapshot canonical (" + str(c.get("_src", "")) + ")", gex_max_age_hours())
 
 
 @app.get("/api/gex-overlay/heatmap")
@@ -8698,9 +8701,12 @@ def gex_overlay_heatmap(symbol: str = "SPY"):
             return {"error": c["error"], "strikes": [], "count": 0, "pending": c.get("pending", False)}
         strikes = c.get("strikes", [])
         _as_of = c.get("_asof")
-        return {"symbol": c.get("underlying", symbol.upper()), "strikes": strikes,
-                "count": len(strikes), "source": "gex-snapshot canonical (" + str(c.get("_src", "")) + ")",
-                "as_of": _as_of, "age_days": _gex_age_days(_as_of), "stale": _gex_is_stale(_as_of)}
+        from engine.bridge_staleness import stamp as _stamp, gex_max_age_hours
+        _src = "gex-snapshot canonical (" + str(c.get("_src", "")) + ")"
+        return _stamp({"symbol": c.get("underlying", symbol.upper()), "strikes": strikes,
+                       "count": len(strikes), "source": _src,
+                       "as_of": _as_of, "age_days": _gex_age_days(_as_of), "stale": _gex_is_stale(_as_of)},
+                      _as_of, _src, gex_max_age_hours())
     except Exception as e:
         return {"error": str(e), "strikes": [], "count": 0}
 
@@ -8734,7 +8740,12 @@ def battle_station_0dte_status():
     """Battle Station 0DTE rules-based agent: current status, position, and key levels."""
     try:
         from engine.battle_station_0dte import get_status
-        return get_status()
+        from engine.bridge_staleness import stamp, gex_max_age_hours
+        s = get_status()
+        # HM-BRIDGE-STALENESS-CONTRACT-2026-09-13: walls/flip come from the latest Ready
+        # Room briefing (created_at = SQLite datetime('now'), UTC) and carried no as_of.
+        return stamp(s, s.get("levels_as_of"), "ready_room.get_key_levels (Ready Room briefing)",
+                     gex_max_age_hours())
     except Exception as e:
         return {"error": str(e), "status": "ERROR"}
 
@@ -9684,7 +9695,12 @@ def pnl_attribution(days: int = 7):
 def gamma_environment():
     """Get current gamma environment (positive/negative) for SPY."""
     from engine.gamma_environment import detect_gamma_environment
-    return detect_gamma_environment()
+    from engine.bridge_staleness import stamp, gex_max_age_hours
+    d = detect_gamma_environment()
+    # HM-BRIDGE-STALENESS-CONTRACT-2026-09-13: legacy CBOE scanner stamps `updated` with
+    # datetime.now() (local, tz-less) — read it as local, not UTC.
+    return stamp(d, d.get("as_of"), "engine.gex_scanner (CBOE, legacy)", gex_max_age_hours(),
+                 naive_tz="local")
 
 
 # --- Put/Call Skew ---
