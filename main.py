@@ -4698,7 +4698,17 @@ if __name__ == "__main__":
     # the widget showing "awaiting synthesis" indefinitely. generate_riker_synthesis()
     # already has its own non-blocking _synthesis_lock (skips if one's in flight), so
     # this is safe to call on a plain interval with no extra concurrency guard needed.
+    # HM-RIKER-CADENCE-GATE-2026-09-13: was ticking 24/7 incl. nights/weekends/holidays
+    # (display-only widget, never an execution path). Same gate as _run_ic_manager_safe /
+    # _run_prime_directive_safe. The manual /api/riker/synthesize POST is deliberately ungated.
     def _run_riker_xo_synthesis():
+        from engine.risk_manager import RiskManager
+        try:
+            if not RiskManager.is_market_hours():
+                return None
+        except Exception as _exc:
+            logger.warning("[riker_xo] market-hours gate check failed, skipping tick: %s", _exc)
+            return None
         try:
             from engine.riker_xo import generate_riker_synthesis
             generate_riker_synthesis()
