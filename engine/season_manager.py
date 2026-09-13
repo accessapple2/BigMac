@@ -197,6 +197,40 @@ def _alert_rotation_aborted(scope: dict, season: int, caller: str) -> None:
         console.log(f"[red]Season rotation abort-NTFY failed: {e}")
 
 
+def _write_season_config(conn, season: int, start_iso: str) -> None:
+    """HM-SEASON-CONFIG-AUTOWRITE-2026-09-13: rotation never wrote season_config or
+    settings.season_N_name (S7's row was hand-written 2026-09-01; S8 had none, so
+    /api/season returned config:{} and the Season panel read "Active: 1 agents").
+    New rows only — INSERT OR IGNORE never rewrites an existing season's row or name.
+    active_agents = halt_mode='active' ids after the unhalt step (same rule as S7's row)."""
+    name_key = f"season_{season}_name"
+    row = conn.execute("SELECT value FROM settings WHERE key=?", (name_key,)).fetchone()
+    name = row[0] if row and row[0] else f"Season {season}"
+    conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (name_key, name))
+    active = [r[0] for r in conn.execute("SELECT id FROM ai_players WHERE halt_mode='active' ORDER BY id")]
+    conn.execute(
+        "INSERT OR IGNORE INTO season_config (season, name, start_date, active_agents) VALUES (?, ?, ?, ?)",
+        (season, name, str(start_iso)[:10], ",".join(active)),
+    )
+
+
+def ensure_season_config(season: int | None = None) -> dict:
+    """Backfill the season_config row + season_N_name for `season` (default: current) from
+    settings.season_N_start. Idempotent; refuses to invent a start date. Returns the row."""
+    season = season or get_current_season()
+    conn = _conn()
+    try:
+        start = conn.execute("SELECT value FROM settings WHERE key=?", (f"season_{season}_start",)).fetchone()
+        if not start:
+            raise ValueError(f"settings.season_{season}_start missing — refusing to invent a start date")
+        _write_season_config(conn, season, start[0])
+        conn.commit()
+        row = conn.execute("SELECT * FROM season_config WHERE season=?", (season,)).fetchone()
+        return dict(row) if row else {}
+    finally:
+        conn.close()
+
+
 def rotate_season(caller: str) -> int | None:
     """Rotate to a new season. Returns the new season number, or None if
     the rotation was aborted by the reactivation-scope safety check (no
@@ -241,13 +275,14 @@ def rotate_season(caller: str) -> int | None:
     conn = _conn()
 
     # Update season number
+    start_iso = datetime.now().isoformat()
     conn.execute(
         "INSERT OR REPLACE INTO settings (key, value) VALUES ('current_season', ?)",
         (str(new_season),)
     )
     conn.execute(
         "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-        (f"season_{new_season}_start", datetime.now().isoformat())
+        (f"season_{new_season}_start", start_iso)
     )
 
     # Reset AI player cash — NOT human players, NOT Steve, NOT broker mirror
@@ -277,6 +312,10 @@ def rotate_season(caller: str) -> int | None:
         (NEO_PLAYER_ID,)
     )
     console.log(f"[cyan]Season rotation unhalt: {cur.rowcount} rows touched (scope check: {scope})")
+    try:
+        _write_season_config(conn, new_season, start_iso)
+    except sqlite3.OperationalError as e:
+        console.log(f"[bold red]Season rotation: season_config/season_{new_season}_name NOT written: {e}")
 
     # Close all AI positions (not Steve's, not broker mirror's — alpaca_sync rebuilds it)
     conn.execute(
@@ -373,13 +412,14 @@ def start_season(season_num: int):
     conn = _conn()
 
     # Set new season
+    start_iso = datetime.now().isoformat()
     conn.execute(
         "INSERT OR REPLACE INTO settings (key, value) VALUES ('current_season', ?)",
         (str(season_num),)
     )
     conn.execute(
         "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-        (f"season_{season_num}_start", datetime.now().isoformat())
+        (f"season_{season_num}_start", start_iso)
     )
 
     # Reset AI player cash
@@ -402,6 +442,10 @@ def start_season(season_num: int):
         (NEO_PLAYER_ID,),
     )
     console.log(f"[cyan]Season start unhalt: {cur.rowcount} rows touched (scope check: {scope})")
+    try:
+        _write_season_config(conn, season_num, start_iso)
+    except sqlite3.OperationalError as e:
+        console.log(f"[bold red]Season start: season_config/season_{season_num}_name NOT written: {e}")
     conn.execute("DELETE FROM positions WHERE player_id NOT IN ('webull','alpaca-mirror') AND player_id != ?", (NEO_PLAYER_ID,))
 
     conn.commit()
