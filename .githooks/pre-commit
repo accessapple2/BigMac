@@ -2,3 +2,8 @@
 .venv-deps/bin/pytest -q tests/test_otasty_shadow_invariants.py tests/test_kirk_holdings_guard.py \
   tests/test_rule1_delete_guard.py \
   || { echo "INVARIANT FAILED — commit blocked"; exit 1; }
+
+# HM-BRIDGE-CONSISTENCY-2026-09-13: imports dashboard.app, which needs the trader venv
+# (.venv-deps has no fastapi). Also needs node for the extracted front-end functions.
+.venv/bin/python3 -m pytest -q -p no:cacheprovider tests/test_bridge_consistency.py \
+  || { echo "BRIDGE CONSISTENCY FAILED — commit blocked"; exit 1; }
