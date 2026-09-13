@@ -54,13 +54,19 @@ CACHE_TTL = 900  # 15 minutes
 
 @dataclass
 class GEXLevel:
-    """Per-strike GEX breakdown."""
+    """Per-strike GEX (and DEX -- HM-DEX-2026-09-12) breakdown."""
     strike: float
     net_gex: float
     call_gex: float
     put_gex: float
     call_oi: int = 0
     put_oi: int = 0
+    # HM-DEX-2026-09-12: delta exposure, same per-strike loop as GEX --
+    # delta is on the same `greeks` object gamma comes from, same snapshot,
+    # zero additional API calls. net_dex = call_dex + put_dex.
+    call_dex: float = 0.0
+    put_dex: float = 0.0
+    net_dex: float = 0.0
 
 
 @dataclass
@@ -77,6 +83,10 @@ class GEXProfile:
     gamma_flip: float        # zero-cross nearest to spot
     total_gex: float         # + = pinned, - = volatile
     source: str = "alpaca"
+    # HM-DEX-2026-09-12: total delta exposure (dealer-side), same chain, same
+    # loop as total_gex. + = dealers net long delta (buy dips to hedge short
+    # calls / cover short puts), - = dealers net short delta.
+    total_dex: float = 0.0
 
 
 # ── Database ───────────────────────────────────────────────────────────────
@@ -104,6 +114,13 @@ def _init_db() -> None:
                 created_at TEXT DEFAULT (datetime('now'))
             )
         """)
+        # HM-DEX-2026-09-12: additive column on the live table (CREATE TABLE
+        # IF NOT EXISTS above only covers a fresh DB). Per-strike call_dex/
+        # put_dex/net_dex ride along in levels_json (same pattern as
+        # call_gex/put_gex there); only the aggregate needs its own column.
+        _cols = {row[1] for row in conn.execute("PRAGMA table_info(gex_snapshots)")}
+        if "total_dex" not in _cols:
+            conn.execute("ALTER TABLE gex_snapshots ADD COLUMN total_dex REAL")
         conn.commit()
         conn.close()
     except Exception as e:
@@ -122,6 +139,9 @@ def _save_snapshot(profile: GEXProfile) -> None:
                 "put_gex": l.put_gex,
                 "call_oi": l.call_oi,
                 "put_oi": l.put_oi,
+                "call_dex": l.call_dex,   # HM-DEX-2026-09-12
+                "put_dex": l.put_dex,
+                "net_dex": l.net_dex,
             }
             for l in profile.levels
         ])
@@ -131,14 +151,14 @@ def _save_snapshot(profile: GEXProfile) -> None:
             """
             INSERT INTO gex_snapshots
               (symbol, timestamp, spot_price, max_gamma_strike, zero_gamma_level,
-               put_wall, call_wall, gamma_flip, total_gex, levels_json, source)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?)
+               put_wall, call_wall, gamma_flip, total_gex, levels_json, source, total_dex)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 profile.symbol, profile.timestamp, profile.spot_price,
                 profile.max_gamma_strike, profile.zero_gamma_level,
                 profile.put_wall, profile.call_wall, profile.gamma_flip,
-                profile.total_gex, levels_json, profile.source,
+                profile.total_gex, levels_json, profile.source, profile.total_dex,
             ),
         )
         conn.commit()
@@ -270,18 +290,29 @@ class GEXCalculator:
             oi, strike, is_call = entry
 
             gex = self._gex_contrib(float(gamma), oi, spot, is_call)
+            # HM-DEX-2026-09-12: same contract, same snapshot, same loop --
+            # delta is already on `greeks` alongside gamma. A contract with
+            # no delta (shouldn't happen if gamma was present, but Alpaca's
+            # OptionsGreeks doesn't guarantee it) contributes 0 rather than
+            # skipping the contract entirely (its GEX contribution above is
+            # still valid and already counted).
+            delta = greeks.delta
+            dex = self._dex_contrib(float(delta), oi, spot) if delta is not None else 0.0
 
             if strike not in strikes_map:
                 strikes_map[strike] = {
                     "call_gex": 0.0, "put_gex": 0.0,
                     "call_oi": 0, "put_oi": 0,
+                    "call_dex": 0.0, "put_dex": 0.0,
                 }
             if is_call:
                 strikes_map[strike]["call_gex"] += gex
                 strikes_map[strike]["call_oi"] += oi
+                strikes_map[strike]["call_dex"] += dex
             else:
                 strikes_map[strike]["put_gex"] += gex   # already negative
                 strikes_map[strike]["put_oi"] += oi
+                strikes_map[strike]["put_dex"] += dex   # naturally negative (put delta < 0)
 
         if not strikes_map:
             raise ValueError(f"GEX: no usable strikes for {symbol} (chain={len(chain)}, oi_map={len(oi_map)})")
@@ -290,6 +321,7 @@ class GEXCalculator:
         levels: list[GEXLevel] = []
         for strike, sd in strikes_map.items():
             net = sd["call_gex"] + sd["put_gex"]
+            net_dex = sd["call_dex"] + sd["put_dex"]
             levels.append(GEXLevel(
                 strike=round(strike, 2),
                 net_gex=round(net, 2),
@@ -297,6 +329,9 @@ class GEXCalculator:
                 put_gex=round(sd["put_gex"], 2),
                 call_oi=sd["call_oi"],
                 put_oi=sd["put_oi"],
+                call_dex=round(sd["call_dex"], 2),
+                put_dex=round(sd["put_dex"], 2),
+                net_dex=round(net_dex, 2),
             ))
         levels.sort(key=lambda x: x.strike)
 
@@ -307,6 +342,7 @@ class GEXCalculator:
         # ── 6. Key levels ──────────────────────────────────────────────
         max_gamma_lv = max(relevant, key=lambda x: x.net_gex)
         total_gex = sum(l.net_gex for l in relevant)
+        total_dex = sum(l.net_dex for l in relevant)  # HM-DEX-2026-09-12
 
         below = [l for l in relevant if l.strike < spot]
         above = [l for l in relevant if l.strike > spot]
@@ -330,6 +366,7 @@ class GEXCalculator:
             gamma_flip=zero_gamma,
             total_gex=round(total_gex, 2),
             source="alpaca",
+            total_dex=round(total_dex, 2),
         )
 
         _save_snapshot(profile)
@@ -410,6 +447,17 @@ class GEXCalculator:
         """Per-contract GEX. Positive for calls (pin), negative for puts (trend)."""
         raw = gamma * oi * 100 * (spot ** 2) * 0.01
         return raw if is_call else -raw
+
+    @staticmethod
+    def _dex_contrib(delta: float, oi: int, spot: float) -> float:
+        """HM-DEX-2026-09-12: per-contract dollar delta exposure = delta * OI *
+        100 * spot -- no spot**2 term (that's specific to gamma's second-
+        derivative nature). Uses the option's own natural delta sign (calls
+        positive, puts negative) rather than a separate dealer-positioning
+        assumption -- this already aligns directionally with _gex_contrib's
+        calls-positive/puts-negative convention above, with no new sign
+        question introduced."""
+        return delta * oi * 100 * spot
 
     @staticmethod
     def _find_zero_gamma(levels: list, spot: float) -> float:
@@ -516,6 +564,9 @@ def _profile_from_snapshot(snap: dict) -> GEXProfile:
             put_gex=l["put_gex"],
             call_oi=l.get("call_oi", 0),
             put_oi=l.get("put_oi", 0),
+            call_dex=l.get("call_dex", 0.0),   # HM-DEX-2026-09-12
+            put_dex=l.get("put_dex", 0.0),
+            net_dex=l.get("net_dex", 0.0),
         )
         for l in snap.get("levels", [])
     ]
@@ -531,6 +582,7 @@ def _profile_from_snapshot(snap: dict) -> GEXProfile:
         gamma_flip=snap["gamma_flip"] or 0.0,
         total_gex=snap["total_gex"] or 0.0,
         source=snap.get("source", "alpaca"),
+        total_dex=snap.get("total_dex") or 0.0,
     )
 
 
