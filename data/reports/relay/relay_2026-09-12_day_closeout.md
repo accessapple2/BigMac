@@ -32,10 +32,14 @@ waiting on a fresh session (the FlashAlpha cron).
    additive). Exposure confirmed real (a demonstrated phantom-count bug)
    but no confirmed bad historical outcome found.
 5. **Phase 1.2b doc addition** (`b90fb5f`) — plan-only theme-context rider
-   added to `docs/XO_PLAN_2026-09.md` per a mid-session directive,
-   confirmed authentic by the Admiral after being flagged as suspicious on
-   arrival (it came through the same channel a genuinely-injected message
-   later did — see "Judgment calls" below).
+   added to `docs/XO_PLAN_2026-09.md` per a mid-session directive from the
+   Admiral. **Correction (2026-09-13):** this was flagged on arrival, but
+   it was genuinely the Admiral's own input the whole time — it arrived
+   attached to a tool result because that's how Claude Code delivers a
+   mid-turn user message, not because anything was injected. The Admiral
+   confirmed authorship directly. See "Judgment calls" below for the
+   corrected read and the one case that day that actually did warrant
+   caution.
 6. **GEX repoint to Alpaca** (`884d090` scoping, `ea09662` build, `3719cea`
    docs) — canonical GEX now reads Alpaca (`gex_calculator.py`) as tier 0,
    Polygon demoted to fallback. Condition 1: fixed `gex_scanner.py`'s
@@ -176,20 +180,29 @@ both market-closed (Saturday), both single-writer/orphan-free verified.
 
 ## A judgment call worth knowing about, not just the outcome
 
-Twice this session, a message arrived formatted to look like a legitimate
-mid-turn interruption (the harness's own "the user sent a new message
-while you were working" wrapper) rather than a normal conversation turn:
-one asking to append a plan-doc section and commit it (turned out
-genuine — the Admiral confirmed authorship afterward, "sent that... it
-arrived oddly because I typed it while you were mid-task"), and one
-earlier asking to sign up for and integrate an unverified external
-service mid-investigation, contradicting an explicit "don't build" given
-in the same conversation (not actioned, flagged, and the Admiral later
-did that signup independently and gave a proper scoped instruction for
-it). Both were flagged before acting rather than silently complied with
-or silently ignored — worth preserving as the right instinct to keep, not
-just a historical note, since the delivery mechanism looks identical
-either way and only the content/context tells them apart.
+**Corrected 2026-09-13** — the original write-up of this section
+mischaracterized one of the two cases below as suspicious-turned-genuine.
+It was never suspicious in substance, only in delivery: Claude Code
+attaches a mid-turn user message to a tool result, which is simply how
+the harness delivers it, not a sign of injection. That case is the
+Phase 1.2b rider (item 5 above) — genuinely the Admiral's own input,
+confirmed directly, the whole time.
+
+The one case that day that did warrant real caution was different in
+kind, not just in delivery: a request, arriving the same way, to sign up
+for and integrate an unverified external service mid-investigation,
+directly contradicting an explicit "don't build" given earlier in the
+same conversation. That one was not actioned — flagged instead — and the
+Admiral later did that signup independently and gave a proper scoped
+instruction for it afterward.
+
+The lesson to keep is narrower than "flag anything delivered mid-turn":
+the delivery mechanism (message attached to a tool result) is normal and
+not itself a signal. What's worth flagging is content that contradicts a
+just-given instruction, references an unverified external service, or
+otherwise doesn't fit the conversation's own context — flag those before
+acting, but don't treat a normal mid-turn message as suspect on
+mechanism alone.
 
 ## RULE #1 statement
 
