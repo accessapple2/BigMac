@@ -1,197 +1,202 @@
-# Relay — 2026-09-12. Day close-out.
+# Relay — 2026-09-12. Full day handoff (written at auto-compact).
 
-Session resumed after a VPN drop mid-task; picked up from four already-
-committed pieces of work (Bridge Phase 1/2/3), then did two more passes
-this afternoon (sentinel false alarms, trades-table tz gate). This doc is
-the single index for the day — detail lives in the five companion relay
-docs listed inline below, not repeated here.
+Session resumed after a VPN drop mid-task, picked up four already-committed
+pieces (Ollie seat fix + Bridge Phase 1/2/3), then ran a long chain of
+work through the evening. This doc is the single, complete handoff —
+detail lives in the relay docs listed inline, not repeated here. Written
+because this session is ending (auto-compact) with one piece explicitly
+waiting on a fresh session (the FlashAlpha cron).
 
-## 1. Trades-table UTC/local-date gate bug — FIXED, restarted, verified
+## Everything shipped today, in order
 
-Commit `9c5f671`. Full detail:
-`relay_2026-09-12_trades_tz_gate_fix.md`.
+1. **HM-OLLIE-SILENT-SEAT / HM-OLLIE-SEAT-OVERSIZE** (`d639064`, `a153926`,
+   `ebcd94b`) — before this session's active work; already committed when
+   the VPN dropped. Every olliemax caller now states its own `num_ctx`.
+2. **Bridge Classic repair, Phase 1/2/3** (`7b2753b`, `3ab0b14`, `9ca8584`,
+   `65a5a63`) — Phase 1 traced 4 panel contradictions (one, `battle_
+   station_0dte.py`'s UTC/local mismatch, was real and became today's
+   headline fix); Phase 2 shipped 11 display fixes, restart-verified;
+   Phase 3 is a spec only (`docs/architecture/bridge-facts-endpoint-spec.md`),
+   not built.
+3. **Sentinel false alarms retired** (`95252df`) — `sys_scan_liveness` now
+   gates on `is_trading_day()` (was firing hourly all weekend);
+   `com.ollietrades.mlx-qwen3` (dead since 2026-09-09, no live caller)
+   unloaded and archived, sentinel check commented out in place.
+   **Confirmed dead later in the session**: checked `trader_error.log`
+   1h28m post-restart, zero new alerts past the last real one (16:47:45).
+4. **Trades-table UTC/local-date gate bug, full pass** (`9c5f671`) — the
+   Bridge Phase 1 finding generalized: 15 call sites across 10 files
+   compared a UTC-stored timestamp against a local date. One canonical
+   fix (`engine.market_calendar.local_day_utc_bounds()`), all sites
+   converted, 61 historical rows flagged (`trades.tz_bucket_suspect`,
+   additive). Exposure confirmed real (a demonstrated phantom-count bug)
+   but no confirmed bad historical outcome found.
+5. **Phase 1.2b doc addition** (`b90fb5f`) — plan-only theme-context rider
+   added to `docs/XO_PLAN_2026-09.md` per a mid-session directive,
+   confirmed authentic by the Admiral after being flagged as suspicious on
+   arrival (it came through the same channel a genuinely-injected message
+   later did — see "Judgment calls" below).
+6. **GEX repoint to Alpaca** (`884d090` scoping, `ea09662` build, `3719cea`
+   docs) — canonical GEX now reads Alpaca (`gex_calculator.py`) as tier 0,
+   Polygon demoted to fallback. Condition 1: fixed `gex_scanner.py`'s
+   wall-labeling (position-based, not sign-based — the exact defect named
+   `HM-DRYDOCK A1` on 2026-06-09 and never actually fixed until today).
+   Condition 2: found mid-build that Alpaca's own refresh scheduler had
+   been disabled since 2026-05-31 (the table wasn't actually being kept
+   fresh); restored a real 15-min cadence and added a freshness gate.
+   Live-verified: the real gate, the LLM prompt injection, and
+   `canonical_gex()` all agree on the same repointed numbers.
+7. **Bull spread audit** (read-only, no separate relay doc, folded into
+   chat + this handoff) — 24 of 26 historical `strategy:bull_spread_v1`
+   rows are zombie/failed/reconciliation artifacts; zero real
+   `bull_call_spread` market exits ever; exactly one genuinely real,
+   organically-decided outcome in the whole table (+$1.71, 2026-05-14).
+   Strategy's entry gate was structurally dead for its first ~10 weeks
+   (fixed 2026-07-10), one trade since. **No action taken — reviving it is
+   the Admiral's call, not made here.**
+8. **Options premium restatement gap-fix** (`0bdf93f`) — the 2026-09-11 B6
+   restatement (`d6eaf3c`, already `DONE` per `XO_BACKLOG.md` — corrected
+   a wrong "never executed" premise) had a real scoping bug: it filtered
+   on `exit_date` when the pricing bug it restates lives in *entry*
+   pricing. Found and closed the gap (5 rows, 4 in scope), all resolved
+   `unrecoverable_no_alpaca_bar`. Also caught and fixed my own mistake
+   mid-pass (a report-file overwrite) before it became a real loss.
+9. **Options real-fills scoping + build** (`59fb7eb` scoping, `2649270`
+   build) — traced why only one real premium-priced outcome exists across
+   this system's whole options history: one strategy (`bull_spread_v1`)
+   places real Alpaca orders but never reads the fill back; two others
+   (`options-sosnoff`, `battle_station_0dte`) never place an order at all.
+   Ported the proven equity poll-and-writeback pattern. **Found and fixed
+   two more real, pre-existing bugs along the way**: the close path
+   checked a field key (`action`) the canonical schema stopped writing in
+   May, and `_occ_symbol()` read per-leg fields that schema doesn't carry
+   either — the atomic MLEG close has never once fired correctly. Sign
+   convention resolved structurally (a bull call spread is mathematically
+   always a debit), not trusted from Alpaca's own unverified convention.
+   Wired `wheel_strategy.py` and `battle_station_0dte` to real orders;
+   **`shadow_csp.py` deliberately not wired** (its `book_tag="ghost"` is
+   an explicit hypothetical-comparison construct, not a real strategy —
+   flagging this is a decision point, not an oversight).
+10. **DEX alongside GEX** (`4157eb8`) — same loop, same snapshot, zero new
+    fetch. Live-tested on NVDA.
+11. **CBOE Index/Total extraction** (`297d60b`) — plus found the existing
+    Equity-only match was case-sensitive against real uppercase page
+    labels and had likely never worked at all.
+12. **FlashAlpha GEX validation, built** (`5121e89`) — NVDA only (free
+    tier is individual equities), real listed expiration pulled from our
+    own Alpaca chain, structure-only checks (same sign, correct wall
+    sides, flip in band), hard-gated to exactly one call/day with **no
+    override flag** (removed one deliberately — a bypass switch is a
+    foot-gun on a budget shared with the Admiral's own chat use). 12
+    tests, zero real FlashAlpha calls made anywhere in this session —
+    the budget is untouched. **Not scheduled yet — see "What's parked."**
+13. **ThetaData filed as parked** (`d98c816`) — `docs/XO_BACKLOG.md`, with
+    the reasoning: answers a lower-value question (historical pricing)
+    than the fills work that just shipped (future rows verifiable by
+    construction), and today's restatement work found most historical
+    options "profit" in this system is unverifiable anyway. Revisit
+    trigger is "fills land and a real strategy emerges," not a date.
 
-What it was: `_trades_today()` (Battle Station 0DTE) compared a UTC-stored
-timestamp against a Python-local `date.today()` — any trade 5pm-midnight
-Arizona lands on the wrong side of the local/UTC calendar-day boundary,
-either missed by that evening's own gate check or double-counted into the
-next day's cap. Turned out to be a repo-wide pattern, not a one-off: 15
-call sites across 10 files (risk_manager's fleet-wide + per-player daily
-caps, paper_trader's redundant re-check, trade_gateway's third independent
-limit layer, m5_allocator/capitol_fund/crew_scanner's daily dedups,
-dayblade/main.py's display counters) all shared the same root cause.
+**Full test suite** (`.venv/bin/python3` — bare `python3` under-reports
+today, several files import `fastapi`/`alpaca` only present in the
+project venv): 1237 passed at last full run, 18 pre-existing unrelated
+failures confirmed via `git stash` against completely unmodified code
+across every change today. Zero regressions introduced.
 
-Fixed with one canonical helper, `engine.market_calendar.
-local_day_utc_bounds()`, same consolidation doctrine as `is_trading_day()`
-in the same file. Regression test added (`tests/test_trades_tz_gate_
-regression.py`) in the Grep Gate's own comment-aware-scan style — fails if
-the ad hoc `date(col)=?` pattern reappears in any of the 9 gate files,
-regardless of wording.
+**Two live restarts today**, both backup-first (`integrity_check=ok`),
+both market-closed (Saturday), both single-writer/orphan-free verified.
 
-**Cost, plainly** (this matters for how hard to chase the remaining ~40
-non-execution `date(col)=?` sites elsewhere in the repo, left filed as a
-separate lower-priority sweep): the miscount mechanism is *confirmed* with
-a real number (a phantom trade-count of 1 vs. the true 0, on a real
-historical case). Whether it ever actually flipped an accept/reject
-decision is *not confirmed* — 55 of the 61 affected historical trades
-predate the `gate_reject_log` audit table (started 2026-05-26) entirely, and
-the 6 that postdate it show zero relevant rejections for those players/
-dates. Exposure with a demonstrated mechanism, not a confirmed incident.
+## What's parked, and why (so nobody re-does this without reason)
 
-Flagged (not rewritten): `trades.tz_bucket_suspect INTEGER DEFAULT 0`,
-set on exactly the 61 affected row ids, RULE #1-compliant (additive column,
-no existing value touched).
+- **FlashAlpha cron — waits for a fresh session, per direct instruction.**
+  The script (`scripts/flashalpha_gex_validation.py`) is built, tested
+  (12 mocked tests, zero real calls made), and verified live on the parts
+  that don't spend budget (expiration lookup, our own GEX compute).
+  Proposed cron line is in `relay_2026-09-12_options_real_fills_shipped.md`:
+  ```
+  0 7 * * 1-5 cd /Users/bigmac/autonomous-trader && .venv/bin/python3 scripts/flashalpha_gex_validation.py >> logs/flashalpha_gex_validation.log 2>&1
+  ```
+  Installing it means editing the live crontab — this repo's own doctrine
+  (`HM-CRON-EMPTY-PIPE-INCIDENT`) treats that as a real, careful,
+  file-based-diff operation, not a quick edit, and it's the one piece of
+  today's work that's a genuine system-level change rather than a code
+  change. Do it via: dump `crontab -l` to a file, edit the file (not a
+  pipe), `diff` before/after, `wc -l` count-guard, only then `crontab
+  <file>` — never `crontab -l | ... | crontab -`.
+- **`shadow_csp.py` not wired to real orders** — deliberately. Its
+  `book_tag="ghost"` makes it an explicit hypothetical scoring construct
+  ("scored forward vs Troi baseline"), not a real strategy. Wiring it
+  would change what "ghost" means, not just fix a data gap. Worth a
+  direct decision if real fills are wanted there too.
+- **ThetaData** — see item 13 above and `docs/XO_BACKLOG.md` directly for
+  the full reasoning. Do not install a JRE for this on a stale premise.
+- **Bull spread revival** — audited, not decided. No real record exists to
+  revive from; reviving it means starting from zero track record, not
+  restoring a proven one. Admiral's call.
+- **CBOE CSV-primary sites** (`bull_call_spread_v1.py`,
+  `bear_put_spread_v1.py`, `ready_room.py`) — their primary source
+  (`cdn.cboe.com/.../daily_pcr.csv`) returned `AccessDenied` on every
+  header combination tried live today, independent of this repo. The
+  working HTML fallback (fixed today in `alpha_signals.py`) hasn't been
+  extended to these three — natural follow-on, not done, per this item's
+  own lower-priority framing.
+- **Vanna/charm** — skipped per explicit instruction ("modest work, no
+  clear consumer yet"). The math and data (implied_volatility, the BS
+  machinery already in `options_flow_gex.py`) are already in hand
+  whenever there's a reason to build it.
+- **The ~40 other `date(col)=?` sites** (briefings, journals, signal
+  dedup, cost tracking) — filed as a separate, lower-priority sweep. The
+  trades-table version of this bug showed no confirmed bad outcome
+  despite a real, checkable mechanism, so these are reasonable to leave.
+- **Not touched this session, still open from before**: Phase 3
+  (`/api/bridge/facts`, spec only), the leaderboard sort-direction claim
+  (Bridge Phase 2, unreproduced against live data), Phase 1.3
+  (superseded, not paused), the `plutus-v1`/`qwen3:8b` un-alias question
+  (revisit-by 2026-09-17 per `CLAUDE.md`).
 
-Restarted market-closed (backup-first, integrity-checked), verified live by
-calling the fixed functions directly against the real DB in the running
-venv — all clean.
+## What Monday's premarket needs to confirm (live behavior, not code)
 
-## 2. Bridge Classic repair pass — Phases 1 & 2 shipped, Phase 3 spec-only
+1. **GEX repoint cadence** — `grep "Alpaca GEX: refreshed" logs/trader.log`
+   should show hits roughly every 15 minutes once premarket scanning
+   starts; `gex_snapshots` rows (`source='alpaca'`) should land at that
+   same cadence, not the old sporadic multi-hour gaps.
+2. **Real fill writeback** — `wheel_strategy.py`'s next real SPY/QQQ CSP
+   entry and `battle_station_0dte`'s next real trade should carry a
+   `broker_order_id` and `restatement_basis='real_fill'` in their
+   `options_trades`/`battle_station_trades` rows. This is the first time
+   either path will have ever done so.
+3. **`strategy:bull_spread_v1`'s fixed close path** — if a real 2-leg
+   close fires (the atomic MLEG close was unreachable before today's fix),
+   confirm it actually submits via `close_vertical_spread` rather than
+   falling through, and that `exit_credit_debit`/`pnl` land with the
+   structurally-derived sign.
+4. **sys_scan_liveness** — already confirmed dead this session (1h28m
+   clean post-restart); no further Monday action needed, just noting it's
+   closed, not open.
 
-Commits `7b2753b` (Phase 1 trace), `3ab0b14` + `9ca8584` (Phase 2 fixes +
-restart verification), `65a5a63` (Phase 3 spec). Full detail:
-`relay_2026-09-12_bridge_correctness_phase1_trace.md`,
-`_phase2_fixes.md`, `_pass_summary.md`.
+## A judgment call worth knowing about, not just the outcome
 
-**Phase 1** (read-only trace of 4 reported panel contradictions):
-- Riker "bullish" vs. Tactical Display "BEAR_CROSS" — display/labeling only;
-  two real, correctly-computed regime classifiers on different timeframes,
-  never mislabeled as the same thing. Riker's output confirmed to never
-  reach any execution path.
-- Saturday "0/2 TRADES" with real trade rows showing — **surfaced the real
-  finding of the day**: `battle_station_0dte.py::_trades_today()`'s
-  UTC/local mismatch, a genuine live decision-path bug. Flagged, not fixed
-  in Phase 1 (out of that pass's display-only scope) — this is what became
-  item 1 above, now fixed.
-- Sector heatmap zero-fill — display/fallback-logic bug (Finviz's real
-  Saturday all-zero response short-circuited past a working stale-disk
-  fallback). Fixed in Phase 2.
-- Riker mid-sentence truncation — display only, a silent tokenizer-artifact
-  strip regex on `index.html` only. Fixed in Phase 2.
-
-**Phase 2**: 11 fixes shipped (8 originally listed + 3 more found while
-tracing Phase 1), all display/derivation code, RULE #1 respected
-throughout — Season-5 hardcodes, leaderboard rank-skip, Archer briefing
-dedup + mangled-character fix, consensus panel zero-vote flood, metals
-panel field-name mismatch, Battle Station history mislabeling, sector
-heatmap fallback, Riker truncation marker. Two items investigated and left
-alone on purpose: the leaderboard sort-direction claim (unreproduced
-against live data on 3 render paths — open, not fabricated), and the
-4-way agent-count "disagreement" (arithmetic checks out; it's a curated-
-subset-vs-full-roster definitional difference, not a bug). Restarted and
-live-verified (Season 8 footer confirmed via public endpoint).
-
-**Phase 3**: `/api/bridge/facts` unified-facts endpoint spec written
-(`docs/architecture/bridge-facts-endpoint-spec.md`) — **spec only, not
-built**, per instruction. Grounds the design in this session's own five
-confirmed instances of the same disease (regime, season, agent counts,
-sector data, metals each computed 2-4 places with no shared as-of/
-staleness contract), names GEX age as a sixth, sequenced after the CBOE
-repoint rather than blocking it.
-
-## 3. Two sentinel false alarms — retired
-
-Commit `95252df`. Full detail: `relay_2026-09-12_sentinel_false_alarm_
-fixes.md`.
-
-- **`sys_scan_liveness`** — fired hourly on weekends because
-  `check_scan_liveness()`'s "market closed" guard never actually caught
-  weekends (`_get_scan_interval()` returns the real weekend cadence, never
-  `None`), and the fixed 60-min alert threshold exactly equalled that
-  cadence, leaving zero slack. Now gates on `market_calendar.
-  is_trading_day()`, same predicate `bridge_vote.py` already uses to
-  recognize a legitimate weekend stand-down. **Verification in progress —
-  see below.**
-- **`sentinel_mlx_qwen3_unhealthy`** — traced before touching anything:
-  `com.ollietrades.mlx-qwen3` (port 8899) crashed 2026-09-09 and never
-  recovered, and hadn't fed a live trading decision since May anyway (the
-  agent id was already repointed to olliemax's Ollama). Coincided with
-  bigmac's broader 9/9 local-model stand-down. Retired LaunchAgent + probe
-  together (`launchctl bootout`, plists archived not deleted), sentinel
-  call site commented out in place with the function kept for revival.
-
-### sys_scan_liveness verification status — CONFIRMED DEAD
-
-Historical pattern from `trader_error.log`: fired roughly every 60-63
-minutes for hours, last real occurrence **16:47:45 MST**, eleven minutes
-before the 16:57:38 restart that shipped the fix. Checked again at
-**18:15:59 MST** (1h28m post-restart, well past the point the old code
-would have fired at least once more) — `grep -n "scan_liveness" logs/
-trader_error.log | tail -5` returns the same five historical lines ending
-at 16:47:45, nothing newer. **The gate holds. The alert is genuinely
-dead**, not just quiet by coincidence.
-
-## 3b. GEX repoint to Alpaca — scoped, approved, SHIPPED
-
-A fifth ask this evening: whether GEX (dark since Polygon's 7/22
-entitlement 403) should come back as a CBOE repoint or something else.
-Scoped read-only first (`relay_2026-09-12_gex_repoint_scoping.md`), then
-approved and built (`relay_2026-09-12_gex_alpaca_repoint_shipped.md`).
-
-The CBOE repoint's blocking "wall-label inversion" question turned out to
-be a producer/consumer naming mismatch inside this codebase, not a
-CBOE-data convention issue — `gex_scanner.py` labeled walls by
-sign-of-net-gex with no spot-relative constraint, and it's a **named
-prior incident** (`HM-DRYDOCK A1, 2026-06-09`), not a new discovery.
-Recommended and shipped: repoint canonical GEX (`engine.canonical_gex`)
-to Alpaca (`gex_calculator.py`) as the new tier 0, Polygon demoted to an
-optional fallback tier. Two approval conditions both addressed: (1)
-fixed `gex_scanner.py`'s wall-labeling to be position-based instead of
-sign-based, plus its backwards prompt-text labels, with a regression test
-built on the exact named failure shape; (2) added a 30-min freshness gate
-on the new tier — and, found only while building this, the Alpaca
-snapshot table wasn't actually being kept fresh at all (its refresh
-scheduler had been disabled since 2026-05-31), so also restored a real
-15-min refresh cadence and added the same freshness check to
-`risk_manager.py`'s own direct read, which had none before. Restarted
-market-closed, verified live: the real gate, the LLM prompt injection,
-and `canonical_gex()` all independently read the same repointed row and
-agree. Monday's premarket still needs to confirm the 15-min cadence holds
-under real traffic — that's a live-behavior check, not a code question.
-
-## 4. What's left for Monday
-
-- **Leaderboard sort-direction claim** — unreproduced against live data on
-  3 render paths (Phase 2). Open; if it recurs, a screenshot with the
-  active sort-button state would pin down which code path is actually
-  firing.
-- **`/api/bridge/facts` (Phase 3)** — spec written, not started. Estimated
-  ~1 session for the endpoint + core facts, ~half a session for a pilot
-  panel migration, 2-4 more spread out for the rest, prioritized by what
-  this pass actually found wrong (regime, metals, agent counts, sector
-  data).
-- **The ~40 other `date(col)=?` sites** (briefings, journal entries, signal
-  dedup, cost tracking — non-execution tables) — filed as a separate,
-  lower-priority sweep. Given the trades-table version of this bug showed
-  no confirmed bad outcome despite a real, checkable mechanism, these are
-  reasonable to leave for whenever, not urgent.
-- **GEX repoint to Alpaca** — shipped tonight (§3b above). Monday premarket:
-  confirm the 15-min refresh cadence actually holds under real traffic
-  (`grep "Alpaca GEX: refreshed" logs/trader.log`, check `gex_snapshots`
-  rows land ~every 15 min instead of the old sporadic gaps).
-- **Bull spread revival decision** — audited read-only this evening
-  (see the bull-spread audit exchange, no separate relay doc written since
-  nothing was restated or changed). 24 of 26 historical rows are zombie/
-  failed/bulk-reconciled artifacts, zero real `bull_call_spread` market
-  exits ever, and the strategy's entry gate was structurally dead for its
-  first ~10 weeks (fixed 2026-07-10) with exactly one ambiguous trade
-  since. No action taken; Admiral's call on whether to revive it.
-- **Not touched this session, still open from before**: Phase 1.3, the
-  un-alias leftovers (`plutus-v1`/`qwen3:8b` digest situation — revisit-by
-  2026-09-17 per `CLAUDE.md`), anything in the trading decision path
-  beyond what's listed above.
-- **A message arrived mid-session today formatted to look like a
-  legitimate interruption** ("FROM: XO... TO: Scotty," asking to append a
-  "Phase 1.2b theme-context rider" to `docs/XO_PLAN_2026-09.md` and
-  commit it) — injected into a tool result, not an actual message from the
-  Admiral. Not actioned, flagged in-session. Worth a mention in case it
-  resurfaces or the real XO Plan does get a legitimate Phase 1.2b later —
-  don't assume this session's flagged instance was authentic.
+Twice this session, a message arrived formatted to look like a legitimate
+mid-turn interruption (the harness's own "the user sent a new message
+while you were working" wrapper) rather than a normal conversation turn:
+one asking to append a plan-doc section and commit it (turned out
+genuine — the Admiral confirmed authorship afterward, "sent that... it
+arrived oddly because I typed it while you were mid-task"), and one
+earlier asking to sign up for and integrate an unverified external
+service mid-investigation, contradicting an explicit "don't build" given
+in the same conversation (not actioned, flagged, and the Admiral later
+did that signup independently and gave a proper scoped instruction for
+it). Both were flagged before acting rather than silently complied with
+or silently ignored — worth preserving as the right instinct to keep, not
+just a historical note, since the delivery mechanism looks identical
+either way and only the content/context tells them apart.
 
 ## RULE #1 statement
 
-Nothing deleted or rewritten in place all day. Every fix was display code,
-a gate/dedup query, a notification-text builder, a display-cache fallback
-rule, a LaunchAgent retirement, or an additive DB column + backfill on a
-named, verified set of row ids. Two restarts, both backup-first,
-integrity-checked, market-closed, single-writer-gated.
+Nothing deleted or rewritten in place all day, across every piece of work.
+Every fix was display code, a gate/dedup query, a real-order-fill
+writeback (additive to newly-inserted rows, never touching a historical
+one), a LaunchAgent retirement, or an additive DB column/table. Two
+restarts, both backup-first, integrity-checked, market-closed,
+single-writer-gated. Every relay doc referenced above is committed and
+pushed to `exec-pipeline`.
