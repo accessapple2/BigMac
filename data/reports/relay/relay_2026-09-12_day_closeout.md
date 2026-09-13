@@ -110,24 +110,47 @@ fixes.md`.
   together (`launchctl bootout`, plists archived not deleted), sentinel
   call site commented out in place with the function kept for revival.
 
-### sys_scan_liveness verification status
+### sys_scan_liveness verification status — CONFIRMED DEAD
 
-Historical pattern confirmed from `trader_error.log`: fired roughly every
-60-63 minutes, last real occurrence **16:47:45 MST**, eleven minutes before
-the 16:57:38 restart that shipped the fix. As of 17:35 (38 min post-
-restart) no new alert — consistent with the fix, not yet conclusive since
-the old code's failure window recurs roughly hourly. **A background check
-was scheduled for 18:15 MST** (grep `trader_error.log` for `scan_liveness`
-past line covering 16:47:45) to give one full cycle past the last real
-firing. If this session's context runs out before that check lands, it's
-the first thing to look at Monday: `grep -n "scan_liveness" logs/trader_
-error.log | tail -5` — no new hit past `16:47:45` confirms it's dead;
-anything newer means the fix isn't fully live and needs another look.
+Historical pattern from `trader_error.log`: fired roughly every 60-63
+minutes for hours, last real occurrence **16:47:45 MST**, eleven minutes
+before the 16:57:38 restart that shipped the fix. Checked again at
+**18:15:59 MST** (1h28m post-restart, well past the point the old code
+would have fired at least once more) — `grep -n "scan_liveness" logs/
+trader_error.log | tail -5` returns the same five historical lines ending
+at 16:47:45, nothing newer. **The gate holds. The alert is genuinely
+dead**, not just quiet by coincidence.
+
+## 3b. GEX repoint — scoped, not built
+
+After the two retired alerts, a fifth, separate ask this evening: whether
+GEX (dark since Polygon's 7/22 entitlement 403) should come back as a
+CBOE repoint or something else. Full detail:
+`relay_2026-09-12_gex_repoint_scoping.md`. Read-only, no code changed.
+
+Short version: the CBOE repoint's blocking "wall-label inversion"
+question is now stated precisely and traced on both sides — it's a
+producer/consumer naming mismatch inside this codebase (`gex_scanner.py`
+labels walls by sign-of-net-gex with no spot-relative constraint;
+`ready_room.py`/`gex_calculator.py`/`options_flow_gex.py` all agree
+`call_wall` must be above spot, `put_wall` below), not a CBOE-data
+convention issue — and it's a **named prior incident** (`HM-DRYDOCK A1,
+2026-06-09`, "sign-based regime that contradicted Archer and wrong/
+collapsed walls"), not a new discovery. CBOE's live endpoint still works
+(tested on SPY, real gamma near the money). **Alpaca's GEX path
+(`gex_calculator.py`) also still works, tested live, right now** — it was
+never broken, just deliberately demoted to "legacy fallback" by the
+2026-05-31 canonical consolidation, two months before Polygon died. The
+one real decision-path gate (`risk_manager.py`'s position-size/call-wall
+check) and the fleet-wide LLM prompt injection both read Alpaca directly
+and were never exposed to the stale Polygon data at any point — confirmed
+live, not assumed. Recommendation: repoint canonical to Alpaca, not CBOE
+— it already works, is real-time not delayed, is already funded and
+already the fleet's core provider, and needs no wall-label fix first.
+Not built; awaiting direction.
 
 ## 4. What's left for Monday
 
-- **sys_scan_liveness 18:15 confirmation** (above) — check first if this
-  session didn't get to report it.
 - **Leaderboard sort-direction claim** — unreproduced against live data on
   3 render paths (Phase 2). Open; if it recurs, a screenshot with the
   active sort-button state would pin down which code path is actually
@@ -142,10 +165,13 @@ anything newer means the fix isn't fully live and needs another look.
   lower-priority sweep. Given the trades-table version of this bug showed
   no confirmed bad outcome despite a real, checkable mechanism, these are
   reasonable to leave for whenever, not urgent.
-- **Not touched this session, still open from before**: GEX CBOE repoint,
-  Phase 1.3, the un-alias leftovers (`plutus-v1`/`qwen3:8b` digest
-  situation — revisit-by 2026-09-17 per `CLAUDE.md`), anything in the
-  trading decision path beyond what's listed above.
+- **GEX repoint decision** — scoped this evening (§3b above), not built.
+  Wall-label question stated and traced; Alpaca recommended over CBOE.
+  Waiting on a decision, not further investigation.
+- **Not touched this session, still open from before**: Phase 1.3, the
+  un-alias leftovers (`plutus-v1`/`qwen3:8b` digest situation — revisit-by
+  2026-09-17 per `CLAUDE.md`), anything in the trading decision path
+  beyond what's listed above.
 - **A message arrived mid-session today formatted to look like a
   legitimate interruption** ("FROM: XO... TO: Scotty," asking to append a
   "Phase 1.2b theme-context rider" to `docs/XO_PLAN_2026-09.md` and
