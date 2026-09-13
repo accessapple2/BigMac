@@ -1102,6 +1102,23 @@ def setup():
     if "pnl_basis_invalid_reason" not in _trd_cols2:
         c.execute("ALTER TABLE trades ADD COLUMN pnl_basis_invalid_reason TEXT")
 
+    # === HM-TRADES-TZ-GATE-2026-09-12 ===================================
+    # RULE #1 (never rewrite rows): additive column only, no existing value
+    # ever changes. Flags trades rows whose executed_at falls 5pm-midnight
+    # Arizona -- the window every daily-cap/dedup gate in this repo used to
+    # mis-bucket (UTC calendar date one day ahead of the real local trading
+    # day) before engine.market_calendar.local_day_utc_bounds() replaced the
+    # ad hoc date(executed_at)=? string matching. Set once via a one-off
+    # backfill (relay_2026-09-12_trades_tz_gate_fix.md) on exactly the 61
+    # historical rows this affected -- not recomputed here on every
+    # startup, since it's a fixed historical fact about those specific
+    # rows, not a live rule. New trades are correctly bucketed going
+    # forward by the fix itself; this column exists for querying which
+    # PAST rows were exposed to the bug, nothing more.
+    if "tz_bucket_suspect" not in _trd_cols2:
+        c.execute("ALTER TABLE trades ADD COLUMN tz_bucket_suspect INTEGER DEFAULT 0")
+    # === /HM-TRADES-TZ-GATE-2026-09-12 ===================================
+
     # trades_restated: reporting should read this VIEW, not `trades` directly,
     # once a consumer needs a season-1-safe P&L figure. pnl_restated is the
     # raw realized_pnl for every unflagged row (unchanged); for flagged rows

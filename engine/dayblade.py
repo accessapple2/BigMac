@@ -1184,6 +1184,12 @@ def get_dayblade_stats() -> dict:
     total_pnl = 0.0
     today_pnl = 0.0
     today_str = datetime.now().strftime("%Y-%m-%d")
+    # HM-TRADES-TZ-GATE-2026-09-12: today_str above stays local (used only for
+    # the DTE-bucket fallback label below, cosmetic). trades_today itself was
+    # local date.today() vs UTC-stored executed_at, same bug as everywhere else
+    # in this pass -- see engine.market_calendar.local_day_utc_bounds().
+    from engine.market_calendar import local_day_utc_bounds
+    _start_utc, _end_utc = local_day_utc_bounds()
     trades_today = 0
 
     # DTE bucket tracking
@@ -1210,13 +1216,14 @@ def get_dayblade_stats() -> dict:
             dte_stats[bucket]["losses"] += 1
         dte_stats[bucket]["pnl"] += pnl
 
-        if s["executed_at"] and today_str in s["executed_at"]:
+        if s["executed_at"] and _start_utc <= s["executed_at"] < _end_utc:
             today_pnl += pnl
             trades_today += 1
 
     today_buys = conn.execute(
-        "SELECT COUNT(*) as cnt FROM trades WHERE player_id=? AND action LIKE 'BUY%' AND date(executed_at)=? AND season=?",
-        (DAYBLADE_PLAYER, today_str, season)
+        "SELECT COUNT(*) as cnt FROM trades WHERE player_id=? AND action LIKE 'BUY%' "
+        "AND datetime(executed_at) >= ? AND datetime(executed_at) < ? AND season=?",
+        (DAYBLADE_PLAYER, _start_utc, _end_utc, season)
     ).fetchone()
     trades_today += today_buys["cnt"] if today_buys else 0
 

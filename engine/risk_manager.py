@@ -532,12 +532,14 @@ class RiskManager:
 
         # Max 3 trades/day across ALL models combined
         try:
-            from datetime import datetime
-            today = datetime.now().strftime("%Y-%m-%d")
+            # HM-TRADES-TZ-GATE-2026-09-12: was local date.today() vs UTC-stored
+            # executed_at -- see engine.market_calendar.local_day_utc_bounds().
+            from engine.market_calendar import local_day_utc_bounds
+            start_utc, end_utc = local_day_utc_bounds()
             conn = sqlite3.connect(DB, check_same_thread=False)
             global_count = conn.execute(
-                "SELECT COUNT(*) FROM trades WHERE date(executed_at)=?",
-                (today,)
+                "SELECT COUNT(*) FROM trades WHERE datetime(executed_at) >= ? AND datetime(executed_at) < ?",
+                (start_utc, end_utc)
             ).fetchone()[0]
             conn.close()
             if global_count >= 3:
@@ -909,12 +911,15 @@ class RiskManager:
 
         # Daily trade limit (VIX-aware: Geordi=5 normal/2 when VIX>25, Spock=10, default=30)
         model_daily_limit = self.get_effective_daily_limit(player_id)
-        today = datetime.now().strftime("%Y-%m-%d")
+        # HM-TRADES-TZ-GATE-2026-09-12: was local date.today() vs UTC-stored
+        # executed_at -- see engine.market_calendar.local_day_utc_bounds().
+        from engine.market_calendar import local_day_utc_bounds
+        start_utc, end_utc = local_day_utc_bounds()
         try:
             conn = sqlite3.connect(DB, check_same_thread=False)
             count = conn.execute(
-                "SELECT COUNT(*) FROM trades WHERE player_id=? AND date(executed_at)=?",
-                (player_id, today)
+                "SELECT COUNT(*) FROM trades WHERE player_id=? AND datetime(executed_at) >= ? AND datetime(executed_at) < ?",
+                (player_id, start_utc, end_utc)
             ).fetchone()[0]
             conn.close()
             if count >= model_daily_limit:

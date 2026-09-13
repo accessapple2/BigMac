@@ -147,13 +147,17 @@ def _seat_is_live() -> bool:
 
 def _traded_today() -> bool:
     """Restart-resistant once-per-day dedup (capitol_fund pattern)."""
-    from datetime import date
+    # HM-TRADES-TZ-GATE-2026-09-12: was local date.today() vs UTC-stored
+    # executed_at -- see engine.market_calendar.local_day_utc_bounds().
+    from engine.market_calendar import local_day_utc_bounds
+    start_utc, end_utc = local_day_utc_bounds()
     try:
         conn = sqlite3.connect(_db_path(), timeout=5)
         try:
             row = conn.execute(
-                "SELECT 1 FROM trades WHERE player_id=? AND date(executed_at)=? LIMIT 1",
-                (PLAYER_ID, str(date.today())),
+                "SELECT 1 FROM trades WHERE player_id=? "
+                "AND datetime(executed_at) >= ? AND datetime(executed_at) < ? LIMIT 1",
+                (PLAYER_ID, start_utc, end_utc),
             ).fetchone()
         finally:
             conn.close()

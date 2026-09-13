@@ -189,12 +189,17 @@ def _open_position() -> dict | None:
 
 
 def _trades_today() -> int:
-    today = date.today().isoformat()
+    # HM-TRADES-TZ-GATE-2026-09-12: was `date(timestamp)=?` against
+    # date.today() (local) vs a UTC-stored timestamp -- see
+    # engine.market_calendar.local_day_utc_bounds() docstring for the bug.
+    from engine.market_calendar import local_day_utc_bounds
+    start_utc, end_utc = local_day_utc_bounds()
     c = _conn()
     try:
         row = c.execute(
-            "SELECT COUNT(*) FROM battle_station_trades WHERE date(timestamp)=? AND status != 'OPEN'",
-            (today,)
+            "SELECT COUNT(*) FROM battle_station_trades "
+            "WHERE datetime(timestamp) >= ? AND datetime(timestamp) < ? AND status != 'OPEN'",
+            (start_utc, end_utc)
         ).fetchone()
         return row[0] if row else 0
     finally:

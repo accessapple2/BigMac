@@ -195,6 +195,41 @@ def is_trading_day(d: date) -> bool:
     return d.weekday() < 5 and not is_us_market_holiday(d)
 
 
+def local_day_utc_bounds(d: Optional[date] = None) -> tuple[str, str]:
+    """``[start_utc, end_utc)`` bounds for one Arizona calendar day, as canonical
+    UTC strings (``"YYYY-MM-DD HH:MM:SS"``, matching ``utc_now_str()`` / SQLite's
+    own ``CURRENT_TIMESTAMP`` format) for range-bound queries against UTC-stored
+    timestamp columns. ``d=None`` means "today in Arizona" (``az_now().date()``).
+
+    HM-TRADES-TZ-GATE-2026-09-12: centralizes ~8 ad hoc ``date(executed_at)=?``
+    trades-table gates (risk_manager's fleet + per-player daily caps,
+    paper_trader's redundant re-check, trade_gateway's per-agent limit,
+    m5_allocator/capitol_fund/crew_scanner's once-per-day dedups,
+    battle_station_0dte's ``_trades_today()``) that each independently compared
+    a UTC-stored column against a Python-local-naive ``date.today()``/
+    ``datetime.now()`` string. Any trade 5pm-midnight AZ has a UTC calendar date
+    one day ahead of its real local day, so a bare ``date(col)=?`` string match
+    either misses it entirely (same evening) or double-counts it into the next
+    calendar day (next morning) -- same class of bug ``is_trading_day()`` above
+    already exists to prevent for day *predicates*; this is the same
+    consolidation for day *ranges*. Use with ``datetime(col) >= ? AND
+    datetime(col) < ?`` (not raw string ``>=``/``<``) so it's safe across both
+    of this repo's two live timestamp formats (SQLite ``CURRENT_TIMESTAMP``'s
+    ``"YYYY-MM-DD HH:MM:SS"`` and ``datetime.now(timezone.utc).isoformat()``'s
+    ``"YYYY-MM-DDTHH:MM:SS.ffffff+00:00"``) -- ``datetime()`` normalizes both to
+    the same comparable form; a bare string comparison would not.
+
+    Arizona has no DST (fixed UTC-7 year-round), so this is exact with no
+    seasonal edge case to handle, unlike most US-timezone day-boundary math.
+    """
+    if d is None:
+        d = az_now().date()
+    start_local = datetime.combine(d, time.min, tzinfo=_AZ)
+    end_local = start_local + timedelta(days=1)
+    fmt = "%Y-%m-%d %H:%M:%S"
+    return start_local.astimezone(UTC).strftime(fmt), end_local.astimezone(UTC).strftime(fmt)
+
+
 def get_holiday_name(d: date) -> Optional[str]:
     """Return the holiday name for ``d``, or None if not a holiday.
 

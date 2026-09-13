@@ -22,16 +22,19 @@ def _already_bought_today(symbol: str) -> bool:
     """Check DB: did capitol-trades already BUY this symbol today? Restart-resistant dedup."""
     import sqlite3 as _sqlite3
     import os as _os
-    from datetime import date as _date
+    # HM-TRADES-TZ-GATE-2026-09-12: was local date.today() vs UTC-stored
+    # executed_at -- see engine.market_calendar.local_day_utc_bounds().
+    from engine.market_calendar import local_day_utc_bounds
     db_path = _os.environ.get(
         "TRADEMINDS_DB", _os.path.expanduser("~/autonomous-trader/data/trader.db")
     )
     try:
+        start_utc, end_utc = local_day_utc_bounds()
         conn = _sqlite3.connect(db_path, timeout=5)
         row = conn.execute(
             "SELECT 1 FROM trades WHERE player_id=? AND symbol=? "
-            "AND action='BUY' AND date(executed_at)=?",
-            (PLAYER_ID, symbol, str(_date.today()))
+            "AND action='BUY' AND datetime(executed_at) >= ? AND datetime(executed_at) < ?",
+            (PLAYER_ID, symbol, start_utc, end_utc)
         ).fetchone()
         conn.close()
         return row is not None

@@ -233,8 +233,16 @@ def test_run_m5_rebalance_skips_if_already_traded_today(temp_db):
     conn = sqlite3.connect(temp_db)
     m5.register_player(conn)
     conn.execute("UPDATE ai_players SET is_paused=0 WHERE id=?", (m5.PLAYER_ID,))
-    conn.execute("INSERT INTO trades (player_id, symbol, action, qty, price) VALUES (?,?,?,?,?)",
-                 (m5.PLAYER_ID, "SPY", "BUY", 1, 500.0))
+    # HM-TRADES-TZ-GATE-2026-09-12: _traded_today() now range-queries against
+    # the mocked az_now() via local_day_utc_bounds() instead of the real
+    # wall-clock date -- executed_at must fall inside that same mocked
+    # Arizona day (2026-07-13 09:00 AZ = 2026-07-13 16:00 UTC), not rely on
+    # SQLite's CURRENT_TIMESTAMP default (real "now", not the test's mocked day).
+    conn.execute(
+        "INSERT INTO trades (player_id, symbol, action, qty, price, executed_at) "
+        "VALUES (?,?,?,?,?,?)",
+        (m5.PLAYER_ID, "SPY", "BUY", 1, 500.0, "2026-07-13 16:00:00"),
+    )
     conn.commit()
     conn.close()
     in_window = datetime(2026, 7, 13, 8, 0)

@@ -1261,11 +1261,14 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
 
         # 1. Daily trade limit (per-model + bear market aware)
         _daily_limit = _rm.get_effective_daily_limit(player_id)
-        _today = datetime.now().strftime("%Y-%m-%d")
+        # HM-TRADES-TZ-GATE-2026-09-12: was local date.today() vs UTC-stored
+        # executed_at -- see engine.market_calendar.local_day_utc_bounds().
+        from engine.market_calendar import local_day_utc_bounds
+        _start_utc, _end_utc = local_day_utc_bounds()
         _tc = _conn()
         _trade_count = _tc.execute(
-            "SELECT COUNT(*) FROM trades WHERE player_id=? AND date(executed_at)=?",
-            (player_id, _today)
+            "SELECT COUNT(*) FROM trades WHERE player_id=? AND datetime(executed_at) >= ? AND datetime(executed_at) < ?",
+            (player_id, _start_utc, _end_utc)
         ).fetchone()[0]
         _tc.close()
         if _trade_count >= _daily_limit:

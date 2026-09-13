@@ -3494,13 +3494,17 @@ def run_daily_summary():
             "SELECT id, display_name FROM ai_players WHERE is_active=1 AND halt_mode='active'"
         ).fetchall()
 
-        today = __import__("datetime").datetime.now().strftime("%Y-%m-%d")
+        # HM-TRADES-TZ-GATE-2026-09-12: was local date.today() vs UTC-stored
+        # executed_at -- see engine.market_calendar.local_day_utc_bounds().
+        from engine.market_calendar import local_day_utc_bounds
+        _start_utc, _end_utc = local_day_utc_bounds()
         summary = []
         for p in players:
             pnl = get_portfolio_with_pnl(p["id"], prices)
             trades_today = conn.execute(
-                "SELECT COUNT(*) as cnt FROM trades WHERE player_id=? AND date(executed_at)=?",
-                (p["id"], today)
+                "SELECT COUNT(*) as cnt FROM trades WHERE player_id=? "
+                "AND datetime(executed_at) >= ? AND datetime(executed_at) < ?",
+                (p["id"], _start_utc, _end_utc)
             ).fetchone()
             summary.append({
                 "name": p["display_name"],

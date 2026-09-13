@@ -57,12 +57,15 @@ def check_trade(agent_id: str, symbol: str, action: str, qty: float, price: floa
             return {"allowed": False, "reason": reason}
 
         # 2. Daily trade count check
-        today = date.today().isoformat()
+        # HM-TRADES-TZ-GATE-2026-09-12: was local date.today() vs UTC-stored
+        # executed_at -- see engine.market_calendar.local_day_utc_bounds().
+        from engine.market_calendar import local_day_utc_bounds
+        start_utc, end_utc = local_day_utc_bounds()
         count_row = conn.execute(
             """SELECT COUNT(*) FROM trades
                WHERE player_id = ?
-               AND date(executed_at) = ?""",
-            (agent_id, today)
+               AND datetime(executed_at) >= ? AND datetime(executed_at) < ?""",
+            (agent_id, start_utc, end_utc)
         ).fetchone()
         count = count_row[0] if count_row else 0
         limit = AGENT_LIMITS.get(agent_id, DEFAULT_LIMIT)

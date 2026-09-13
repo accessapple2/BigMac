@@ -677,12 +677,16 @@ def _gather_market_context_uncached() -> dict[str, Any]:
 
 def _count_today_trades(player_id: str) -> int:
     """How many executed crew_decisions trades has this agent placed today?"""
-    today = datetime.now().strftime("%Y-%m-%d")
+    # HM-TRADES-TZ-GATE-2026-09-12: was local date.today() vs UTC-stored
+    # timestamp -- see engine.market_calendar.local_day_utc_bounds().
+    from engine.market_calendar import local_day_utc_bounds
+    start_utc, end_utc = local_day_utc_bounds()
     c = _conn()
     try:
         row = c.execute(
-            "SELECT COUNT(*) FROM crew_decisions WHERE player_id=? AND date(timestamp)=? AND executed=1",
-            (player_id, today),
+            "SELECT COUNT(*) FROM crew_decisions WHERE player_id=? "
+            "AND datetime(timestamp) >= ? AND datetime(timestamp) < ? AND executed=1",
+            (player_id, start_utc, end_utc),
         ).fetchone()
         return row[0] if row else 0
     except Exception:
@@ -3348,13 +3352,18 @@ def _scan_rules_agent(player_id: str, market_ctx: dict[str, Any]) -> dict[str, A
                           market_ctx, "DEDUP_HELD", False)
             return {"player_id": player_id, "action": "PASS",
                     "reason": f"Capitol dedup: {symbol} already in portfolio"}
-        import sqlite3 as _cap_sq; import os as _cap_os; from datetime import date as _cap_date
+        import sqlite3 as _cap_sq; import os as _cap_os
+        # HM-TRADES-TZ-GATE-2026-09-12: was local date.today() vs UTC-stored
+        # executed_at -- see engine.market_calendar.local_day_utc_bounds().
+        from engine.market_calendar import local_day_utc_bounds
         _cap_db = _cap_os.environ.get("TRADEMINDS_DB", _cap_os.path.expanduser("~/autonomous-trader/data/trader.db"))
         try:
+            _cap_start_utc, _cap_end_utc = local_day_utc_bounds()
             _cap_c = _cap_sq.connect(_cap_db, timeout=5)
             _cap_row = _cap_c.execute(
-                "SELECT 1 FROM trades WHERE player_id=? AND symbol=? AND action LIKE 'BUY%' AND date(executed_at)=?",
-                ("capitol-trades", symbol, str(_cap_date.today()))
+                "SELECT 1 FROM trades WHERE player_id=? AND symbol=? AND action LIKE 'BUY%' "
+                "AND datetime(executed_at) >= ? AND datetime(executed_at) < ?",
+                ("capitol-trades", symbol, _cap_start_utc, _cap_end_utc)
             ).fetchone()
             _cap_c.close()
             if _cap_row:
@@ -3383,8 +3392,8 @@ def _scan_rules_agent(player_id: str, market_ctx: dict[str, Any]) -> dict[str, A
             _cap_row2 = _cap_c2.execute(
                 "SELECT 1 FROM crew_decisions "
                 "WHERE player_id=? AND symbol=? AND action LIKE 'BUY%' "
-                "AND date(timestamp)=? LIMIT 1",
-                ("capitol-trades", symbol, str(_cap_date.today()))
+                "AND datetime(timestamp) >= ? AND datetime(timestamp) < ? LIMIT 1",
+                ("capitol-trades", symbol, _cap_start_utc, _cap_end_utc)
             ).fetchone()
             _cap_c2.close()
             if _cap_row2:
@@ -4370,16 +4379,23 @@ def _run_spock_risk_alerts() -> None:
     _init_risk_alerts_table()
     try:
         c = sqlite3.connect(DB_PATH, timeout=10)
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        # HM-TRADES-TZ-GATE-2026-09-12: was UTC-calendar-day (internally
+        # consistent, but a different "today" than every other daily gate
+        # in the fleet, which counts the Arizona trading day) -- aligned to
+        # the same engine.market_calendar.local_day_utc_bounds() everything
+        # else now uses, so "today's P&L" means the same trading day
+        # everywhere.
+        from engine.market_calendar import local_day_utc_bounds
+        start_utc, end_utc = local_day_utc_bounds()
 
         # Per-agent: today's closed P&L
         agent_rows = c.execute(
             """SELECT player_id, SUM(realized_pnl) as day_pnl
                FROM trades
                WHERE action='SELL' AND realized_pnl IS NOT NULL
-               AND date(executed_at) = ?
+               AND datetime(executed_at) >= ? AND datetime(executed_at) < ?
                GROUP BY player_id""",
-            (today,),
+            (start_utc, end_utc),
         ).fetchall()
 
         fleet_today = 0.0
@@ -4835,14 +4851,18 @@ def ollie_auto_check(ctx: dict | None = None) -> list[dict]:
             ["symbol","fleet_count","avg_conf","avg_entry","agents"], r
         )) for r in fleet_rows}
 
-        today_str   = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        # HM-TRADES-TZ-GATE-2026-09-12: was UTC-calendar-day; aligned to
+        # engine.market_calendar.local_day_utc_bounds() (Arizona trading day),
+        # same "today" every other daily gate in the fleet now uses.
+        from engine.market_calendar import local_day_utc_bounds
+        _start_utc, _end_utc = local_day_utc_bounds()
         open_syms   = set(r[0] for r in c.execute(
             "SELECT DISTINCT symbol FROM trades WHERE player_id=? "
             "AND action='BUY' AND realized_pnl IS NULL", (_OLLIE_AUTO_ID,)
         ).fetchall())
         traded_today = set(r[0] for r in c.execute(
-            "SELECT DISTINCT symbol FROM trades WHERE player_id=? AND date(executed_at)=?",
-            (_OLLIE_AUTO_ID, today_str)
+            "SELECT DISTINCT symbol FROM trades WHERE player_id=? AND datetime(executed_at) >= ? AND datetime(executed_at) < ?",
+            (_OLLIE_AUTO_ID, _start_utc, _end_utc)
         ).fetchall())
         c.close()
 
@@ -5142,15 +5162,19 @@ def _ollie_small_cap_scan() -> list[dict]:
         if not critical_alerts:
             return []
 
-        today_str  = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        # HM-TRADES-TZ-GATE-2026-09-12: was UTC-calendar-day; aligned to
+        # engine.market_calendar.local_day_utc_bounds() (Arizona trading day),
+        # same "today" every other daily gate in the fleet now uses.
+        from engine.market_calendar import local_day_utc_bounds
+        _start_utc, _end_utc = local_day_utc_bounds()
         c = _conn()
         open_syms = set(r[0] for r in c.execute(
             "SELECT DISTINCT symbol FROM trades WHERE player_id=? "
             "AND action='BUY' AND realized_pnl IS NULL", (_OLLIE_AUTO_ID,)
         ).fetchall())
         traded_today = set(r[0] for r in c.execute(
-            "SELECT DISTINCT symbol FROM trades WHERE player_id=? AND date(executed_at)=?",
-            (_OLLIE_AUTO_ID, today_str)
+            "SELECT DISTINCT symbol FROM trades WHERE player_id=? AND datetime(executed_at) >= ? AND datetime(executed_at) < ?",
+            (_OLLIE_AUTO_ID, _start_utc, _end_utc)
         ).fetchall())
         c.close()
         skip_syms = open_syms | traded_today
@@ -5289,15 +5313,19 @@ def _ollie_channel_scan() -> list[dict]:
     try:
         from engine.channel_scanner import scan_channel
 
-        today_str  = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        # HM-TRADES-TZ-GATE-2026-09-12: was UTC-calendar-day; aligned to
+        # engine.market_calendar.local_day_utc_bounds() (Arizona trading day),
+        # same "today" every other daily gate in the fleet now uses.
+        from engine.market_calendar import local_day_utc_bounds
+        _start_utc, _end_utc = local_day_utc_bounds()
         c = _conn()
         open_syms = set(r[0] for r in c.execute(
             "SELECT DISTINCT symbol FROM trades WHERE player_id=? "
             "AND action='BUY' AND realized_pnl IS NULL", (_OLLIE_AUTO_ID,)
         ).fetchall())
         traded_today = set(r[0] for r in c.execute(
-            "SELECT DISTINCT symbol FROM trades WHERE player_id=? AND date(executed_at)=?",
-            (_OLLIE_AUTO_ID, today_str)
+            "SELECT DISTINCT symbol FROM trades WHERE player_id=? AND datetime(executed_at) >= ? AND datetime(executed_at) < ?",
+            (_OLLIE_AUTO_ID, _start_utc, _end_utc)
         ).fetchall())
         c.close()
         skip_syms = open_syms | traded_today
