@@ -140,10 +140,20 @@ def shadow_csp_standings():
     DSR, report-only graduation verdict). Read-only; wraps
     engine/shadow_csp_scorecard.compute()."""
     try:
+        import copy as _copy
         from engine.shadow_csp_scorecard import compute
-        return compute()
+        out = _copy.deepcopy(compute())
     except Exception as e:
         return {"error": str(e), "baseline": None, "seats": []}
+    # HM-BRIDGE-DSR-GATE-2026-09-13: withhold DSR below the graduation gate the panels
+    # themselves state (graduate_n, 30). Was served at n=3 (0.9876) and rendered raw on
+    # /classic, which had no client-side gate. graduation{} verdict left as computed.
+    gate = out.get("graduate_n") or 30
+    for s in [out.get("baseline")] + list(out.get("seats") or []):
+        if isinstance(s, dict) and s.get("dsr") is not None and (s.get("n_closed") or 0) < gate:
+            s["dsr"] = None
+            s["dsr_withheld"] = f"N={s.get('n_closed') or 0} < {gate}"
+    return out
 
 
 @app.get("/api/systems-status")

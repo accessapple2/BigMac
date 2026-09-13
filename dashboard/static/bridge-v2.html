@@ -2301,16 +2301,12 @@ async function loadBakeoffStandings() {
       const grad    = s.graduation || {};
       const verdict = grad.verdict || (i === 0 ? 'BASELINE' : 'HOLD');
       const vc      = verdict === 'PASS' ? 'pass' : verdict === 'FAIL' ? 'fail' : 'hold';
-      // HM-BRIDGE-DSR-MIN-N-2026-09-12: scripts/archive_harness.py's own
-      // MIN_N_DEFAULT=5 is the threshold below which it refuses to report a
-      // DSR at all ("INSUFFICIENT_N"). engine/shadow_csp_scorecard.compute()
-      // doesn't apply that same gate to the number it returns, so a seat
-      // with e.g. n_closed=3 can carry a real-looking dsr=0.9876 -- a
-      // statistically meaningless number for that sample size, presented
-      // with no caveat. Match the harness's own bar here rather than
-      // trusting s.dsr != null alone.
+      // HM-BRIDGE-DSR-GATE-2026-09-13: gate = payload graduate_n (30), the same number this
+      // panel's meta line states. Was archive_harness MIN_N=5 here (HM-BRIDGE-DSR-MIN-N-2026-09-12)
+      // and no gate at all on /classic. The server also withholds dsr below the gate now.
       const nClosed = s.n_closed ?? 0;
-      const dsr     = (s.dsr != null && nClosed >= 5) ? Number(s.dsr).toFixed(3) : ('— (N=' + nClosed + ')');
+      const gate    = d.graduate_n || 30;
+      const dsr     = (s.dsr != null && nClosed >= gate) ? Number(s.dsr).toFixed(3) : ('— (N=' + nClosed + '<' + gate + ')');
       return '<tr>'
         + '<td style="font-weight:' + (i === 0 ? '700' : '400') + '">' + (s.agent || '—') + '</td>'
         + '<td class="r">' + (s.n_closed ?? 0) + '</td>'
