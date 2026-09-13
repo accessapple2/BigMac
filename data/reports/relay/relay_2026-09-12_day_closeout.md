@@ -121,33 +121,33 @@ trader_error.log | tail -5` returns the same five historical lines ending
 at 16:47:45, nothing newer. **The gate holds. The alert is genuinely
 dead**, not just quiet by coincidence.
 
-## 3b. GEX repoint — scoped, not built
+## 3b. GEX repoint to Alpaca — scoped, approved, SHIPPED
 
-After the two retired alerts, a fifth, separate ask this evening: whether
-GEX (dark since Polygon's 7/22 entitlement 403) should come back as a
-CBOE repoint or something else. Full detail:
-`relay_2026-09-12_gex_repoint_scoping.md`. Read-only, no code changed.
+A fifth ask this evening: whether GEX (dark since Polygon's 7/22
+entitlement 403) should come back as a CBOE repoint or something else.
+Scoped read-only first (`relay_2026-09-12_gex_repoint_scoping.md`), then
+approved and built (`relay_2026-09-12_gex_alpaca_repoint_shipped.md`).
 
-Short version: the CBOE repoint's blocking "wall-label inversion"
-question is now stated precisely and traced on both sides — it's a
-producer/consumer naming mismatch inside this codebase (`gex_scanner.py`
-labels walls by sign-of-net-gex with no spot-relative constraint;
-`ready_room.py`/`gex_calculator.py`/`options_flow_gex.py` all agree
-`call_wall` must be above spot, `put_wall` below), not a CBOE-data
-convention issue — and it's a **named prior incident** (`HM-DRYDOCK A1,
-2026-06-09`, "sign-based regime that contradicted Archer and wrong/
-collapsed walls"), not a new discovery. CBOE's live endpoint still works
-(tested on SPY, real gamma near the money). **Alpaca's GEX path
-(`gex_calculator.py`) also still works, tested live, right now** — it was
-never broken, just deliberately demoted to "legacy fallback" by the
-2026-05-31 canonical consolidation, two months before Polygon died. The
-one real decision-path gate (`risk_manager.py`'s position-size/call-wall
-check) and the fleet-wide LLM prompt injection both read Alpaca directly
-and were never exposed to the stale Polygon data at any point — confirmed
-live, not assumed. Recommendation: repoint canonical to Alpaca, not CBOE
-— it already works, is real-time not delayed, is already funded and
-already the fleet's core provider, and needs no wall-label fix first.
-Not built; awaiting direction.
+The CBOE repoint's blocking "wall-label inversion" question turned out to
+be a producer/consumer naming mismatch inside this codebase, not a
+CBOE-data convention issue — `gex_scanner.py` labeled walls by
+sign-of-net-gex with no spot-relative constraint, and it's a **named
+prior incident** (`HM-DRYDOCK A1, 2026-06-09`), not a new discovery.
+Recommended and shipped: repoint canonical GEX (`engine.canonical_gex`)
+to Alpaca (`gex_calculator.py`) as the new tier 0, Polygon demoted to an
+optional fallback tier. Two approval conditions both addressed: (1)
+fixed `gex_scanner.py`'s wall-labeling to be position-based instead of
+sign-based, plus its backwards prompt-text labels, with a regression test
+built on the exact named failure shape; (2) added a 30-min freshness gate
+on the new tier — and, found only while building this, the Alpaca
+snapshot table wasn't actually being kept fresh at all (its refresh
+scheduler had been disabled since 2026-05-31), so also restored a real
+15-min refresh cadence and added the same freshness check to
+`risk_manager.py`'s own direct read, which had none before. Restarted
+market-closed, verified live: the real gate, the LLM prompt injection,
+and `canonical_gex()` all independently read the same repointed row and
+agree. Monday's premarket still needs to confirm the 15-min cadence holds
+under real traffic — that's a live-behavior check, not a code question.
 
 ## 4. What's left for Monday
 
@@ -165,9 +165,17 @@ Not built; awaiting direction.
   lower-priority sweep. Given the trades-table version of this bug showed
   no confirmed bad outcome despite a real, checkable mechanism, these are
   reasonable to leave for whenever, not urgent.
-- **GEX repoint decision** — scoped this evening (§3b above), not built.
-  Wall-label question stated and traced; Alpaca recommended over CBOE.
-  Waiting on a decision, not further investigation.
+- **GEX repoint to Alpaca** — shipped tonight (§3b above). Monday premarket:
+  confirm the 15-min refresh cadence actually holds under real traffic
+  (`grep "Alpaca GEX: refreshed" logs/trader.log`, check `gex_snapshots`
+  rows land ~every 15 min instead of the old sporadic gaps).
+- **Bull spread revival decision** — audited read-only this evening
+  (see the bull-spread audit exchange, no separate relay doc written since
+  nothing was restated or changed). 24 of 26 historical rows are zombie/
+  failed/bulk-reconciled artifacts, zero real `bull_call_spread` market
+  exits ever, and the strategy's entry gate was structurally dead for its
+  first ~10 weeks (fixed 2026-07-10) with exactly one ambiguous trade
+  since. No action taken; Admiral's call on whether to revive it.
 - **Not touched this session, still open from before**: Phase 1.3, the
   un-alias leftovers (`plutus-v1`/`qwen3:8b` digest situation — revisit-by
   2026-09-17 per `CLAUDE.md`), anything in the trading decision path
