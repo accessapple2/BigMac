@@ -117,7 +117,8 @@ def _execute_live(signal: StrategySignal, signal_id: Optional[int]) -> Execution
             reason=f"alpaca submit raised: {type(e).__name__}: {e}"
         )
 
-    # submit_vertical_spread returns dict: {"order_id": ..., ...} or {"skipped": True, ...}
+    # submit_vertical_spread returns dict: {"order_id": ..., "filled_avg_price": ..., ...} or {"skipped": True, ...}
+    fill_price = None
     if isinstance(result, dict):
         if result.get("skipped"):
             return ExecutionResult(
@@ -126,11 +127,24 @@ def _execute_live(signal: StrategySignal, signal_id: Optional[int]) -> Execution
                 reason=f"alpaca skipped: {result}"
             )
         broker_order_id = result.get("order_id") or result.get("id")
+        # HM-OPTIONS-REAL-FILLS-2026-09-12: real fill magnitude from Alpaca's
+        # own order response (polled in submit_vertical_spread()). Alpaca's
+        # own credit/debit SIGN convention for an MLEG order's filled_avg_price
+        # is not independently verified anywhere in this codebase (the same
+        # gap docs/XO_BACKLOG.md's HM-STRATEGIES-EXECUTOR-STATUS-NEVER-SET
+        # already flagged for the close side) -- so the sign is NOT taken
+        # from Alpaca. Instead |fill_price| is combined with the STRUCTURAL
+        # sign of the spread type in _record_options_trade(), a mathematical
+        # fact (a bull call / bear put spread is always a net debit; a bull
+        # put / bear call spread is always a net credit -- the lower strike
+        # of a call, or higher strike of a put, is always worth more), not an
+        # assumption about Alpaca's API.
+        fill_price = result.get("filled_avg_price")
     else:
         broker_order_id = getattr(result, "id", None)
         broker_order_id = str(broker_order_id) if broker_order_id else None
 
-    trade_id = _record_options_trade(signal, broker_order_id, signal_id)
+    trade_id = _record_options_trade(signal, broker_order_id, signal_id, fill_price)
 
     return ExecutionResult(
         signal_id=signal_id, ticker=signal.ticker, exit_tag=signal.exit_tag,
@@ -141,13 +155,27 @@ def _execute_live(signal: StrategySignal, signal_id: Optional[int]) -> Execution
     )
 
 
-def _occ_symbol(underlying: str, leg: dict) -> str:
-    """Build OCC option symbol: e.g. SPY250425C00700000"""
-    exp = date.fromisoformat(leg["expiration"])
+def _occ_symbol(underlying: str, leg: dict, expiration: Optional[str] = None) -> str:
+    """Build OCC option symbol: e.g. SPY250425C00700000.
+
+    HM-OPTIONS-CLOSE-SCHEMA-MISMATCH-2026-09-12: the canonical legs_json
+    schema (HM-BULL-SPREAD-V1-SCHEMA-CANONICALIZE, 2026-05-17) stores
+    {side, type, strike, qty, entry_price} per leg -- no per-leg
+    'expiration' (that lives once on the options_trades row itself) and
+    the option-type key is 'type', not 'option_type'. This function's open-
+    side caller (_record_options_trade's payload shape) still supplies
+    both `option_type` and `expiration` on its own leg dicts, so both key
+    names are accepted; `expiration` is required from *some* source (either
+    the `expiration` param, for a canonical-schema leg read back from the
+    DB, or leg['expiration'], for the open-side payload shape).
+    """
+    exp_str = expiration or leg.get("expiration")
+    exp = date.fromisoformat(exp_str)
     yy = exp.strftime("%y")
     mm = exp.strftime("%m")
     dd = exp.strftime("%d")
-    cp = "C" if leg["option_type"] == "call" else "P"
+    opt_type = leg.get("type") or leg.get("option_type")
+    cp = "C" if opt_type == "call" else "P"
     strike_int = int(round(leg["strike"] * 1000))
     return f"{underlying}{yy}{mm}{dd}{cp}{strike_int:08d}"
 
@@ -191,21 +219,35 @@ def close_position(intent) -> CloseResult:
 def _close_legs_individually(
     legs, symbol, player_id, contracts_to_close,
     close_options_position, submit_single_option,
+    expiration: Optional[str] = None,
 ) -> list[dict]:
     """Iterate legs and call single-leg close primitives per leg.
 
-    Long leg (entry action='buy')  → close_options_position (sell-to-close).
-    Short leg (entry action='sell') → submit_single_option(side='buy') (BTC).
+    Long leg (side='long')  → close_options_position (sell-to-close).
+    Short leg (side='short') → submit_single_option(side='buy') (BTC).
+
+    HM-OPTIONS-CLOSE-SCHEMA-MISMATCH-2026-09-12: this used to check
+    leg.get("action", "buy") -- a key the canonical legs_json schema
+    (2026-05-17) never writes, so it silently defaulted every leg to "buy"
+    and closed BOTH legs the same way (sell-to-close), regardless of which
+    was actually long or short. Confirmed live against real stored rows
+    (id 140's legs_json: {"side": "long", ...}/{"side": "short", ...}, no
+    "action" key at all) before fixing, not assumed. Now reads "side"
+    (falling back to "action"/"buy"|"sell" only for any pre-canonicalization
+    row that might still exist).
 
     Pre-HM-AC-Option-B this was the only close path; now it's a fallback for
     structures the new atomic MLEG close doesn't cover (1-leg, 4-leg ICs).
     """
     out: list[dict] = []
     for leg in legs:
-        occ = _occ_symbol(symbol, leg)
-        entry_action = leg.get("action", "buy")
+        occ = _occ_symbol(symbol, leg, expiration=expiration)
+        side = leg.get("side")
+        if side is None:
+            # Legacy pre-canonicalization shape fallback.
+            side = "long" if leg.get("action", "buy") == "buy" else "short"
         try:
-            if entry_action == "buy":
+            if side == "long":
                 # Long leg: sell to close
                 r = close_options_position(
                     player_id=player_id,
@@ -220,9 +262,9 @@ def _close_legs_individually(
                     qty=contracts_to_close,
                     side="buy",
                 )
-            out.append({"leg": occ, "result": r})
+            out.append({"leg": occ, "side": side, "result": r})
         except Exception as e:
-            out.append({"leg": occ, "error": f"{type(e).__name__}: {e}"})
+            out.append({"leg": occ, "side": side, "error": f"{type(e).__name__}: {e}"})
     return out
 
 
@@ -260,7 +302,9 @@ def _close_live(intent) -> CloseResult:
     try:
         conn = sqlite3.connect(str(DB_PATH))
         cur = conn.execute(
-            "SELECT symbol, legs_json, strategy_id FROM options_trades WHERE id = ?",
+            "SELECT symbol, legs_json, strategy_id, expiration, structure, "
+            "entry_credit_debit, contracts, contracts_closed_so_far "
+            "FROM options_trades WHERE id = ?",
             (intent.position_id,),
         )
         row = cur.fetchone()
@@ -279,8 +323,12 @@ def _close_live(intent) -> CloseResult:
             status="error", closed_at=datetime.now(timezone.utc),
         )
 
-    symbol, legs_json_str, strategy_id = row
+    (symbol, legs_json_str, strategy_id, expiration, structure,
+     entry_credit_debit, contracts_total, contracts_closed_before) = row
     player_id = f"strategy:{strategy_id}"
+    contracts_total = contracts_total or 1
+    contracts_closed_before = contracts_closed_before or 0
+    is_full_close = (contracts_closed_before + intent.contracts_to_close) >= contracts_total
 
     try:
         legs = json.loads(legs_json_str)
@@ -292,14 +340,23 @@ def _close_live(intent) -> CloseResult:
         )
 
     close_results = []
+    close_fill_price = None  # real Alpaca close fill magnitude, if we get one
 
     # HM-AC-Option-B (2026-05-05): 2-leg vertical spread → atomic MLEG close.
     if len(legs) == 2:
-        long_leg = next((l for l in legs if l.get("action") == "buy"), None)
-        short_leg = next((l for l in legs if l.get("action") == "sell"), None)
+        # HM-OPTIONS-CLOSE-SCHEMA-MISMATCH-2026-09-12: was l.get("action")=="buy"/
+        # "sell" -- a key the canonical legs_json schema never writes (confirmed
+        # against real stored rows, e.g. id 140: {"side": "long"/"short", ...},
+        # no "action" key at all). Every real 2-leg close since the 2026-05-17
+        # canonicalization landed here as "missing buy/sell pair" and silently
+        # fell through to the per-leg fallback below, which had the identical
+        # bug (see _close_legs_individually's fix note) -- the atomic MLEG close
+        # has never actually fired for a real canonical-schema position.
+        long_leg = next((l for l in legs if l.get("side") == "long"), None)
+        short_leg = next((l for l in legs if l.get("side") == "short"), None)
         if long_leg and short_leg:
-            long_occ = _occ_symbol(symbol, long_leg)
-            short_occ = _occ_symbol(symbol, short_leg)
+            long_occ = _occ_symbol(symbol, long_leg, expiration=expiration)
+            short_occ = _occ_symbol(symbol, short_leg, expiration=expiration)
             try:
                 r = close_vertical_spread(
                     player_id=player_id,
@@ -309,16 +366,20 @@ def _close_live(intent) -> CloseResult:
                     strategy=strategy_id,
                 )
                 close_results.append({"leg": f"{long_occ}+{short_occ}", "result": r})
+                if isinstance(r, dict):
+                    close_fill_price = r.get("filled_avg_price")
             except Exception as e:
                 close_results.append({"leg": f"{long_occ}+{short_occ}",
                                       "error": f"{type(e).__name__}: {e}"})
         else:
-            # Malformed 2-leg (both buy or both sell) — fall through to per-leg.
-            print(f"[executor] {intent.position_id}: 2 legs but missing buy/sell pair; "
+            # Malformed 2-leg (both same side, or an unrecognized side value) —
+            # fall through to per-leg.
+            print(f"[executor] {intent.position_id}: 2 legs but missing long/short pair; "
                   f"falling back to per-leg close (HM-AC-Option-B-fallback)")
             close_results = _close_legs_individually(
                 legs, symbol, player_id, intent.contracts_to_close,
                 close_options_position, submit_single_option,
+                expiration=expiration,
             )
     else:
         # HM-AC-Option-B: per-leg loop preserved for 1-leg (single position) and
@@ -329,6 +390,7 @@ def _close_live(intent) -> CloseResult:
         close_results = _close_legs_individually(
             legs, symbol, player_id, intent.contracts_to_close,
             close_options_position, submit_single_option,
+            expiration=expiration,
         )
 
     errors = [r for r in close_results if "error" in r]
@@ -340,6 +402,37 @@ def _close_live(intent) -> CloseResult:
         )
 
     _increment_closed(intent.position_id, intent.contracts_to_close, intent.reason)
+
+    # HM-OPTIONS-REAL-FILLS-2026-09-12: a real close fill on a FULL close of a
+    # known debit/credit structure gets a real exit_credit_debit + pnl, using
+    # the same structural-sign trick as the open side (see _DEBIT_STRUCTURES/
+    # _CREDIT_STRUCTURES) -- closing a debit spread is a credit (you're
+    # selling it back), closing a credit spread is a debit (buying it back).
+    # This is the opposite-of-entry-sign relationship the restatement
+    # script's own hand-verified formula already uses
+    # (exit_credit_debit = sum_legs(-sign_open * exit_price * ...)) -- not a
+    # new assumption, the same one already proven correct against real rows.
+    # Partial closes and any close whose fill never confirmed (poll timeout)
+    # are left exactly as before this fix (pnl/exit_credit_debit untouched).
+    if (is_full_close and close_fill_price is not None and close_fill_price >= 0
+            and structure in _DEBIT_STRUCTURES | _CREDIT_STRUCTURES
+            and entry_credit_debit is not None):
+        exit_credit_debit = (abs(close_fill_price) if structure in _DEBIT_STRUCTURES
+                             else -abs(close_fill_price))
+        pnl = entry_credit_debit + exit_credit_debit
+        try:
+            conn = sqlite3.connect(str(DB_PATH))
+            conn.execute(
+                "UPDATE options_trades SET exit_credit_debit=?, pnl=?, "
+                "restatement_basis='real_fill' WHERE id=?",
+                (exit_credit_debit, pnl, intent.position_id),
+            )
+            conn.commit()
+            conn.close()
+            print(f"[executor] position #{intent.position_id}: real close fill "
+                  f"exit_credit_debit={exit_credit_debit:.2f} pnl={pnl:.2f}")
+        except Exception as e:
+            print(f"[executor] pnl writeback failed for #{intent.position_id}: {e}")
 
     broker_ref = str([r.get("result", {}).get("order_id") for r in close_results])
     return CloseResult(
@@ -421,9 +514,36 @@ def _increment_closed(position_id: int, count: int, reason: str,
             pass
 
 
+# HM-OPTIONS-REAL-FILLS-2026-09-12: which vertical-spread structures are
+# always a net DEBIT vs always a net CREDIT -- a mathematical property (the
+# lower strike of a call spread, or the higher strike of a put spread, is
+# always worth more), not a per-trade guess. Used to sign Alpaca's real
+# (unsigned) fill magnitude correctly without trusting an unverified sign
+# convention from the broker's own MLEG response.
+_DEBIT_STRUCTURES = {"bull_call_spread", "bear_put_spread"}
+_CREDIT_STRUCTURES = {"bull_put_spread", "bear_call_spread"}
+
+
 def _record_options_trade(signal: StrategySignal, order_id: Optional[str],
-                          signal_id: Optional[int]) -> Optional[int]:
-    """Record open spread into options_trades. Matches real legacy schema."""
+                          signal_id: Optional[int],
+                          fill_price: Optional[float] = None) -> Optional[int]:
+    """Record open spread into options_trades. Matches real legacy schema.
+
+    HM-OPTIONS-REAL-FILLS-2026-09-12: fill_price, when given, is the real
+    Alpaca fill magnitude (see _execute_live()'s comment on why the sign is
+    derived structurally rather than trusted from Alpaca). When present,
+    entry_credit_debit is the real fill (signed by the spread's structural
+    debit/credit type) and restatement_basis is stamped 'real_fill'
+    immediately -- this row will never need the restatement script, its
+    price already IS the verified answer. legs_json's own per-leg
+    entry_price stays the pre-trade quote (contract identity -- strike,
+    expiration, side -- is what matters there; entry_credit_debit alone is
+    authoritative for P&L). When fill_price is absent (poll timed out,
+    order still working), behavior is unchanged from before this fix -- the
+    payload's pre-trade quote is recorded as entry_credit_debit, exactly as
+    it always was, and restatement_basis stays NULL for a later pass to
+    reconcile if needed.
+    """
     import json as _json
     try:
         conn = sqlite3.connect(str(DB_PATH))
@@ -460,6 +580,22 @@ def _record_options_trade(signal: StrategySignal, order_id: Optional[str],
         net_debit = payload.get("net_debit", 0) or 0
         net_credit = payload.get("net_credit", 0) or 0
         entry_credit_debit = net_credit - net_debit
+        restatement_basis = None
+
+        # HM-OPTIONS-REAL-FILLS-2026-09-12: a real fill overrides the
+        # pre-trade quote. Sign comes from the spread's own structural type
+        # (see _DEBIT_STRUCTURES/_CREDIT_STRUCTURES above), not from Alpaca's
+        # response -- that sign is unverified, the magnitude is not.
+        if fill_price is not None and fill_price >= 0:
+            if structure in _DEBIT_STRUCTURES:
+                entry_credit_debit = -abs(fill_price)
+                restatement_basis = "real_fill"
+            elif structure in _CREDIT_STRUCTURES:
+                entry_credit_debit = abs(fill_price)
+                restatement_basis = "real_fill"
+            # else: unknown structure (shouldn't reach here, the whitelist
+            # above _execute_live already rejects it) -- fall back silently
+            # to the pre-trade quote already computed above.
 
         # agent_id prefix lets us filter strategy vs legacy agent trades
         agent_id = f"strategy:{signal.strategy_id}"
@@ -471,12 +607,14 @@ def _record_options_trade(signal: StrategySignal, order_id: Optional[str],
             INSERT INTO options_trades
                 (agent_id, symbol, structure, expiration, legs_json,
                  entry_credit_debit, entry_date,
-                 strategy_id, exit_tag, broker_order_id, signal_id, exec_status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')
+                 strategy_id, exit_tag, broker_order_id, signal_id, exec_status,
+                 restatement_basis)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)
         """, (
             agent_id, signal.ticker, structure, expiration, legs_json,
             entry_credit_debit, datetime.now(timezone.utc).isoformat(),
             signal.strategy_id, signal.exit_tag, order_id, signal_id,
+            restatement_basis,
         ))
         conn.commit()
         return cur.lastrowid

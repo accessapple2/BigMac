@@ -522,6 +522,24 @@ def poll_fill(broker_order_id: str) -> dict:
         conn = sqlite3.connect(str(_DB), timeout=30)
         try:
             conn.execute("PRAGMA busy_timeout=30000")
+            # HM-OPTIONS-REAL-FILLS-2026-09-12: `filled` was polled correctly
+            # and returned in this function's result dict the whole time, but
+            # never written back into entry_credit_debit -- the row kept the
+            # pre-trade net_debit_limit quote forever, even on a confirmed
+            # real fill. Only applies on the OPEN side (status='open', no
+            # exit_date yet -- a close is a separate DB operation,
+            # _close_original_position, which still leaves pnl NULL,
+            # untouched by this pass since no swingdesk-manual row has ever
+            # completed a close to reason about). Same sign convention
+            # already used for the quoted value (entry_credit_debit=net_debit,
+            # no inversion) -- this replaces the number, not the meaning.
+            if status == "filled" and filled is not None:
+                conn.execute(
+                    "UPDATE options_trades SET entry_credit_debit=?, restatement_basis='real_fill' "
+                    "WHERE broker_order_id=? AND status='open' AND exit_date IS NULL "
+                    "AND restatement_basis IS NULL",
+                    (float(filled), broker_order_id),
+                )
             if status in _DEAD_UNFILLED_STATUSES and filled_qty == 0:
                 # HM-SWINGDESK-ZOMBIE-OPEN-ROWS 2026-07-10: an order that died
                 # (canceled/expired/rejected) before ever filling never put on

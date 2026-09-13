@@ -8,10 +8,13 @@ position closed via this path was permanently invisible to reporting. This
 covers the fix: status now flips to 'closed' (alongside exec_status) exactly
 when the position is fully closed, and stays 'open' on a partial close.
 
-pnl/exit_credit_debit computation is deliberately NOT covered here -- see
-docs/XO_BACKLOG.md HM-STRATEGIES-EXECUTOR-STATUS-NEVER-SET for why (MLEG
-close fill-price sign convention is unverified; pnl staying NULL is
-existing, tolerated behavior, not a regression).
+UPDATE 2026-09-12 (HM-OPTIONS-REAL-FILLS): pnl/exit_credit_debit ARE now
+computed on a full close with a real Alpaca fill, using a structural
+debit/credit sign derived from the spread type rather than trusting
+Alpaca's own MLEG sign convention (still unverified) -- see
+tests/test_options_real_fills.py for that coverage. Untouched here:
+partial closes and any close with no confirmed fill still leave pnl
+exactly as before this fix.
 """
 from __future__ import annotations
 

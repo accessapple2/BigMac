@@ -23,6 +23,11 @@ OPTIONS_PLAYERS = {
     "dayblade-sulu",
     # Strategy Registry players — added 2026-04-22 for bull_spread_v1
     "strategy:bull_spread_v1",
+    # HM-OPTIONS-REAL-FILLS-2026-09-12: added so wheel_strategy.py/shadow_csp.py
+    # can route their single-leg CSP entries through submit_single_option()
+    # instead of recording a modeled premium with no broker order at all.
+    "options-sosnoff",
+    "shadow-qwen35-csp",
 }
 
 _client = None
@@ -49,6 +54,47 @@ def _get_client():
         # HM-AA-broad: type+repr enrichment per HM-U posture.
         console.log(f"[red]Alpaca options init error: {type(e).__name__}: {e!r}")
     return _client
+
+
+def _poll_fill(client, order_id: str, timeout_s: float = 3.0,
+               poll_interval_s: float = 0.15):
+    """HM-OPTIONS-REAL-FILLS-2026-09-12: port of engine/alpaca_bridge.py's
+    equity _poll_fill() (HM-TRADES-PRICE-WRITEBACK-FIX, 2026-05-21) to
+    options orders. Every options-order submit function in this module used
+    to return only {"success": True, "order_id": ...} and discard the fill
+    entirely -- the row's recorded price came from the pre-trade quote,
+    never from what Alpaca actually filled at. This is the missing piece:
+    poll get_order_by_id until status is filled / partially_filled / a
+    terminal non-fill (canceled, rejected, expired). Returns
+    (filled_avg_price, filled_qty, final_status). On timeout returns
+    (None, None, last_status_seen). Never raises.
+
+    For a single-leg order, filled_avg_price is the unambiguous per-contract
+    premium. For a multi-leg (MLEG) vertical-spread order, Alpaca reports a
+    single net price for the combined position -- callers of
+    submit_vertical_spread()/close_vertical_spread() must still decide how
+    to interpret its sign relative to this codebase's own entry_credit_debit
+    convention (positive=credit received, negative=debit paid); this
+    function only captures the raw fill, it does not resolve that mapping.
+    """
+    import time
+    deadline = time.time() + max(0.5, float(timeout_s))
+    last_status = "unknown"
+    while time.time() < deadline:
+        try:
+            o = client.get_order_by_id(order_id)
+            last_status = o.status.value if hasattr(o.status, "value") else str(o.status)
+            if last_status in ("filled", "partially_filled"):
+                if o.filled_avg_price is not None:
+                    return (float(o.filled_avg_price),
+                            float(o.filled_qty) if o.filled_qty is not None else 0.0,
+                            last_status)
+            if last_status in ("canceled", "cancelled", "rejected", "expired"):
+                return (None, None, last_status)
+        except Exception:
+            pass
+        time.sleep(poll_interval_s)
+    return (None, None, last_status)
 
 
 def get_atm_contract(symbol: str, option_type: str, target_dte: int = 0) -> str | None:
@@ -364,7 +410,13 @@ def submit_single_option(
             side=OrderSide.BUY if side == "buy" else OrderSide.SELL,
             time_in_force=TimeInForce.DAY,
         ))
-        console.log(f"[bold cyan]Alpaca OPTIONS {side.upper()} {qty}x {contract_symbol} — {player_id} order={order.id}")
+        # HM-OPTIONS-REAL-FILLS-2026-09-12: poll for the real fill before
+        # returning, so callers can record what actually happened instead of
+        # the pre-trade quote. Single-leg fill price is unambiguous (a
+        # per-contract premium), unlike the MLEG spread case.
+        fill_price, fill_qty, final_status = _poll_fill(client, str(order.id))
+        console.log(f"[bold cyan]Alpaca OPTIONS {side.upper()} {qty}x {contract_symbol} — {player_id} "
+                    f"order={order.id} fill={fill_price if fill_price is not None else 'pending'} status={final_status}")
         # HM-V: success-side NTFY (first occurrence per type per day).
         try:
             from engine.alert_channels import send_alert, AlertLevel
@@ -376,7 +428,8 @@ def submit_single_option(
             )
         except Exception:
             pass
-        return {"success": True, "order_id": str(order.id), "symbol": contract_symbol, "qty": qty}
+        return {"success": True, "order_id": str(order.id), "symbol": contract_symbol, "qty": qty,
+                "filled_avg_price": fill_price, "filled_qty": fill_qty, "status": final_status}
     except Exception as e:
         # HM-AA: enrich error log with exception type + repr (was just str(e),
         # often empty — see 08:56:21/23 logs 2026-05-05 with empty bodies).
@@ -442,7 +495,13 @@ def submit_vertical_spread(
                 ),
             ],
         ))
-        console.log(f"[bold cyan]Alpaca {strategy} {qty}x — {player_id} order={order.id}")
+        # HM-OPTIONS-REAL-FILLS-2026-09-12: poll for the real fill. See
+        # _poll_fill()'s docstring -- an MLEG spread's net fill price sign
+        # relative to this codebase's entry_credit_debit convention is
+        # captured here but NOT resolved here; the caller decides.
+        fill_price, fill_qty, final_status = _poll_fill(client, str(order.id))
+        console.log(f"[bold cyan]Alpaca {strategy} {qty}x — {player_id} order={order.id} "
+                    f"fill={fill_price if fill_price is not None else 'pending'} status={final_status}")
         # HM-V: success-side NTFY for spread open (first per strategy per day).
         try:
             from engine.alert_channels import send_alert, AlertLevel
@@ -454,7 +513,8 @@ def submit_vertical_spread(
             )
         except Exception:
             pass
-        return {"success": True, "order_id": str(order.id), "strategy": strategy, "qty": qty}
+        return {"success": True, "order_id": str(order.id), "strategy": strategy, "qty": qty,
+                "filled_avg_price": fill_price, "filled_qty": fill_qty, "status": final_status}
     except Exception as e:
         # HM-AA-extension: enrich error log + return dict per HM-U posture (CLAUDE.md).
         # This is the original BTO incident site (logged as alpaca_options.py:297
@@ -533,7 +593,17 @@ def close_vertical_spread(
                 ),
             ],
         ))
-        console.log(f"[bold cyan]Alpaca CLOSE {strategy} {qty}x — {player_id} order={order.id}")
+        # HM-OPTIONS-REAL-FILLS-2026-09-12: capture the real close fill.
+        # NOT auto-applied to exit_credit_debit/pnl by any caller in this
+        # pass -- docs/XO_BACKLOG.md's HM-STRATEGIES-EXECUTOR-STATUS-NEVER-SET
+        # already flagged that an MLEG close's net fill-price sign relative to
+        # this codebase's entry_credit_debit convention is unverified, and no
+        # close via this path has ever completed to check it empirically.
+        # Captured here so it isn't silently lost; resolving the sign is a
+        # separate, deliberate decision, not guessed here.
+        fill_price, fill_qty, final_status = _poll_fill(client, str(order.id))
+        console.log(f"[bold cyan]Alpaca CLOSE {strategy} {qty}x — {player_id} order={order.id} "
+                    f"fill={fill_price if fill_price is not None else 'pending'} status={final_status}")
         # HM-V: success-side NTFY for spread close (first per strategy per day).
         # Verifies HM-AC Option B's MLEG close path (commit 19c6746) when first
         # exit_manager close hits — closes the verification gap from Phase 5 of
@@ -548,7 +618,8 @@ def close_vertical_spread(
             )
         except Exception:
             pass
-        return {"success": True, "order_id": str(order.id), "strategy": strategy, "qty": qty}
+        return {"success": True, "order_id": str(order.id), "strategy": strategy, "qty": qty,
+                "filled_avg_price": fill_price, "filled_qty": fill_qty, "status": final_status}
     except Exception as e:
         # HM-AA / HM-U: enriched error log + NTFY (architecture-class broker-submit path).
         console.log(f"[yellow]Alpaca options close_vertical_spread error: {type(e).__name__}: {e!r}")

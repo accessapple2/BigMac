@@ -250,6 +250,39 @@ def run_wheel_scan():
                 console.log(f"[dim]Wheel: {ticker} return {premium_return:.1f}% < {MIN_PREMIUM_RETURN}% minimum, skipping")
                 continue
 
+            contracts = max(1, int(shares / 100))  # 100 underlying shares per options contract
+
+            # HM-OPTIONS-REAL-FILLS-2026-09-12: was pure internal simulation --
+            # this strategy has never once submitted a real Alpaca order in its
+            # entire history (0/84 options_trades rows carry a broker_order_id,
+            # confirmed live before this change). Now places a real paper
+            # SELL-to-open on the short put, exactly like submit_single_option()
+            # already does successfully for strategy:bull_spread_v1 and
+            # swingdesk-manual (proven machinery, three more callers, not new
+            # engineering). Real fill overrides the pre-trade quoted
+            # estimated_premium when confirmed; on a poll timeout or a
+            # broker-side skip (e.g. OPTIONS_PLAYERS gate, no API keys), falls
+            # back to the quote exactly as this strategy always has.
+            entry_price = estimated_premium
+            broker_order_id = None
+            got_real_fill = False
+            try:
+                from strategies.executor import _occ_symbol as _build_occ_symbol
+                from engine.alpaca_options import submit_single_option
+                occ = _build_occ_symbol(ticker, {"strike": put_strike, "type": "put"}, expiration=expiry)
+                order_result = submit_single_option(
+                    player_id=PLAYER_ID, contract_symbol=occ, qty=contracts, side="sell",
+                )
+                if isinstance(order_result, dict) and order_result.get("success"):
+                    broker_order_id = order_result.get("order_id")
+                    fill = order_result.get("filled_avg_price")
+                    if fill is not None and fill > 0:
+                        entry_price = float(fill)
+                        got_real_fill = True
+            except Exception as _e:
+                console.log(f"[yellow]Wheel: real-order submit failed for {ticker}, "
+                            f"recording quoted premium instead: {type(_e).__name__}: {_e!r}")
+
             reasoning = (
                 f"WHEEL STRATEGY: Selling {DTE_TARGET}-day cash-secured put on {ticker}. "
                 f"Strike ${put_strike} ({otm_pct*100:.0f}% OTM from ${price:.2f}). "
@@ -270,7 +303,6 @@ def run_wheel_scan():
             # approval (matches bull_put_spread_v1 convention).
             # Bridge Voter gate at paper_trader.py:621 is now bypassed because we no longer
             # call buy() for the sell-put entry path.
-            contracts = max(1, int(shares / 100))  # 100 underlying shares per options contract
             trade_id = open_options_trade(
                 book_tag="fleet",
                 agent_id=PLAYER_ID,
@@ -279,13 +311,35 @@ def run_wheel_scan():
                 expiration=expiry,
                 legs=[
                     {"side": "short", "type": "put", "strike": put_strike,
-                     "qty": contracts, "entry_price": estimated_premium},
+                     "qty": contracts, "entry_price": entry_price},
                 ],
                 regime=_latest_regime(),  # HM-WHEEL-REGIME: latest macro regime from regime_history
                 vix=vix,
                 notes=reasoning[:500],
             )
             if trade_id:
+                if broker_order_id:
+                    try:
+                        with contextlib.closing(get_conn("data/trader.db")) as _db:
+                            if got_real_fill:
+                                _db.execute(
+                                    "UPDATE options_trades SET broker_order_id=?, "
+                                    "restatement_basis='real_fill' WHERE id=?",
+                                    (broker_order_id, trade_id),
+                                )
+                            else:
+                                # Real order placed, fill not confirmed within the poll
+                                # window -- record the order_id (so the position is
+                                # traceable to a real broker order) but leave
+                                # restatement_basis NULL, since entry_price above is
+                                # still the pre-trade quote, not a confirmed fill.
+                                _db.execute(
+                                    "UPDATE options_trades SET broker_order_id=? WHERE id=?",
+                                    (broker_order_id, trade_id),
+                                )
+                            _db.commit()
+                    except Exception as _e:
+                        logger.warning("broker_order_id writeback failed trade_id=%s: %s", trade_id, _e)
                 # Write max_loss + moneyness at entry (CSP max_loss = full strike obligation)
                 csp_max_loss = -(put_strike * contracts * 100)
                 csp_moneyness = round(price / put_strike, 4)  # >1 = OTM

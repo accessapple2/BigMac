@@ -98,9 +98,21 @@ def _ensure_table() -> None:
                 call_wall    REAL,
                 vix          REAL,
                 momentum     REAL,
-                status       TEXT NOT NULL DEFAULT 'OPEN'
+                status       TEXT NOT NULL DEFAULT 'OPEN',
+                broker_order_id   TEXT,
+                restatement_basis TEXT
             )
         """)
+        # HM-OPTIONS-REAL-FILLS-2026-09-12: additive columns for the live DB
+        # (the table already existed before this pass; CREATE TABLE IF NOT
+        # EXISTS above only covers a fresh DB). Never touches an existing
+        # row's value -- both columns default NULL, same as every other
+        # options-real-fills migration today.
+        _existing_cols = {row[1] for row in c.execute("PRAGMA table_info(battle_station_trades)")}
+        if "broker_order_id" not in _existing_cols:
+            c.execute("ALTER TABLE battle_station_trades ADD COLUMN broker_order_id TEXT")
+        if "restatement_basis" not in _existing_cols:
+            c.execute("ALTER TABLE battle_station_trades ADD COLUMN restatement_basis TEXT")
         c.commit()
     finally:
         c.close()
@@ -208,22 +220,51 @@ def _trades_today() -> int:
 
 def _open_trade(option_type: str, strike: float, expiry: str, entry_price: float,
                 spy: float, put_wall: float, call_wall: float, vix: float,
-                momentum: float, reason: str) -> int:
+                momentum: float, reason: str,
+                broker_order_id: str | None = None,
+                restatement_basis: str | None = None) -> int:
     ts = datetime.now(timezone.utc).isoformat()
     c = _conn()
     try:
         cur = c.execute(
             """INSERT INTO battle_station_trades
                (timestamp, symbol, option_type, strike, expiry, entry_price,
-                entry_reason, spy_at_entry, put_wall, call_wall, vix, momentum, status)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                entry_reason, spy_at_entry, put_wall, call_wall, vix, momentum, status,
+                broker_order_id, restatement_basis)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (ts, "SPY", option_type, strike, expiry, entry_price, reason,
-             spy, put_wall, call_wall, vix, momentum, "OPEN"),
+             spy, put_wall, call_wall, vix, momentum, "OPEN",
+             broker_order_id, restatement_basis),
         )
         c.commit()
         return cur.lastrowid
     finally:
         c.close()
+
+
+def _submit_real_order(contract: str, quoted_price: float) -> tuple[float, str | None, str | None]:
+    """HM-OPTIONS-REAL-FILLS-2026-09-12: place a real Alpaca paper BUY on the
+    already-quoted contract before recording the row. This strategy has never
+    once submitted a real order in its history (2/2 trades ever, both from
+    the quoted price with no broker_order_id) -- same proven
+    submit_single_option() machinery bull_spread_v1/swingdesk-manual already
+    use, not new engineering. Returns (entry_price_to_record,
+    broker_order_id, restatement_basis) -- falls back to the quoted price
+    and (None, None) on any skip/timeout/error, exactly matching this
+    strategy's prior all-quote behavior.
+    """
+    try:
+        from engine.alpaca_options import submit_single_option
+        r = submit_single_option(player_id=PLAYER_ID, contract_symbol=contract, qty=1, side="buy")
+        if isinstance(r, dict) and r.get("success"):
+            fill = r.get("filled_avg_price")
+            order_id = r.get("order_id")
+            if fill is not None and fill > 0:
+                return float(fill), order_id, "real_fill"
+            return quoted_price, order_id, None
+    except Exception as e:
+        logger.warning(f"[0DTE] real-order submit failed for {contract}: {type(e).__name__}: {e!r}")
+    return quoted_price, None, None
 
 
 def _close_trade(trade_id: int, exit_price: float, spy: float, reason: str, status: str) -> None:
@@ -394,14 +435,16 @@ def scan() -> dict[str, Any]:
                                         f"${MIN_PREMIUM:.2f} (-30% stop unrealizable)")
                     return result
                 if price >= MIN_PREMIUM:
+                    real_price, order_id, basis = _submit_real_order(contract, price)
                     reason = (
                         f"Put wall bounce: SPY ${spy:.2f} at put wall ${put_wall:.0f} "
                         f"({dist*100:.2f}% away). Momentum {prior_trend:.0f}→{trend:.0f}. "
                         f"VIX {vix:.1f}. BUY CALL stop -30% target +50% max 45min"
                     )
-                    _open_trade("call", strike, date.today().isoformat(), price,
-                                spy, put_wall, call_wall, vix, trend, reason)
-                    logger.info(f"[0DTE] ENTRY BUY CALL @ ${price:.2f}. {reason}")
+                    _open_trade("call", strike, date.today().isoformat(), real_price,
+                                spy, put_wall, call_wall, vix, trend, reason,
+                                broker_order_id=order_id, restatement_basis=basis)
+                    logger.info(f"[0DTE] ENTRY BUY CALL @ ${real_price:.2f} (quoted ${price:.2f}). {reason}")
                     result["action"] = "BUY_CALL"
                     result["reason"] = reason
                     return result
@@ -432,14 +475,16 @@ def scan() -> dict[str, Any]:
                                             f"${MIN_PREMIUM:.2f} (-30% stop unrealizable)")
                         return result
                     if price >= MIN_PREMIUM:
+                        real_price, order_id, basis = _submit_real_order(contract, price)
                         reason = (
                             f"Call wall rejection: SPY ${spy:.2f} at call wall ${call_wall:.0f} "
                             f"({dist*100:.2f}% away). Momentum {prior_trend:.0f}→{trend:.0f}. "
                             f"Sell volume dominant. BUY PUT stop -30% target +50% max 45min"
                         )
-                        _open_trade("put", strike, date.today().isoformat(), price,
-                                    spy, put_wall, call_wall, vix, trend, reason)
-                        logger.info(f"[0DTE] ENTRY BUY PUT @ ${price:.2f}. {reason}")
+                        _open_trade("put", strike, date.today().isoformat(), real_price,
+                                    spy, put_wall, call_wall, vix, trend, reason,
+                                    broker_order_id=order_id, restatement_basis=basis)
+                        logger.info(f"[0DTE] ENTRY BUY PUT @ ${real_price:.2f} (quoted ${price:.2f}). {reason}")
                         result["action"] = "BUY_PUT"
                         result["reason"] = reason
                         return result

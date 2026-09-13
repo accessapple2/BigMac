@@ -30,10 +30,17 @@ if str(ROOT) not in sys.path:
 def _build_db(tmp_path, status="open", exec_status="pending"):
     db_path = tmp_path / "test_trader.db"
     conn = sqlite3.connect(str(db_path))
+    # HM-OPTIONS-REAL-FILLS-2026-09-12: added entry_credit_debit/
+    # restatement_basis/exit_date -- poll_fill() now writes the first two
+    # back on a confirmed open-side fill (see that function's own fix
+    # note), and this fixture needs to carry the real table's columns for
+    # that code path to run at all, not just the two columns this file's
+    # original fix cared about.
     conn.execute("""CREATE TABLE options_trades (
         id INTEGER PRIMARY KEY,
         broker_order_id TEXT,
-        status TEXT DEFAULT 'open', exec_status TEXT DEFAULT 'pending'
+        status TEXT DEFAULT 'open', exec_status TEXT DEFAULT 'pending',
+        entry_credit_debit REAL, restatement_basis TEXT, exit_date TEXT
     )""")
     conn.execute(
         "INSERT INTO options_trades (id, broker_order_id, status, exec_status) "
@@ -100,6 +107,46 @@ def test_filled_order_leaves_status_untouched(tmp_path):
 
     row = _row(db_path)
     assert row["status"] == "open"
+
+
+def test_filled_order_writes_back_real_entry_credit_debit(tmp_path):
+    """HM-OPTIONS-REAL-FILLS-2026-09-12: a confirmed fill must overwrite the
+    pre-trade quoted entry_credit_debit with the real Alpaca fill, and stamp
+    restatement_basis so this row is known-real going forward."""
+    import swingdesk.spread_executor as se
+
+    db_path = _build_db(tmp_path, status="open", exec_status="pending")
+    order = SimpleNamespace(status="filled", filled_avg_price=1.42, filled_qty=1)
+
+    with patch.object(se, "_DB", db_path), \
+         patch.object(se, "_get_paper_client", return_value=_fake_client(order)):
+        result = se.poll_fill("order-abc")
+
+    assert result["ok"] is True
+    row = _row(db_path)
+    assert row["entry_credit_debit"] == 1.42
+    assert row["restatement_basis"] == "real_fill"
+
+
+def test_repolling_an_already_recorded_fill_does_not_overwrite_it(tmp_path):
+    """Idempotency: _refresh_fills() re-polls every candidate row on a cycle
+    -- once a real fill is recorded, a later poll (even with a slightly
+    different price on some hypothetical re-check) must not clobber it."""
+    import swingdesk.spread_executor as se
+
+    db_path = _build_db(tmp_path, status="open", exec_status="pending")
+    order = SimpleNamespace(status="filled", filled_avg_price=1.42, filled_qty=1)
+    with patch.object(se, "_DB", db_path), \
+         patch.object(se, "_get_paper_client", return_value=_fake_client(order)):
+        se.poll_fill("order-abc")
+
+    order2 = SimpleNamespace(status="filled", filled_avg_price=9.99, filled_qty=1)
+    with patch.object(se, "_DB", db_path), \
+         patch.object(se, "_get_paper_client", return_value=_fake_client(order2)):
+        se.poll_fill("order-abc")
+
+    row = _row(db_path)
+    assert row["entry_credit_debit"] == 1.42  # unchanged by the second poll
     assert row["exec_status"] == "filled"
 
 
