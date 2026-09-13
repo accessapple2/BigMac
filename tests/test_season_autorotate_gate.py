@@ -65,6 +65,8 @@ def fixture_db(tmp_path, monkeypatch):
     p = tmp_path / "trader.db"
     c = sqlite3.connect(p)
     c.executescript(SCHEMA)
+    for stmt in sm.POSITIONS_ARCHIVE_DDL:
+        c.execute(stmt)
     rows = [("clean-active", "active", None)] + [(f"zombie-{i}", "full", None) for i in range(30)]
     c.executemany("INSERT INTO ai_players (id, halt_mode, halt_reason) VALUES (?,?,?)", rows)
     c.executemany("INSERT INTO settings VALUES (?, ?)",
@@ -72,6 +74,7 @@ def fixture_db(tmp_path, monkeypatch):
     c.commit()
     c.close()
     monkeypatch.setattr(sm, "DB", str(p))
+    monkeypatch.setattr(sm, "_broker_open_symbols", lambda conn: (set(), "test-stub"))
     return p
 
 
@@ -127,7 +130,7 @@ def test_flag_on_in_window_still_honours_margin_guard(fixture_db, monkeypatch):
     with patch("engine.war_room.save_hot_take", return_value=True):
         assert sa.run_scheduled_rotation(SUN_2358, rotate=rotate) == "aborted"
         assert sa.run_scheduled_rotation(datetime(2026, 9, 13, 23, 59), rotate=rotate) == "already-fired"
-    assert rotate.call_count == 1 and rotate.call_args.kwargs == {"caller": "cron-sunday"}
+    assert rotate.call_count == 1 and rotate.call_args.kwargs == {"caller": "cron-sunday", "apply": True}
     assert _q(fixture_db, "SELECT value FROM settings WHERE key='current_season'") == [("8",)]
     assert _q(fixture_db, "SELECT id, halt_mode, cash, season FROM ai_players ORDER BY id") == before
     assert _q(fixture_db, "SELECT COUNT(*) FROM season_config") == [(0,)]

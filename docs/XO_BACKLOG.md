@@ -102,17 +102,41 @@ detailed in `data/reports/relay/relay_2026-09-10_morning_checkin.md`.
 | DECISION — ollie-auto exit_only since 2026-07-17, ship or kill | Steve | unslotted | **Surfaced 2026-09-11 during the same trace** (not new — the halt itself is 2 months old). `ai_players.halt_reason`: "[2026-07-17] HM-PG-ESCALATION: Proving Ground kill_warning unacknowledged for 10 days -- auto-halted new entries pending manual ship/kill decision." Still `halt_mode='exit_only'` today, no ship/kill decision made in the two months since. 5 trades 2026-08-25 to 2026-08-31, none since (~11 days of no new entries by design, but the underlying decision itself has now been open for ~2 months). Same class of item as the row above — filed together for one Admiral pass on both. |
 | McCoy fell out of learning_engine coverage 2026-07-09 | Scotty | unslotted | **Found 2026-09-11 investigating `engine/learning_engine.py`** (dry-dock Phase 1.3 prerequisite). Its data pipeline (`engine/crew/daily_review_crew.py` daily, `engine/crew/weekly_tuning_crew.py` weekly, both still scheduled in `main.py`) is genuinely alive — wrote fresh rows for `desk-manual` on 2026-09-09 and a batch of `audition_proposed` entries for several other players on 09-07. **`ollama-plutus` (McCoy) has received no `model_scores` row since 2026-07-09 and no `model_adjustments` row since 2026-07-13** — over two months out of coverage while the pipeline runs fine for others. Root cause not investigated tonight (need to read `daily_review_crew.py`'s player-selection logic). Consequence: McCoy's live `confidence_modifier` (0.8, applied to every stated confidence via `apply_learning()`) has been frozen at a two-month-old value instead of being re-tuned weekly as designed. Separately: `model_scores.confidence_calibration` is a field every player's every row holds as exactly `0.0` — never actually populated despite `weekly_tuning_crew.py` explicitly prompting an LLM for it — same "field exists, never populates" pattern as `daily_snapshot.master_grade` and `signal_history.grade` (found earlier tonight). |
 
-## 🟥 HOLD — NO SEASON ROTATION, AUTO OR MANUAL (set 2026-09-13)
+## 🟢 HOLD LIFTED — season rotation no longer orphans positions (set + lifted 2026-09-13)
 
-Auto-rotation is gated off (`SEASON_AUTOROTATE_ENABLED`, default false — commit `6758b55`).
-**Do not run `rotate_season()` or `start_season()` by hand either, and do not enable the
-flag, until the next task lands:** `rotate_season()`/`start_season()` still
-`DELETE FROM positions` for every AI player except webull/alpaca-mirror/neo-matrix. When
-those rows are broker-backed the broker position survives with no owning agent and no
-working stop (KMI came from the 2026-07-12 rotation deleting guardian-of-forever's row;
-TQQQ is the same shape). **Next task:** broker-backed positions must BLOCK the delete
-(abort before any write, same as the margin guard) rather than be orphaned. Relay:
-`data/reports/relay/relay_2026-09-13_season-autorotate-gate.md`.
+The 2026-09-13 hold (no rotation, auto or manual) is lifted by the commit that added this
+section. **What now makes rotation safe** (`engine/season_manager.py`,
+HM-ROTATION-POSITIONS-ARCHIVE-2026-09-13):
+- Rows are never cleared for humans, passive broker mirrors, independent players
+  (`neo-matrix` — its rows are owned by `shared/matrix_bridge`; the old hardcoded
+  exclusion is kept explicitly), or holders not in `ai_players`.
+- Any other row whose symbol is open at the broker **blocks the rotation before any write**.
+  Broker presence is read live from Alpaca, else from an `alpaca-mirror` snapshot ≤6h old;
+  if neither can be read the rotation **fails closed** (aborts, alerts, writes nothing).
+- Every other row goes through the **house archive-then-clear pattern**
+  (`scripts/signal_center_archive_rotate.py::_rotate_table`): INSERT into append-only
+  `positions_season_archive` (every positions column verbatim + archive_season/name/at/reason),
+  read back, verify row-for-row — count AND every field — then DELETE that batch; any failure
+  rolls back the whole rotation. Same `trg_rule1_no_delete_*` triggers (plus a no-update
+  trigger), ensured at apply time; a one-time integrity-checked snapshot before the first-ever
+  archive run, recorded in `archive_metadata` so it can neither repeat nor be skipped.
+- **Dry-run by default:** `rotate_season()`/`start_season()` return a plan and write nothing
+  unless `apply=True` (dashboard `/api/seasons/start` needs `"apply": true`).
+- The ending season's `season_config.end_date` is filled; Season 7 backfilled from
+  `season_history.ended_at`.
+
+**Still true:** `SEASON_AUTOROTATE_ENABLED` stays **off**; seasons are manual and no rotation
+runs until the Admiral says go.
+
+## Ledger — 2026-09-13 (record only, no code)
+- **Auto-rotate sentinel ordering:** the once-per-Sunday marker is held in memory with the
+  DB "season already started today" check behind it. The DB check should be primary and
+  memory only an optimization — same restart-wipe shape as the 2026-08-28 neo-matrix
+  duplicate-fire.
+- **Bridge honesty:** Riker's 2026-09-11 "stops in place on AG, AVB, BLK" restated Spock's
+  RECOMMENDED stop levels (`cto_briefings` portfolio advisory) as existing orders. No
+  matching broker stops exist (Alpaca: no stop/stop_limit orders in the last 50; no
+  `stop_loss_order_id` on any trade). Same family as the 2026-09-12 Bridge audit items.
 
 ## 2026-09-11 after-close sequence (set 2026-09-10, do not run early)
 

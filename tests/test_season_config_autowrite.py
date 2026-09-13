@@ -42,6 +42,8 @@ def db(tmp_path, monkeypatch):
     p = tmp_path / "trader.db"
     c = sqlite3.connect(p)
     c.executescript(SCHEMA)
+    for stmt in sm.POSITIONS_ARCHIVE_DDL:
+        c.execute(stmt)
     c.executemany("INSERT INTO ai_players (id, halt_mode, halt_reason) VALUES (?,?,?)", [
         ("qwen3-8b-flash", "active", None),
         ("ollama-plutus", "active", None),
@@ -52,6 +54,7 @@ def db(tmp_path, monkeypatch):
     c.commit()
     c.close()
     monkeypatch.setattr(sm, "DB", str(p))
+    monkeypatch.setattr(sm, "_broker_open_symbols", lambda conn: (set(), "test-stub"))
     return p
 
 
@@ -66,7 +69,7 @@ def _q(p, sql, *args):
 
 def test_rotation_writes_config_row_and_name(db):
     with patch("engine.war_room.save_hot_take", return_value=True):
-        assert sm.rotate_season(caller="test") == 8
+        assert sm.rotate_season(caller="test", apply=True) == 8
     row = _q(db, "SELECT * FROM season_config WHERE season=8")[0]
     start = _q(db, "SELECT value FROM settings WHERE key='season_8_start'")[0][0]
     assert row["name"] == "Season 8"
@@ -77,7 +80,7 @@ def test_rotation_writes_config_row_and_name(db):
 
 def test_start_season_writes_config_row(db):
     with patch("engine.war_room.save_hot_take", return_value=True):
-        sm.start_season(9)
+        sm.start_season(9, apply=True)
     assert _q(db, "SELECT name FROM season_config WHERE season=9")[0][0] == "Season 9"
 
 
@@ -89,7 +92,7 @@ def test_existing_row_and_name_are_never_rewritten(db):
     c.commit()
     c.close()
     with patch("engine.war_room.save_hot_take", return_value=True):
-        sm.rotate_season(caller="test")
+        sm.rotate_season(caller="test", apply=True)
     rows = _q(db, "SELECT name, start_date, active_agents FROM season_config WHERE season=8")
     assert [tuple(r) for r in rows] == [("Hand Named", "2026-09-01", "x")]
     assert _q(db, "SELECT value FROM settings WHERE key='season_8_name'")[0][0] == "Hand Named"
@@ -121,5 +124,5 @@ def test_rotation_still_completes_if_season_config_table_is_missing(db):
     c.commit()
     c.close()
     with patch("engine.war_room.save_hot_take", return_value=True):
-        assert sm.rotate_season(caller="test") == 8
+        assert sm.rotate_season(caller="test", apply=True) == 8
     assert _q(db, "SELECT value FROM settings WHERE key='current_season'")[0][0] == "8"

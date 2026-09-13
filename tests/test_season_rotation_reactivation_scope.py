@@ -107,8 +107,13 @@ class SeasonRotationReactivationScopeTests(unittest.TestCase):
         # Point season_manager at the temp DB for the duration of the test.
         self._orig_db = season_manager.DB
         season_manager.DB = self._db_path
+        # Never reach the live Alpaca account from a unit test.
+        self._broker_patch = patch.object(season_manager, "_broker_open_symbols",
+                                          return_value=(set(), "test-stub"))
+        self._broker_patch.start()
 
     def tearDown(self) -> None:
+        self._broker_patch.stop()
         season_manager.DB = self._orig_db
         self._tmpdir.cleanup()
 
@@ -192,7 +197,7 @@ class SeasonRotationReactivationScopeTests(unittest.TestCase):
             "SELECT id, halt_mode, cash, season FROM ai_players ORDER BY id"
         ).fetchall()
 
-        result = season_manager.rotate_season(caller="test")
+        result = season_manager.rotate_season(caller="test", apply=True)
         self.assertIsNone(result, "rotate_season() must return None on abort")
 
         after_conn = self._conn()
@@ -225,7 +230,7 @@ class SeasonRotationReactivationScopeTests(unittest.TestCase):
         # (data/trader.db, not season_manager.DB) — mock it so a "safe"
         # rotation in this test never touches the real production DB.
         with patch("engine.war_room.save_hot_take", return_value=True):
-            result = season_manager.rotate_season(caller="test")
+            result = season_manager.rotate_season(caller="test", apply=True)
         self.assertEqual(result, 2, "safe rotation must proceed and return the new season number")
 
         after_conn = self._conn()
@@ -258,7 +263,7 @@ class SeasonRotationReactivationScopeTests(unittest.TestCase):
         conn.commit()
         conn.close()
 
-        result = season_manager.start_season(5)
+        result = season_manager.start_season(5, apply=True)
         self.assertIn("error", result)
         self.assertIn("scope", result)
 

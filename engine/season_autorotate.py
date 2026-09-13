@@ -13,9 +13,9 @@ so the trader's restart phase no longer decides whether it fires.
 rotate_season()/start_season() are untouched — manual rotation, margin guard included,
 works exactly as before.
 
-HOLD (2026-09-13): no rotation, auto or manual, should run until rotate_season()'s
-position-row deletion blocks on broker-backed positions instead of orphaning them
-(KMI/TQQQ came from exactly this). Enabling this flag before that lands re-opens it.
+Seasons stay manual: do not enable this flag without the Admiral's explicit go. Rotation's
+position handling is now guarded (HM-ROTATION-POSITIONS-ARCHIVE-2026-09-13 in
+engine/season_manager.py), but unattended season starts remain off by decision.
 """
 from __future__ import annotations
 
@@ -85,7 +85,7 @@ def run_scheduled_rotation(now: datetime, rotate=None) -> str:
     if rotate is None:
         from engine.season_manager import rotate_season as rotate
     try:
-        new = rotate(caller=CALLER)
+        new = rotate(caller=CALLER, apply=True)
     except Exception as e:
         console.log(f"[red]Season rotation error: {e}")
         return "error"

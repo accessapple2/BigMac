@@ -7,3 +7,7 @@
 # (.venv-deps has no fastapi). Also needs node for the extracted front-end functions.
 .venv/bin/python3 -m pytest -q -p no:cacheprovider tests/test_bridge_consistency.py \
   || { echo "BRIDGE CONSISTENCY FAILED — commit blocked"; exit 1; }
+
+# HM-ROTATION-POSITIONS-ARCHIVE-2026-09-13: rotation must never orphan broker-backed positions.
+.venv/bin/python3 -m pytest -q -p no:cacheprovider tests/test_rotation_positions_archive.py \
+  || { echo "ROTATION POSITION GUARD FAILED — commit blocked"; exit 1; }

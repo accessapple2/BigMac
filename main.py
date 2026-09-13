@@ -5876,8 +5876,7 @@ if __name__ == "__main__":
     # manual run). Gated behind SEASON_AUTOROTATE_ENABLED (default off) in
     # engine/season_autorotate.py: 5-min poll + once-per-Sunday sentinel, so restart phase
     # no longer decides whether a 30-min poll lands in the window. rotate_season() unchanged.
-    # HOLD: no rotation, auto or manual, until rotate_season() stops orphaning broker-backed
-    # position rows (next task).
+    # Flag stays off: seasons are manual until the Admiral says otherwise.
     def run_season_rotation():
         try:
             from engine.season_autorotate import run_scheduled_rotation

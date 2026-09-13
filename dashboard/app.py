@@ -18926,11 +18926,12 @@ def seasons_history():
 # in main.py, are untouched.
 @app.post("/api/seasons/start")
 def seasons_start(data: dict = None):
-    """Start a specific season number."""
+    """Start a specific season number. Dry-run unless the body sets "apply": true
+    (HM-ROTATION-POSITIONS-ARCHIVE-2026-09-13 — the destructive path needs an explicit flag)."""
     if not data or "season" not in data:
         return {"error": "season number required"}
     from engine.season_manager import start_season
-    return start_season(int(data["season"]))
+    return start_season(int(data["season"]), apply=data.get("apply") is True)
 
 
 # --- Command Structure: Picard, Riker, Archer ---
