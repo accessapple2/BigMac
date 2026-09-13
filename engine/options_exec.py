@@ -176,6 +176,35 @@ def close_options_trade(
         if not row:
             return None
 
+        # HM-EXIT-GATE-AUDIT 2026-09-13: halt_mode='full' must block a
+        # position close+P&L booking here too, same as paper_trader.sell()/
+        # short_sell()/sell_partial() -- see those functions' own HALT GATE
+        # comments. This function never calls a broker (paper bookkeeping
+        # only, per the module docstring), but a halted agent's position and
+        # P&L should not move either. exit_only intentionally still permits
+        # closes -- only 'full' blocks. Fails OPEN (allows the close) if
+        # agent_id isn't a column or ai_players doesn't exist in whatever DB
+        # this connects to (some test/backtest fixtures are options_trades-
+        # only, no agent_id column at all) -- a missing column/table is a
+        # schema-absence case, not evidence of a halt.
+        _agent_id = row["agent_id"] if "agent_id" in row.keys() else None
+        _halt_row = None
+        if _agent_id is not None:
+            try:
+                _halt_row = c.execute(
+                    "SELECT halt_reason, halt_mode FROM ai_players WHERE id = ?",
+                    (_agent_id,),
+                ).fetchone()
+            except sqlite3.OperationalError:
+                _halt_row = None
+        if _halt_row and _halt_row["halt_mode"] == "full":
+            logger.warning(
+                "close_options_trade: agent %s halt_mode=full, refusing to "
+                "close trade %s (%s)",
+                _agent_id, trade_id, _halt_row["halt_reason"] or "no reason given",
+            )
+            return None
+
         close_cost = sum(
             float(leg["exit_price"]) * int(leg["qty"]) * 100
             for leg in exit_legs

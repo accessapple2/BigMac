@@ -2728,6 +2728,23 @@ def _check_scaled_exits(volatile_day: bool = False) -> int:
         try:
             from engine.paper_trader import get_portfolio, sell_partial
             from engine.market_data import get_stock_price
+            # HM-EXIT-GATE-AUDIT 2026-09-13: skip halt_mode='full' players
+            # before even computing pnl -- sell_partial() below now carries
+            # this same check too (belt-and-braces, not a duplicate: this
+            # avoids a wasted get_stock_price() call for a player that could
+            # never actually sell, and protects any future caller of this
+            # loop that doesn't go through sell_partial). This is the exact
+            # gap that let neo-matrix fire 22 real sells while halted on
+            # 2026-08-25..27 -- see relay_2026-09-13_gate_efficacy_and_halt_gap.md.
+            _hg_conn = sqlite3.connect(DB_PATH, timeout=10)
+            try:
+                _hg_row = _hg_conn.execute(
+                    "SELECT halt_mode FROM ai_players WHERE id=?", (player_id,)
+                ).fetchone()
+            finally:
+                _hg_conn.close()
+            if _hg_row and _hg_row[0] == "full":
+                continue
             port = get_portfolio(player_id)
             for pos in port.get("positions", []):
                 if pos.get("asset_type", "stock") != "stock":

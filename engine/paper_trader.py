@@ -2245,6 +2245,23 @@ def sell_partial(player_id: str, symbol: str, price: float, qty: float,
     if _is_human_player(player_id) and player_id != "desk-manual":
         console.log(f"[red]BLOCKED: {player_id} is human — cannot auto-trade")
         return None
+    # === HALT GATE === (halt_mode-aware; exit_only PERMITS sells, only 'full' blocks)
+    # HM-EXIT-GATE-AUDIT 2026-09-13: sell_partial() had NO halt_mode check at
+    # all before this -- same bug class already closed once for short_sell()
+    # (see that function's own "CLOSED GAP" comment below). This is what let
+    # neo-matrix's scaled-exit tiers (_check_scaled_exits in crew_scanner.py)
+    # fire 22 real sells while halt_mode='full' on 2026-08-25..27 -- traced in
+    # relay_2026-09-13_gate_efficacy_and_halt_gap.md.
+    _halt = _conn().execute(
+        "SELECT halt_reason, halt_mode FROM ai_players WHERE id=?", (player_id,)
+    ).fetchone()
+    if _halt and _halt[1] == "full":
+        console.log(f"[red]HALTED (full): {player_id} — {_halt[0] or 'no reason given'}")
+        _last_rejection[player_id] = f"Halted (full): {_halt[0] or 'no reason given'}"
+        _log_gate_reject(player_id, symbol, "HALT",
+                         f"halt_mode=full reason={_halt[0] or 'no reason given'}",
+                         price=price, confidence=confidence)
+        return None
     # HM-I-Option-ε-prime (2026-05-05): tracking-mode early-return mirrors sell()
     # at line 1124. Tracking-route players (Schwab portfolio, Enterprise Computer
     # physical metals) log-only via _log_signal_only instead of executing partial

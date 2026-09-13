@@ -298,25 +298,36 @@ _SCAN_TIER1: frozenset = frozenset({
 })
 
 # Tier 2 — Department Heads: secondary signals, every 2 hours
+# NOW EMPTY as of 2026-09-13 (HM-EXIT-GATE-AUDIT). Both of this tier's
+# remaining live members have been moved to their own twice-daily
+# deterministic market-hours-only scans, same fix applied to both:
+#   - ollama-plutus (McCoy) REMOVED 2026-09-11 (HM-XO-PLAN-2026-09 Phase
+#     1.2): measured cadence via this tier was ~12 firings/day x ~175 real
+#     signal_emits/firing (full 600-900-symbol active universe scanned on
+#     every 2h tier trigger) = ~2,095/day -- ~10x the <200/day target.
+#     Replaced by run_mccoy_screened_scan() (twice-daily, deterministic
+#     screen via engine/mccoy_screen.py, top-100).
+#   - ollama-qwen3 (Scotty) REMOVED 2026-09-13 (HM-EXIT-GATE-AUDIT): the
+#     last live member, same elapsed-time-cadence disease -- confirmed via
+#     decision_audit as ~262 of the fleet's 4,594 market-closed rejects
+#     over a 30-day window (relay_2026-09-13_gate_efficacy_and_halt_gap.md).
+#     Replaced by run_qwen3_screened_scan() (same pattern, same screen,
+#     see that function's docstring).
+# Left as an empty frozenset rather than deleted -- this tier's dispatch
+# code (`active_players |= _SCAN_TIER2`) is harmless against an empty set,
+# and a future genuinely-live "secondary signals, every 2h, full universe"
+# agent has a documented slot to land in rather than needing this whole
+# tier reconstructed from scratch.
+# ── benched ADVISORY_CREW agents, historical record only, never re-add here ──
+# qwen3-8b-flash (Worf) REMOVED 2026-05-29 (HM-WORF-DRIFT-RECONCILE): benched
+#   S6.1 → ADVISORY_CREW (bridge-vote only), non-emitting since 2026-05-07.
+# HM-ADVISORY-CREW-DRIFT-SWEEP 2026-05-29: removed 4 more ADVISORY_CREW (bridge-
+#   vote only) agents that lied to the scanner roster — options-sosnoff (Troi),
+#   energy-arnold (Trip), ollama-local (Geordi), ollama-llama (Uhura). All benched
+#   S6.x, all non-emitting since early May (last signals 2026-05-02..05-07); all
+#   keep ai_players active for WR bridge-voting (war_room.py skips
+#   halt_mode!='active'/is_active=0). Same disease/fix as Worf.
 _SCAN_TIER2: frozenset = frozenset({
-    # ollama-plutus (McCoy) REMOVED 2026-09-11 (HM-XO-PLAN-2026-09 Phase 1.2):
-    # measured cadence via this tier was ~12 firings/day x ~175 real
-    # signal_emits/firing (full 600-900-symbol active universe scanned on
-    # every 2h tier trigger) = ~2,095/day -- ~10x the <200/day target.
-    # Replaced by run_mccoy_screened_scan() (twice-daily, deterministic
-    # screen via engine/mccoy_screen.py, top-100), scheduled separately
-    # below main.py's schedule block -- see that function's docstring.
-    "ollama-qwen3",      # Scotty        (phi3:mini)
-    # ── benched ADVISORY_CREW agents removed from this scan roster ──────────────
-    # qwen3-8b-flash (Worf) REMOVED 2026-05-29 (HM-WORF-DRIFT-RECONCILE): benched
-    #   S6.1 → ADVISORY_CREW (bridge-vote only), non-emitting since 2026-05-07.
-    # HM-ADVISORY-CREW-DRIFT-SWEEP 2026-05-29: removed 4 more ADVISORY_CREW (bridge-
-    #   vote only) agents that lied to the scanner roster — options-sosnoff (Troi),
-    #   energy-arnold (Trip), ollama-local (Geordi), ollama-llama (Uhura). All benched
-    #   S6.x, all non-emitting since early May (last signals 2026-05-02..05-07); all
-    #   keep ai_players active for WR bridge-voting (war_room.py skips
-    #   halt_mode!='active'/is_active=0). Same disease/fix as Worf. Only the true
-    #   active scanners (McCoy, Scotty) remain in TIER2.
 })
 
 # Tier 3 — Cadets: market open + close only (learning, not real-time)
@@ -3277,6 +3288,77 @@ def run_mccoy_screened_scan():
             break  # One slot per poll cycle
 
 
+_qwen3_screened_slots_done_today: set = set()
+
+
+@_hm_bq_instr("run_qwen3_screened_scan")
+def run_qwen3_screened_scan():
+    """HM-EXIT-GATE-AUDIT-2026-09-13: ollama-qwen3 (Scotty)'s twice-daily
+    screened scan -- mirrors run_mccoy_screened_scan() above exactly.
+
+    ollama-qwen3 was the last live member of _SCAN_TIER2 after McCoy's
+    removal on 2026-09-11 (HM-XO-PLAN-2026-09 Phase 1.2), still firing
+    every 2 hours over the full 600-900-symbol active universe on an
+    elapsed-time cadence with no market-hours awareness -- confirmed via
+    decision_audit as ~262 of the fleet's 4,594 market-closed rejects over
+    a 30-day window (relay_2026-09-13_gate_efficacy_and_halt_gap.md), the
+    same disease McCoy had, just smaller because qwen3's stated confidence
+    clears the buy() bar less often outside hours. Same fix: pulled off
+    _SCAN_TIER2, replaced with two deterministic market-hours-only slots.
+    Reuses engine.mccoy_screen.get_mccoy_screened_symbols() as-is (RULE #1
+    / additive doctrine -- that screen is genuinely player-agnostic: Volume
+    Radar + a liquidity floor + regime context, no McCoy-specific logic),
+    rather than duplicating an equivalent qwen3-specific screen module.
+    """
+    global _qwen3_screened_slots_done_today
+    from datetime import datetime
+    import pytz
+
+    try:
+        et = pytz.timezone("US/Eastern")
+        now = datetime.now(et)
+    except Exception:
+        return
+
+    if now.hour < 1:
+        _qwen3_screened_slots_done_today = set()
+        return
+
+    if now.weekday() >= 5:
+        return
+
+    # Same same-day recovery window as McCoy's version -- see that
+    # function's HM-SCHED-STALL-FIX comment for why.
+    NORMAL_WINDOW_MIN = 20
+    LATE_RECOVERY_MIN = 60
+    slots = [("pre-open", 9, 35), ("midday", 12, 30)]
+    for slot_id, target_h, target_m in slots:
+        if slot_id in _qwen3_screened_slots_done_today:
+            continue
+        now_mins = now.hour * 60 + now.minute
+        target_mins = target_h * 60 + target_m
+        if target_mins <= now_mins <= target_mins + NORMAL_WINDOW_MIN + LATE_RECOVERY_MIN:
+            is_late = now_mins > target_mins + NORMAL_WINDOW_MIN
+            try:
+                from engine.mccoy_screen import get_mccoy_screened_symbols
+                screen = get_mccoy_screened_symbols()
+                symbols = screen["symbols"]
+                _late_tag = " [LATE — same-day recovery]" if is_late else ""
+                if not symbols:
+                    console.log(f"[yellow]qwen3 screened scan [{slot_id}]{_late_tag}: 0 symbols from screen — skipping")
+                else:
+                    arena.run_scan(symbols, player_ids=frozenset({"ollama-qwen3"}))
+                    console.log(
+                        f"[green]qwen3 screened scan [{slot_id}]{_late_tag}: {screen['n_found']}/{screen['n_requested']} "
+                        f"symbols (regime={screen['regime'].get('regime') if screen['regime'] else '?'})"
+                    )
+            except Exception as e:
+                console.log(f"[red]qwen3 screened scan [{slot_id}] error: {e}")
+            finally:
+                _qwen3_screened_slots_done_today.add(slot_id)
+            break  # One slot per poll cycle
+
+
 @_hm_bq_instr("run_portfolio_monitor")
 def run_portfolio_monitor():
     """Ship's Computer: check Captain's Portfolio every 5 min during market hours."""
@@ -4502,6 +4584,42 @@ if __name__ == "__main__":
             f"{type(_mcd_e).__name__}: {_mcd_e!r}[/red]"
         )
     # === /HM-SCHED-STALL-FIX ===
+
+    # === HM-EXIT-GATE-AUDIT-2026-09-13 ===
+    # run_qwen3_screened_scan gets the identical dedicated-thread treatment
+    # as run_mccoy_screened_scan above, for the same reason: a twice-daily
+    # deterministic cadence is exactly the shape HM-SCHED-STALL-FIX exists to
+    # protect, and there's no reason qwen3's version of this fix should be
+    # exposed to the shared schedule.run_pending() stall risk that McCoy's
+    # was already moved off of two days earlier.
+    def _qwen3_scheduler_thread():
+        import time as _q3_time
+        while True:
+            try:
+                run_qwen3_screened_scan()
+            except Exception as _q3_e:
+                console.log(
+                    f"[red][QWEN3-DAEMON] tick error: "
+                    f"{type(_q3_e).__name__}: {_q3_e!r}[/red]"
+                )
+            _q3_time.sleep(60)
+
+    try:
+        threading.Thread(
+            target=_qwen3_scheduler_thread,
+            daemon=True,
+            name="qwen3_scheduler",
+        ).start()
+        console.log(
+            "[green][QWEN3-DAEMON] qwen3 screened-scan scheduler thread started "
+            "(60s poll, independent of schedule.run_pending())"
+        )
+    except Exception as _q3d_e:
+        console.log(
+            f"[red][QWEN3-DAEMON] thread startup failed: "
+            f"{type(_q3d_e).__name__}: {_q3d_e!r}[/red]"
+        )
+    # === /HM-EXIT-GATE-AUDIT-2026-09-13 ===
 
     # === HM-AS-β LOOP 3 — battle_station dedicated daemon thread (2026-05-29) ===
     # Decouple the 60s-critical options monitor from the shared schedule.run_pending()
