@@ -104,8 +104,22 @@ data/backups/signals.pre_haltfix_20260912_205008.db  PRAGMA integrity_check: ok
 Market confirmed closed (Saturday, `MarketStatus.CLOSED_WEEKEND`) before
 restarting, per standing after-hours authorization.
 
-[Restart + live verification results filled in below after the restart —
-see the commit this doc ships with for the exact commands and output.]
+`zsh scripts/trader_restart.sh`: killed the sole prior writer (PID
+41592), zero-reader WAL checkpoint, relaunched, gated on single-writer —
+**RESTART OK, single trader pid=53839 bound :8080, orphan-free.**
+
+Verified live, post-restart:
+- `logs/trader.log` shows `[QWEN3-DAEMON] qwen3 screened-scan scheduler
+  thread started (60s poll, independent of schedule.run_pending())` —
+  the new thread actually started, not just defined.
+- `[MCCOY-DAEMON]` thread also present and unaffected.
+- Direct import under the same venv the trader runs (`.venv/bin/python3
+  -c "import engine.paper_trader as pt; ... inspect.getsource(...)"`)
+  confirms all three fixed functions carry the halt check in the
+  actually-loaded module, and `main._SCAN_TIER2 == frozenset()`,
+  `hasattr(main, 'run_qwen3_screened_scan') == True`.
+- Clean startup log, no errors in `trader_error.log` around the restart
+  window.
 
 ## 4. Q1 verdict — recorded in the plan doc, not just this relay
 
