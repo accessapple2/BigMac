@@ -2508,13 +2508,19 @@ def _hm_an2_consume_signal_center(market_ctx: dict[str, Any]) -> None:
       - Conviction guardrails
       - Earnings blackout, kill switch, fleet exposure, allocation policy
 
-    ⚠️ CORRECTED 2026-05-31 (HM-BRINGBACK): neo-matrix is halt_mode='ACTIVE',
-    NOT 'exit_only' — this BUY path DOES execute (the prior docstring was stale
-    and led to a false safety assumption). neo is the sole executor-reaching
-    consumer of the signal-center feed. Shadow/observation-only signals are kept
-    out of execution by TWO layers: (1) the shadow-skip filter below, and (2) the
-    single chokepoint in paper_trader.buy (refuses agent='shadow-bridge:*'). The
-    [HM-AN2] prefix makes log lines greppable: `grep HM-AN2 logs/trader.log`.
+    ⚠️ STALE CLAIM CORRECTED 2026-09-13 (HM-EXIT-GATE-AUDIT): the note below
+    was accurate on 2026-05-31 but had gone six weeks stale — neo-matrix was
+    re-halted (halt_mode='full') on 2026-07-13 and remains 'full' today. This
+    BUY path is now correctly blocked at the HALT GATE inside paper_trader.buy
+    (halt_mode != 'active' rejects new positions, as documented above). Do not
+    hardcode a player's halt state in a comment again — check
+    `ai_players.halt_mode` live; it changes. Original 2026-05-31 note,
+    preserved for the mechanism it describes (still accurate): neo is the sole
+    executor-reaching consumer of the signal-center feed. Shadow/observation-
+    only signals are kept out of execution by TWO layers: (1) the shadow-skip
+    filter below, and (2) the single chokepoint in paper_trader.buy (refuses
+    agent='shadow-bridge:*'). The [HM-AN2] prefix makes log lines greppable:
+    `grep HM-AN2 logs/trader.log`.
     """
     from engine.momentum.bridge import fetch_signal_center_active_signals
     from engine.paper_trader import buy
