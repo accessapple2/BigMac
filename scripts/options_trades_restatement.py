@@ -146,10 +146,23 @@ def main():
     args = ap.parse_args()
 
     conn = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
+    # HM-OPTIONS-TRADES-RESTATEMENT-GAP-2026-09-12: the original 2026-09-11
+    # pass filtered on exit_date, but the bug this restates lived in ENTRY
+    # pricing (engine/wheel_strategy.py / shadow_csp.py computed
+    # entry_credit_debit from the synthetic vix/500 formula at OPEN time) --
+    # a row opened 06-26/06-28 (bug window) that happened to close a day or
+    # more after 07-07 was silently skipped entirely. Filtering on entry_date
+    # instead (OR'd with the original exit_date condition, so nothing
+    # previously in scope drops out) catches those. `restatement_basis IS
+    # NULL` makes this idempotent against the 120 rows the first pass already
+    # committed -- re-running never re-fetches or overwrites an already-set
+    # value, only fills the gap.
     rows = conn.execute(
         "SELECT id, structure, symbol, entry_date, exit_date, expiration, "
         "entry_credit_debit, exit_credit_debit, pnl, status, exit_reason, legs_json "
-        "FROM options_trades WHERE exit_date < '2026-07-07' OR exit_date IS NULL "
+        "FROM options_trades "
+        "WHERE (entry_date < '2026-07-07' OR exit_date < '2026-07-07' OR exit_date IS NULL) "
+        "AND (restatement_basis IS NULL OR restatement_basis = '') "
         "ORDER BY id"
     ).fetchall()
     conn.close()
@@ -236,11 +249,29 @@ def main():
     for basis, n in basis_counts.most_common():
         print(f"  {basis}: {n}")
 
+    # HM-OPTIONS-TRADES-RESTATEMENT-GAP-2026-09-12: this file used to be
+    # overwritten wholesale on every run -- fine for a true one-shot script,
+    # but the 2026-09-12 gap-fill rerun (idempotent against the DB via the
+    # restatement_basis filter above) clobbered the original 120-row report
+    # down to just the 4 newly-covered rows, silently losing the historical
+    # detail as a standalone artifact (the DB columns were untouched and
+    # remained the real source of truth, but the JSON export briefly lied
+    # about being complete). Merge by id instead of blind-overwriting so a
+    # future incremental run can't repeat this.
     out_path = REPO / "data" / "reports" / "options_restatement" / "options_trades_restatement.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    existing = []
+    if out_path.exists():
+        try:
+            existing = json.loads(out_path.read_text())
+        except Exception:
+            existing = []
+    merged = {r["id"]: r for r in existing}
+    merged.update({r["id"]: r for r in results})
+    combined = sorted(merged.values(), key=lambda r: r["id"])
     with open(out_path, "w") as f:
-        json.dump(results, f, indent=2, default=str)
-    print(f"\nwrote {len(results)} rows to {out_path}")
+        json.dump(combined, f, indent=2, default=str)
+    print(f"\nwrote {len(results)} new/updated row(s), {len(combined)} total, to {out_path}")
 
     if args.write:
         wconn = sqlite3.connect(DB)

@@ -1375,6 +1375,30 @@
     "basis": "unrecoverable_no_alpaca_bar"
   },
   {
+    "id": 131,
+    "structure": "csp",
+    "symbol": "SPY",
+    "status": "closed",
+    "exit_reason": "time_stop_21dte",
+    "recorded_entry_cd": 2778.0,
+    "recorded_exit_cd": -1506.2806830069885,
+    "recorded_pnl": 1271.7193169930115,
+    "mult": 100.0,
+    "basis": "unrecoverable_no_alpaca_bar"
+  },
+  {
+    "id": 132,
+    "structure": "csp",
+    "symbol": "QQQ",
+    "status": "closed",
+    "exit_reason": "time_stop_21dte",
+    "recorded_entry_cd": 2708.0,
+    "recorded_exit_cd": -1468.3254462141556,
+    "recorded_pnl": 1239.6745537858444,
+    "mult": 100.0,
+    "basis": "unrecoverable_no_alpaca_bar"
+  },
+  {
     "id": 133,
     "structure": "csp",
     "symbol": "QQQ",
@@ -1399,6 +1423,18 @@
     "basis": "unrecoverable_no_alpaca_bar"
   },
   {
+    "id": 135,
+    "structure": "csp",
+    "symbol": "UPRO",
+    "status": "closed",
+    "exit_reason": "tp_premium_decay_50pct",
+    "recorded_entry_cd": 972.0000000000001,
+    "recorded_exit_cd": -328.66442460357644,
+    "recorded_pnl": 643.3355753964237,
+    "mult": 100.0,
+    "basis": "unrecoverable_no_alpaca_bar"
+  },
+  {
     "id": 136,
     "structure": "csp",
     "symbol": "QQQ",
@@ -1419,6 +1455,18 @@
     "recorded_entry_cd": 2764.0,
     "recorded_exit_cd": -1766.2226737683254,
     "recorded_pnl": 997.7773262316746,
+    "mult": 100.0,
+    "basis": "unrecoverable_no_alpaca_bar"
+  },
+  {
+    "id": 139,
+    "structure": "long_call",
+    "symbol": "SOXL",
+    "status": "closed",
+    "exit_reason": "time_stop",
+    "recorded_entry_cd": -500.0,
+    "recorded_exit_cd": 500.0,
+    "recorded_pnl": 0.0,
     "mult": 100.0,
     "basis": "unrecoverable_no_alpaca_bar"
   },
