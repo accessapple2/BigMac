@@ -82,6 +82,36 @@ def _conn() -> sqlite3.Connection:
     return conn
 
 
+def _save_cboe_pc_breakdown(date_str: str, breakdown: dict) -> None:
+    """HM-CBOE-PC-BREAKDOWN-2026-09-12: persist the full CBOE daily P/C
+    scrape (equity/index/etf/total), not just the single Equity ratio this
+    module used to keep. One row per calendar day (upsert on repeat scrapes
+    the same day, matching how equity_pc itself is already read fresh each
+    call rather than accumulated)."""
+    conn = _conn()
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS cboe_pc_breakdown (
+                date TEXT PRIMARY KEY,
+                equity_pc REAL, index_pc REAL, etf_pc REAL, total_pc REAL,
+                fetched_at TEXT
+            )
+        """)
+        conn.execute(
+            "INSERT INTO cboe_pc_breakdown (date, equity_pc, index_pc, etf_pc, total_pc, fetched_at) "
+            "VALUES (?,?,?,?,?,?) "
+            "ON CONFLICT(date) DO UPDATE SET equity_pc=excluded.equity_pc, "
+            "index_pc=excluded.index_pc, etf_pc=excluded.etf_pc, total_pc=excluded.total_pc, "
+            "fetched_at=excluded.fetched_at",
+            (date_str, breakdown.get("equity"), breakdown.get("index"),
+             breakdown.get("etf"), breakdown.get("total"),
+             datetime.utcnow().isoformat()),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def _init_db() -> None:
     """Create all 11 tables (10 signals + composite_alpha)."""
     conn = _conn()
@@ -704,6 +734,14 @@ def run_put_call(as_of: date | None = None) -> float:
                 total_pc = float(s.iloc[-1])
 
     # Fallback: scrape CBOE options statistics page
+    # HM-CBOE-PC-BREAKDOWN-2026-09-12: this scrape already pulls the FULL
+    # table (confirmed live: the page carries Equity/Index Options/ETF/Total
+    # rows, all in the same response) but used to keep only "Equity" and
+    # throw the rest away. Every row is now captured and persisted -- the
+    # Index-vs-Equity split (a genuine, different signal: index option flow
+    # skews institutional/hedging, equity skews retail/directional) was
+    # sitting in an already-fetched response, not a new integration.
+    cboe_breakdown: dict[str, float] = {}
     if equity_pc is None:
         try:
             resp = _SESSION.get(
@@ -711,16 +749,46 @@ def run_put_call(as_of: date | None = None) -> float:
                 timeout=15,
             )
             soup = BeautifulSoup(resp.text, "lxml")
+            # HM-CBOE-PC-BREAKDOWN-2026-09-12: the real row labels are
+            # UPPERCASE with a "PUT/CALL RATIO" suffix (e.g. "EQUITY
+            # PUT/CALL RATIO") -- confirmed live against the actual page,
+            # not assumed. This module's own prior `"Equity" in cells[0]`
+            # check is case-sensitive and never matches that real label, so
+            # this fallback has likely never actually populated equity_pc
+            # from the HTML path even before this change (silent no-op, same
+            # failure shape as everything else this whole day's pass has
+            # been about). Matched on EXACT known aggregate-row labels, not
+            # loose substring containment -- several per-index rows further
+            # down the same page also contain the word "INDEX" (e.g. "CBOE
+            # VOLATILITY INDEX (VIX) PUT/CALL RATIO"), which a bare
+            # substring check would wrongly match too.
+            _LABELS = {
+                "EQUITY PUT/CALL RATIO": "equity",
+                "INDEX PUT/CALL RATIO": "index",
+                "EXCHANGE TRADED PRODUCTS PUT/CALL RATIO": "etf",
+                "TOTAL PUT/CALL RATIO": "total",
+            }
             for row in soup.find_all("tr"):
                 cells = [c.get_text(strip=True) for c in row.find_all(["td", "th"])]
-                if len(cells) >= 2 and "Equity" in cells[0]:
-                    try:
-                        equity_pc = float(cells[1])
-                        break
-                    except ValueError:
-                        pass
+                if len(cells) < 2:
+                    continue
+                key = _LABELS.get(cells[0].strip().upper())
+                if key is None:
+                    continue
+                try:
+                    val = float(cells[1])
+                except ValueError:
+                    continue
+                cboe_breakdown[key] = val
+                if key == "equity":
+                    equity_pc = val
         except Exception as e:
             logger.debug(f"P/C CBOE scrape: {e}")
+        if cboe_breakdown:
+            try:
+                _save_cboe_pc_breakdown(today_str, cboe_breakdown)
+            except Exception as e:
+                logger.debug(f"P/C CBOE breakdown persist: {e}")
 
     if equity_pc is None and total_pc is None:
         logger.warning("P/C ratio: no data available")
