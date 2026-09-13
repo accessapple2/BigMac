@@ -1085,23 +1085,42 @@ def run_reveille_morning():
         console.log(f"[red]Reveille error: {type(e).__name__}: {e}")
 
 
+_phaser_lock_fired_date: str | None = None
+
+
 @_hm_bq_instr("run_phaser_lock_morning")
 def run_phaser_lock_morning():
-    """6:05 AM AZ — HM-PHASER-LOCK daily Trade-of-the-Day (top-3 ranked, fail-closed).
-    Market-day-aware; runs after the 06:00 intel refresh so setups are current."""
+    """HM-PHASER-LOCK daily Trade-of-the-Day (top-3 ranked, fail-closed), once per trading day.
+    HM-PHASER-LOCK-SCAN-RACE-2026-09-13: polled every 2 min; fires in 06:12-06:45 AZ as soon as
+    today's strategy_signals batch exists, instead of a fixed 06:15 that the batch
+    (run_chekov_intraday_convergence's first tick, phase-drifts 06:04-06:28) could land after.
+    No batch by 06:40 -> fail-closed run anyway so the gap is still reported."""
+    global _phaser_lock_fired_date
     now = az_now()
-    if now.hour != 6 or not (12 <= now.minute <= 29):  # HM-DRYDOCK-2 HIGH1: 06:15 fire (after ~06:12 scan), pre-open
+    if now.hour != 6:
+        return
+    today = now.strftime("%Y-%m-%d")
+    if _phaser_lock_fired_date == today:
         return
     try:
+        from engine import phaser_lock as _pl
         from engine.market_calendar import is_trading_day
         if not is_trading_day(now.date()):     # weekends + NYSE holidays
             return
-    except Exception:
+        decision = _pl.morning_fire_decision(
+            now.hour * 60 + now.minute,
+            _pl.today_setup_row_count(today),
+            _pl.produced_pick_today(today),
+        )
+    except Exception as e:
+        console.log(f"[yellow]Phaser-Lock readiness check error: {type(e).__name__}: {e}")
         return
+    if decision is None:
+        return
+    _phaser_lock_fired_date = today
     try:
-        from engine.phaser_lock import run_phaser_lock
-        r = run_phaser_lock(dry_run=False)
-        console.log(f"[cyan]Phaser-Lock: {r.get('headline', 'generated')} "
+        r = _pl.run_phaser_lock(dry_run=False)
+        console.log(f"[cyan]Phaser-Lock ({decision}): {r.get('headline', 'generated')} "
                     f"| qualified={r.get('qualified')} delivery={r.get('_delivery')}")
     except Exception as e:
         console.log(f"[red]Phaser-Lock error: {type(e).__name__}: {e}")
@@ -4946,7 +4965,7 @@ if __name__ == "__main__":
     schedule.every(15).minutes.do(_bg_archer_alerts)                  # HM-ARCHER-REBUILD: tiered alerts (RTH-gated)
     schedule.every().day.at("05:45").do(run_reveille_morning)         # HM-REVEILLE: pre-market XO brief 5:45 AM AZ (before 06:00 intel; market-day-aware)
     schedule.every().day.at("06:00").do(run_intel_report_morning)     # Intel Report + ntfy push: 6:00 AM AZ
-    schedule.every().day.at("06:15").do(run_phaser_lock_morning)      # HM-PHASER-LOCK: daily Trade-of-the-Day 6:15 AM AZ — HM-DRYDOCK-2 HIGH1: moved 06:05→06:15 so it reads AFTER the ~06:12 strategy_signals scan (was firing 7min early on an empty feed → 0 qualified); stays pre-open (06:30 ET).
+    schedule.every(2).minutes.do(run_phaser_lock_morning)      # HM-PHASER-LOCK Trade-of-the-Day: polls, fires once 06:12-06:45 AZ when today's strategy_signals batch lands (HM-PHASER-LOCK-SCAN-RACE-2026-09-13). Replaces HM-DRYDOCK-2 HIGH1's fixed 06:15, which still raced a batch that drifts 06:04-06:28 (2026-09-11: 0 scanned).
     schedule.every().day.at("02:30").do(run_filter_contribution_sweep)  # HM-DRYDOCK #4: OFF-PEAK filter-contribution ablation → cache (never near cadence/market hours)
     schedule.every().day.at("20:00").do(run_intel_report_evening)     # Intel Report evening prep: 8:00 PM AZ
 

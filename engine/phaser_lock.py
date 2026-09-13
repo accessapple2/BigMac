@@ -454,6 +454,56 @@ def build_pick(deliver_it: bool = False) -> dict:
     return result
 
 
+# ── morning scheduling readiness (HM-PHASER-LOCK-SCAN-RACE-2026-09-13) ─────────
+# A fixed 06:15 fire raced run_chekov_intraday_convergence's first batch of today's
+# strategy_signals, whose landing drifts 06:04-06:28 AZ with the trader's restart phase
+# (2026-09-11: fired 06:18, batch landed 06:26 -> scanned=0). Fire once rows exist;
+# fall back to a fail-closed run late in the window so a missing scan is still reported.
+MORNING_WINDOW_START_MIN = 6 * 60 + 12
+MORNING_FALLBACK_MIN     = 6 * 60 + 40
+MORNING_WINDOW_END_MIN   = 6 * 60 + 45
+
+
+def today_setup_row_count(today: str) -> int:
+    """Rows get_setup_candidates() would read for `today` (same usable-triple filter)."""
+    try:
+        conn = sqlite3.connect(TRADER_DB, timeout=15)
+        try:
+            return int(conn.execute(
+                """SELECT COUNT(*) FROM strategy_signals
+                    WHERE scan_date = ?
+                      AND entry_price > 0 AND stop_price > 0 AND target_price > 0""",
+                (today,),
+            ).fetchone()[0])
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.warning("phaser today_setup_row_count failed: %s: %r", type(e).__name__, e)
+        return 0
+
+
+def produced_pick_today(today: str) -> bool:
+    """Restart-durable guard: a saved pick for `today` that actually scanned data. A
+    scanned=0 file (dashboard ?regenerate before the scan, or the fallback) doesn't count."""
+    try:
+        with open(PICK_JSON) as fh:
+            d = json.load(fh)
+        return d.get("date") == today and int(d.get("scanned") or 0) > 0
+    except Exception:
+        return False
+
+
+def morning_fire_decision(now_min: int, row_count: int, produced_today: bool) -> str | None:
+    """'ready' | 'fallback' | None, for an AZ minute-of-day on a trading day."""
+    if produced_today or not (MORNING_WINDOW_START_MIN <= now_min < MORNING_WINDOW_END_MIN):
+        return None
+    if row_count > 0:
+        return "ready"
+    if now_min >= MORNING_FALLBACK_MIN:
+        return "fallback"
+    return None
+
+
 def run_phaser_lock(dry_run: bool = False) -> dict:
     return build_pick(deliver_it=not dry_run)
 
