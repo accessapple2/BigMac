@@ -686,37 +686,42 @@ def get_gex_context_for_prompt() -> str:
     cache is cold (after-hours / just-restarted), same collapsed-wall guard
     as the dashboard reader so a known-degenerate snapshot is never fed to
     an agent either.
+
+    HM-GEX-PROMPT-FRESHNESS 2026-09-14: that repoint still bypassed
+    engine.canonical_gex -- it read the (dead since 07-22) Polygon intraday
+    cache, then flow_gex.db's frozen 2026-07-21 row with NO age check, and never
+    consulted canonical_gex's Alpaca tier 0 at all (HM-GEX-ALPACA-REPOINT
+    repointed canonical_gex() only). Every prompt since the 2026-09-11 num_ctx
+    fix stopped truncating this block away showed "GEX OVERLAY (updated 20:05)
+    -- SPY: ... Call Wall $748" (below a ~$760 spot, wrong net-GEX sign vs
+    FlashAlpha 09-14). Now: canonical_gex_if_fresh() per symbol -- Alpaca tier
+    0 under its own 30-min bar, everything else under the shared
+    CANONICAL_GEX_MAX_AGE_DAYS gate -- and every level shown carries its as-of
+    time, age and source. Stale/missing/degenerate -> an explicit UNAVAILABLE
+    line, never a level presented as current.
     """
+    from engine import canonical_gex as _cg
+
     lines = []
-    latest_time = ""
-
     for sym in ["SPY", "QQQ"]:
-        gex = None
         try:
-            from engine.options_flow_gex import get_latest as _gex_get_latest
-            pair = (_gex_get_latest().get("data") or {}).get(sym)
-            if pair and not (pair.get("gex") or {}).get("error"):
-                gex = pair["gex"]
-        except Exception:
+            gex = _cg.canonical_gex_if_fresh(sym)
+        except Exception as exc:
+            logger.warning(f"GEX prompt block: canonical_gex_if_fresh({sym}) failed: {type(exc).__name__}: {exc}")
             gex = None
+        if gex and gex.get("call_wall") is not None and \
+           gex["call_wall"] == gex.get("put_wall") == gex.get("king_node"):
+            gex = None  # degenerate collapsed-wall artifact -- same guard as the dashboard reader
 
         if not gex:
-            try:
-                from engine.canonical_gex import latest_snapshot
-                snap = latest_snapshot(sym)
-                if snap and snap.get("call_wall") is not None and \
-                   snap["call_wall"] == snap.get("put_wall") == snap.get("king_node"):
-                    snap = None  # degenerate artifact -- same guard as the dashboard reader
-                gex = snap
-            except Exception:
-                gex = None
-
-        if not gex:
+            lines.append(
+                f"{sym}: GEX UNAVAILABLE — no fresh gamma snapshot. Do not assume any "
+                f"call wall, put wall, gamma flip or gamma regime for {sym}."
+            )
             continue
 
-        # canonical_gex/options_flow_gex's `regime` is already a full descriptive
-        # label (e.g. "LONG GAMMA · stable (spot above flip)") -- unlike the old
-        # gex_overlay enum strings, use it as-is rather than remapping.
+        # canonical_gex's `regime` is already a full descriptive label
+        # (e.g. "LONG GAMMA · stable (spot above flip)") -- use it as-is.
         regime_label = gex.get("regime") or "GAMMA REGIME UNAVAILABLE (no GEX regime data)"
 
         detail_parts = []
@@ -729,19 +734,16 @@ def get_gex_context_for_prompt() -> str:
         if gex.get("call_wall"):
             detail_parts.append(f"Call Wall ${gex['call_wall']:.0f}")
         detail_parts.append(f"Regime: {regime_label}")
-        lines.append(f"{sym}: " + " | ".join(detail_parts))
 
-        if not latest_time:
-            asof = gex.get("asof") or gex.get("_asof")
-            if asof:
-                asof = str(asof)
-                latest_time = asof.split(" ")[1][:5] if " " in asof else asof[:16]
+        asof = str(gex.get("_asof") or gex.get("asof") or "?")
+        age_days = _cg.snapshot_age_days(gex.get("_asof") or gex.get("asof"))
+        age_note = f"{age_days * 1440:.0f} min old" if age_days is not None else "age unknown"
+        lines.append(
+            f"{sym} (as of {asof} UTC, {age_note}, source {gex.get('_src') or '?'}): "
+            + " | ".join(detail_parts)
+        )
 
-    if not lines:
-        return ""
-
-    header = f"=== GEX OVERLAY (updated {latest_time}) ===" if latest_time else "=== GEX OVERLAY ==="
-    return "\n".join([header] + lines)
+    return "\n".join(["=== GEX OVERLAY ==="] + lines)
 
 
 def get_heatmap_data(symbol: str) -> list[dict]:
