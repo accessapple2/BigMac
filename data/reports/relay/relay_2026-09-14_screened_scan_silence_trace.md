@@ -303,8 +303,19 @@ The 9/10-9/11 rows also contain the block, but truncated away before the model; 
 ## 7. Open
 
 - ~~Restart to activate HM-SCREENED-SCAN-HB~~ live since 07:18 (seat gate + heartbeat verified).
-- Restart after 07:56 MST to activate HM-GEX-PROMPT-FRESHNESS; verify on McCoy's 12:30 ET slot prompt
-  (`source alpaca`, no `20:05`).
+- ~~Restart after 07:56 MST to activate HM-GEX-PROMPT-FRESHNESS~~ **done and verified.**
+  - **Restart:** 07:56:18 → PID 50034, `RESTART OK`.
+    - No pre-open re-fire: both heartbeats `pre-open=outside_window` under the new PID.
+    - Scheduler alive: `[SCHED-JOB]` lines from 07:56:29.
+    - Startup queue sweep: 8 McCoy `gate_reject` `stale_signal` rows for 2026-09-10 signals (age ~314,000 s,
+      no prompt). Not decisions, not flagged.
+  - **Production check at McCoy's 12:30 ET midday slot:** `decision_audit` id 141083 (TNON, 16:30:56 UTC).
+    Its prompt carried `SPY (as of 2026-09-14 16:21:27 UTC, 9 min old, source alpaca): King Node $775 |
+    Gamma Flip $762 | Put Wall $760 | Call Wall $775 | Regime: LONG GAMMA · stable (spot above flip)`, with
+    QQQ likewise from Alpaca and 9 min old. **PASS.**
+    - The 7/21 block is gone.
+    - The Alpaca refresh is current on the unblocked scheduler.
+    - Rows from this slot on are not stale-GEX rows.
 - Item-3 consumer batch (§10), battle_station first, awaiting go.
 - Persist done-today across restarts; `firing` heartbeat status (§11).
 - DOCTRINE open decision: per-job timeout for the shared scheduler queue.
