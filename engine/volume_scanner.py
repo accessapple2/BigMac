@@ -449,51 +449,67 @@ def red_alert_check() -> None:
 
     now = utc_now_str()   # HM-TZ Stage 3: detected_at canonical space-UTC
     session_frac = _session_fraction_elapsed()   # computed once per scan, applied to every symbol
-    with contextlib.closing(_conn()) as c:
-        for sym, snap in snaps.items():
-            stock = _parse_snapshot(sym, snap, baselines, session_frac)
-            if not stock:
-                continue
 
-            rel_vol = stock.get("relative_volume", 0)
-            price = stock.get("price", 0)
-            gap = stock.get("gap_pct", 0)
-            direction = "up" if gap >= 0 else "down"
-            abs_gap = abs(gap)
+    # HM-RED-ALERT-SELF-LOCK 2026-09-14: this loop used to INSERT through one
+    # connection held open for the whole loop, committing only at the end, while
+    # calling _post_to_war_room -> war_room.save_hot_take (its own connection) per
+    # alert. The first INSERT's write lock made every later War Room post wait
+    # out the 30s busy timeout and fail -- ~169s per alerted symbol, blocking
+    # schedule.run_pending() from 06:41 MST with 168 jobs dark, and committing
+    # nothing. Now: decide in the loop (no DB), write all rows in one short
+    # transaction, and post only after that connection is closed.
+    new_red_rows: list[tuple] = []
+    war_room_posts: list[tuple[str, str]] = []
+    for sym, snap in snaps.items():
+        stock = _parse_snapshot(sym, snap, baselines, session_frac)
+        if not stock:
+            continue
 
-            if rel_vol >= CRITICAL_THRESHOLD:
-                # CRITICAL alert
-                msg = (
-                    f"🔴🔴 CRITICAL: {sym} — {rel_vol:.0f}x volume, this is not a drill! "
-                    f"Price ${price:.2f}, {direction} {abs_gap:.1f}%"
-                )
-                logger.warning(msg)
-                _post_to_war_room(sym, msg)
-                if sym not in existing_red:
-                    c.execute(
-                        "INSERT INTO volume_alerts "
-                        "(symbol, alert_type, price, relative_volume, gap_pct, dollar_volume, detected_at) "
-                        "VALUES (?,?,?,?,?,?,?)",
-                        (sym, "red_alert", price, rel_vol, gap, stock["dollar_volume"], now),
-                    )
-                    existing_red.add(sym)
+        rel_vol = stock.get("relative_volume", 0)
+        price = stock.get("price", 0)
+        gap = stock.get("gap_pct", 0)
+        direction = "up" if gap >= 0 else "down"
+        abs_gap = abs(gap)
+        red_row = (sym, "red_alert", price, rel_vol, gap, stock["dollar_volume"], now)
 
-            elif rel_vol >= RED_ALERT_THRESHOLD and sym not in existing_red:
-                msg = (
-                    f"🔴 RED ALERT: {sym} volume explosion — {rel_vol:.0f}x normal! "
-                    f"Price ${price:.2f}, {direction} {abs_gap:.1f}%. All hands to stations!"
-                )
-                logger.warning(msg)
-                _post_to_war_room(sym, msg)
-                c.execute(
+        if rel_vol >= CRITICAL_THRESHOLD:
+            # CRITICAL alert
+            msg = (
+                f"🔴🔴 CRITICAL: {sym} — {rel_vol:.0f}x volume, this is not a drill! "
+                f"Price ${price:.2f}, {direction} {abs_gap:.1f}%"
+            )
+            logger.warning(msg)
+            war_room_posts.append((sym, msg))
+            if sym not in existing_red:
+                new_red_rows.append(red_row)
+                existing_red.add(sym)
+
+        elif rel_vol >= RED_ALERT_THRESHOLD and sym not in existing_red:
+            msg = (
+                f"🔴 RED ALERT: {sym} volume explosion — {rel_vol:.0f}x normal! "
+                f"Price ${price:.2f}, {direction} {abs_gap:.1f}%. All hands to stations!"
+            )
+            logger.warning(msg)
+            war_room_posts.append((sym, msg))
+            new_red_rows.append(red_row)
+            existing_red.add(sym)
+
+    if new_red_rows:
+        try:
+            with contextlib.closing(_conn()) as c:
+                c.executemany(
                     "INSERT INTO volume_alerts "
                     "(symbol, alert_type, price, relative_volume, gap_pct, dollar_volume, detected_at) "
                     "VALUES (?,?,?,?,?,?,?)",
-                    (sym, "red_alert", price, rel_vol, gap, stock["dollar_volume"], now),
+                    new_red_rows,
                 )
-                existing_red.add(sym)
+                c.commit()
+        except Exception as e:
+            # Rows not persisted -> these symbols re-alert next run; say so instead of swallowing it.
+            logger.warning(f"red_alert_check: failed to write {len(new_red_rows)} red_alert rows: {e}")
 
-        c.commit()
+    for sym, msg in war_room_posts:
+        _post_to_war_room(sym, msg)
 
 
 # ---------------------------------------------------------------------------
