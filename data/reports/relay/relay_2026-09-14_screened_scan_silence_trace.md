@@ -263,7 +263,7 @@ Found while validating GEX against FlashAlpha's 09:54 ET recap. Question relay:
 - Each consumer moves onto `canonical_gex_if_fresh()` or the tier-0 30-min bar.
 - Each fix gets a test that fails on today's code.
 
-Per-job scheduler timeout: spec requested, not built. See `drafts/SPEC_SCHED_JOB_TIMEOUT.md`.
+Per-job scheduler timeout: spec requested, not built. See `docs/HM-SCHED-JOB-TIMEOUT-spec.md`.
 
 ## 11. Restart side effects (07:18)
 
