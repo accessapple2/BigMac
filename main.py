@@ -3229,7 +3229,67 @@ def run_team_advisor():
             break  # One slot per poll cycle
 
 
-_mccoy_screened_slots_done_today: set = set()
+# === HM-SCREENED-SCAN-HB 2026-09-14 ===
+# Slot/window/done-set logic for both screened scans now lives in
+# engine/screened_scan_scheduler.py (one ScreenedScanScheduler per seat). That
+# adds a per-tick [SCREENED-HB] log line, a rotation-proof JSON heartbeat at
+# data/screened_scan_heartbeat_<player_id>.json, a seat gate, and rich-markup
+# escaping of the slot tag ("[pre-open]" used to render as nothing). The
+# slot/window semantics themselves are unchanged -- see that module's
+# docstring and relay_2026-09-14_screened_scan_silence_trace.md.
+_SCREENED_SCAN_DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+
+
+def _screened_scan_seat_status(player_id: str) -> tuple[bool, str]:
+    """Seat gate for the screened-scan slots: fire only if arena built a
+    provider for this seat (providers are built from active ai_players rows at
+    startup) AND the seat is still halt_mode='active' right now. ollama-qwen3
+    (halt_mode='full', no provider) previously ran a full run_scan at both
+    slots that no model could act on. Fails open on a DB read error -- this is
+    an efficiency gate, not a safety gate; run_scan/paper_trader keep their own
+    halt checks."""
+    if arena is None or player_id not in arena.providers:
+        return False, "no_provider_built"
+    conn = None
+    try:
+        conn = sqlite3.connect("data/trader.db", timeout=10)
+        row = conn.execute("SELECT halt_mode FROM ai_players WHERE id=?", (player_id,)).fetchone()
+    except Exception as exc:
+        return True, f"halt_check_failed_open:{type(exc).__name__}"
+    finally:
+        if conn is not None:
+            conn.close()
+    halt_mode = row[0] if row else None
+    if halt_mode != "active":
+        return False, f"halt_mode={halt_mode}"
+    return True, "active"
+
+
+def _screened_get_screen() -> dict:
+    from engine.mccoy_screen import get_mccoy_screened_symbols
+    return get_mccoy_screened_symbols()
+
+
+def _screened_run_scan(symbols: list, player_ids: frozenset) -> None:
+    arena.run_scan(symbols, player_ids=player_ids)
+
+
+def _make_screened_scheduler(player_id: str, label: str):
+    from engine.screened_scan_scheduler import ScreenedScanScheduler
+    return ScreenedScanScheduler(
+        player_id=player_id,
+        label=label,
+        get_screen=_screened_get_screen,
+        run_scan=_screened_run_scan,
+        seat_status=_screened_scan_seat_status,
+        log=console.log,
+        heartbeat_path=os.path.join(_SCREENED_SCAN_DATA_DIR, f"screened_scan_heartbeat_{player_id}.json"),
+    )
+
+
+_mccoy_screened_scheduler = _make_screened_scheduler("ollama-plutus", "McCoy")
+_qwen3_screened_scheduler = _make_screened_scheduler("ollama-qwen3", "qwen3")
+# === /HM-SCREENED-SCAN-HB ===
 
 
 @_hm_bq_instr("run_mccoy_screened_scan")
@@ -3238,7 +3298,7 @@ def run_mccoy_screened_scan():
 
     Fires at 9:35 AM ET (pre-open, 5 min after the bell -- gives volume
     alerts a moment to register post-open) and 12:30 PM ET (midday,
-    roughly the middle of the 9:30-16:00 ET session). Same 5-min-poll +
+    roughly the middle of the 9:30-16:00 ET session). Same poll +
     slot-window pattern as run_team_advisor() above -- NOT schedule's
     .at("HH:MM") -- this codebase has been bitten three times by .at()'s
     phase-drift-on-restart bug (see run_kirk_advisory_job/run_cto_advisory
@@ -3250,70 +3310,20 @@ def run_mccoy_screened_scan():
     ~2,095 signal_emits/day measured. This scans only
     engine.mccoy_screen.get_mccoy_screened_symbols()'s top-100 (Volume
     Radar + a liquidity floor sized for movers, not the mega-cap
-    universe), twice a day -- targets <200/day.
+    universe), twice a day -- targets <200/day. NOTE 2026-09-14: the
+    top-100 cap rarely binds; 9:35 screens measured 16-34 symbols on 4 of
+    the last 5 trading days (see the HM-SCREENED-SCAN-HB relay).
+
+    HM-SCHED-STALL-FIX 2026-09-11 same-day recovery (20-min window + 60-min
+    late recovery) is preserved in engine/screened_scan_scheduler.py.
     """
-    global _mccoy_screened_slots_done_today
-    from datetime import datetime
-    import pytz
-
-    try:
-        et = pytz.timezone("US/Eastern")
-        now = datetime.now(et)
-    except Exception:
-        return
-
-    if now.hour < 1:
-        _mccoy_screened_slots_done_today = set()
-        return
-
-    if now.weekday() >= 5:
-        return
-
-    # HM-SCHED-STALL-FIX 2026-09-11 (XO Priority 1, item 3): same-day recovery.
-    # NORMAL_WINDOW is the original on-time window; LATE_RECOVERY extends it so
-    # a slot missed by more than a few minutes still fires later the same day
-    # (marked late in the log) instead of silently never firing at all. This is
-    # now belt-and-braces given run_mccoy_screened_scan dispatches from its own
-    # 60s-poll daemon thread (see HM-SCHED-STALL-FIX near HM-WR-DAEMON-THREAD),
-    # not the shared schedule.run_pending() queue -- but it also covers a
-    # transient stall of that thread itself (e.g. mid-restart).
-    NORMAL_WINDOW_MIN = 20
-    LATE_RECOVERY_MIN = 60
-    slots = [("pre-open", 9, 35), ("midday", 12, 30)]
-    for slot_id, target_h, target_m in slots:
-        if slot_id in _mccoy_screened_slots_done_today:
-            continue
-        now_mins = now.hour * 60 + now.minute
-        target_mins = target_h * 60 + target_m
-        if target_mins <= now_mins <= target_mins + NORMAL_WINDOW_MIN + LATE_RECOVERY_MIN:
-            is_late = now_mins > target_mins + NORMAL_WINDOW_MIN
-            try:
-                from engine.mccoy_screen import get_mccoy_screened_symbols
-                screen = get_mccoy_screened_symbols()
-                symbols = screen["symbols"]
-                _late_tag = " [LATE — same-day recovery]" if is_late else ""
-                if not symbols:
-                    console.log(f"[yellow]McCoy screened scan [{slot_id}]{_late_tag}: 0 symbols from screen — skipping")
-                else:
-                    arena.run_scan(symbols, player_ids=frozenset({"ollama-plutus"}))
-                    console.log(
-                        f"[green]McCoy screened scan [{slot_id}]{_late_tag}: {screen['n_found']}/{screen['n_requested']} "
-                        f"symbols (regime={screen['regime'].get('regime') if screen['regime'] else '?'})"
-                    )
-            except Exception as e:
-                console.log(f"[red]McCoy screened scan [{slot_id}] error: {e}")
-            finally:
-                _mccoy_screened_slots_done_today.add(slot_id)
-            break  # One slot per poll cycle
-
-
-_qwen3_screened_slots_done_today: set = set()
+    _mccoy_screened_scheduler.tick()
 
 
 @_hm_bq_instr("run_qwen3_screened_scan")
 def run_qwen3_screened_scan():
     """HM-EXIT-GATE-AUDIT-2026-09-13: ollama-qwen3 (Scotty)'s twice-daily
-    screened scan -- mirrors run_mccoy_screened_scan() above exactly.
+    screened scan -- same scheduler as run_mccoy_screened_scan() above.
 
     ollama-qwen3 was the last live member of _SCAN_TIER2 after McCoy's
     removal on 2026-09-11 (HM-XO-PLAN-2026-09 Phase 1.2), still firing
@@ -3328,54 +3338,11 @@ def run_qwen3_screened_scan():
     / additive doctrine -- that screen is genuinely player-agnostic: Volume
     Radar + a liquidity floor + regime context, no McCoy-specific logic),
     rather than duplicating an equivalent qwen3-specific screen module.
+
+    HM-SCREENED-SCAN-HB 2026-09-14: while the seat is halt_mode='full' (no
+    provider built) every slot logs skipped_seat and runs nothing.
     """
-    global _qwen3_screened_slots_done_today
-    from datetime import datetime
-    import pytz
-
-    try:
-        et = pytz.timezone("US/Eastern")
-        now = datetime.now(et)
-    except Exception:
-        return
-
-    if now.hour < 1:
-        _qwen3_screened_slots_done_today = set()
-        return
-
-    if now.weekday() >= 5:
-        return
-
-    # Same same-day recovery window as McCoy's version -- see that
-    # function's HM-SCHED-STALL-FIX comment for why.
-    NORMAL_WINDOW_MIN = 20
-    LATE_RECOVERY_MIN = 60
-    slots = [("pre-open", 9, 35), ("midday", 12, 30)]
-    for slot_id, target_h, target_m in slots:
-        if slot_id in _qwen3_screened_slots_done_today:
-            continue
-        now_mins = now.hour * 60 + now.minute
-        target_mins = target_h * 60 + target_m
-        if target_mins <= now_mins <= target_mins + NORMAL_WINDOW_MIN + LATE_RECOVERY_MIN:
-            is_late = now_mins > target_mins + NORMAL_WINDOW_MIN
-            try:
-                from engine.mccoy_screen import get_mccoy_screened_symbols
-                screen = get_mccoy_screened_symbols()
-                symbols = screen["symbols"]
-                _late_tag = " [LATE — same-day recovery]" if is_late else ""
-                if not symbols:
-                    console.log(f"[yellow]qwen3 screened scan [{slot_id}]{_late_tag}: 0 symbols from screen — skipping")
-                else:
-                    arena.run_scan(symbols, player_ids=frozenset({"ollama-qwen3"}))
-                    console.log(
-                        f"[green]qwen3 screened scan [{slot_id}]{_late_tag}: {screen['n_found']}/{screen['n_requested']} "
-                        f"symbols (regime={screen['regime'].get('regime') if screen['regime'] else '?'})"
-                    )
-            except Exception as e:
-                console.log(f"[red]qwen3 screened scan [{slot_id}] error: {e}")
-            finally:
-                _qwen3_screened_slots_done_today.add(slot_id)
-            break  # One slot per poll cycle
+    _qwen3_screened_scheduler.tick()
 
 
 @_hm_bq_instr("run_portfolio_monitor")
@@ -4577,6 +4544,10 @@ if __name__ == "__main__":
     # this is purely a dispatch substitution, same as HM-WR-DAEMON-THREAD.
     def _mccoy_scheduler_thread():
         import time as _mc_time
+        # HM-SCREENED-SCAN-HB 2026-09-14: stamped from inside the thread so
+        # data/screened_scan_heartbeat_ollama-plutus.json proves the body ran;
+        # the startup console line below gets rotated out of trader.log at 05:00.
+        _mccoy_screened_scheduler.mark_thread_started()
         while True:
             try:
                 run_mccoy_screened_scan()
@@ -4613,6 +4584,7 @@ if __name__ == "__main__":
     # was already moved off of two days earlier.
     def _qwen3_scheduler_thread():
         import time as _q3_time
+        _qwen3_screened_scheduler.mark_thread_started()  # HM-SCREENED-SCAN-HB, see McCoy's thread
         while True:
             try:
                 run_qwen3_screened_scan()
