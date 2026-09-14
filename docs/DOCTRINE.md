@@ -364,6 +364,33 @@ a failure mode" (multi-path scanning, above): both are about a protective
 mechanism (or a feature's own dependency) failing exactly where and when
 it's needed most, with nothing else positioned to catch it.
 
+### One slow job takes out the whole shared scheduler — twice now (2026-09-14)
+`main.py`'s `schedule.run_pending()` is a single thread running ~168 jobs.
+Any job that blocks stops every other job on that queue, with no error, until
+it returns.
+- **2026-09-11:** an unidentified job blocked the queue for ~20 min, and
+  McCoy's 12:30 ET slot silently never fired
+  (`relay_2026-09-11_mccoy_1230_nofire_trace.md`).
+- **2026-09-14:** `run_volume_red_alert` blocked it from 06:41 MST, ~37 min of
+  market hours, until a restart. `red_alert_check` held a write transaction open
+  across its symbol loop, while each War Room post wrote through a second
+  connection and timed out on that same lock (~169 s per alerted symbol,
+  HM-RED-ALERT-SELF-LOCK, `989ed38`). Collateral: `run_alpaca_gex_refresh`
+  never ran after the open, so canonical GEX fell through to the frozen 7/21 row.
+
+The dedicated-thread fix (HM-SCHED-STALL-FIX / HM-EXIT-GATE-AUDIT) protected
+McCoy and qwen3 and nothing else; every other job on the queue is still exposed.
+`[SCHED-JOB] start` with no matching `done` names the blocker; the
+`[WR-DEBUG-HB]` heartbeat stopping dates it.
+
+**Rule:**
+1. Never hold a SQLite write transaction open across a loop, a network call, or
+   a call into another module that may write. Decide in memory, write in one
+   short transaction, then do side effects.
+2. A job that must never be starved gets its own thread.
+3. **Open decision (Admiral):** whether the shared queue needs a per-job
+   timeout/watchdog, so one stuck job can't take down the other ~167.
+
 ### A third-party score is not a gate, and sizing is not a substitute for one (2026-09-11)
 Phase 1.3 (`docs/XO_PLAN_2026-09.md`) built alpha-scaled position sizing for
 McCoy on the assumption that `composite_alpha` functioned as a real
