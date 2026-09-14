@@ -154,9 +154,160 @@ live process.** Restart timing: `QUESTION_screened_scan_hb_restart.md`.
 - qwen3 slots show `skipped_seat:no_provider_built` (or `halt_mode=full`);
 - McCoy's next slot shows `fired` with n_symbols.
 
+## 8. Live incident: shared scheduler stalled 06:41-07:18 MST (HM-RED-ALERT-SELF-LOCK)
+
+Found while validating GEX against FlashAlpha's 09:54 ET recap. Question relay:
+`QUESTION_red_alert_scheduler_stall.md`. The Admiral chose hotfix-then-restart.
+
+- **Symptom.**
+  - The `[WR-DEBUG-HB]` main-loop heartbeat stopped at 06:41:26.
+  - The last `[SCHED-JOB]` line was `06:41:27 start name=run_volume_red_alert`, with no `done`.
+  - None of the 168 shared-queue jobs ran for ~37 min of market hours, including
+    `run_alpaca_gex_refresh`, so canonical GEX tier 0 went stale and fell through to the 7/21 row.
+- **Evidence.**
+  - Main-thread native stack: `sqlite3_step → btreeBeginTrans → sqliteDefaultBusyCallback → unixSleep`.
+  - PID 1670 was the only process with trader.db open.
+  - Log: `07:12:29 War Room post failed: database is locked`.
+  - Alerts landed every ~169 s.
+- **Mechanism.**
+  - `volume_scanner.red_alert_check` held one connection open across its whole symbol loop and committed
+    only at the end.
+  - The first red-alert INSERT took the write lock.
+  - Every later `_post_to_war_room → war_room.save_hot_take` (a second connection, via `_db_write_retry`)
+    waited out the busy timeout and failed.
+  - No red_alert row committed, and other writers hit `database is locked`.
+- **Same class as 9/11's missed McCoy 12:30 slot:** the second time one long job has taken out the shared
+  queue. See the new DOCTRINE.md entry (`487a845`), which leaves open the Admiral decision on a per-job
+  timeout for that queue.
+- **Fix `989ed38`.**
+  - The loop only decides.
+  - Rows go in one short `executemany` + commit.
+  - War Room posts happen after that connection is closed.
+  - A write failure is logged.
+- **Test.** `tests/test_red_alert_no_self_lock.py`: 3 tests, **all failed against the old code** (lock probe
+  `[True, False, False]`, the live pattern) and pass against the fix.
+- **Restart** 07:18:02 → PID 43636, `RESTART OK`.
+- **Verified on the first real post-restart run** (07:24:27, not a clean startup):
+  - 7 RED/CRITICAL alerts;
+  - all **7 War Room posts landed** within 1 s (LEG, HOLX, EA, TALK, ASGN, TNON, VRE);
+  - **5 red_alert rows committed** (the 2 CRITICALs already flagged re-post without insert);
+  - **0** `War Room post failed`;
+  - **0** `database is locked` lines in any minute since the restart;
+  - wall **0.600 s**;
+  - `[WR-DEBUG-HB] loop alive jobs=168` back at 07:22:48.
+
+## 9. GEX prompt block served 7/21 levels as current (HM-GEX-PROMPT-FRESHNESS, `e5f2dc7`)
+
+- **Structural check vs FlashAlpha 09:54 ET** (flip 767.52, call wall 760, put wall 750, net −$14.47B,
+  spot 759.88):
+  - **canonical Alpaca snapshot** (05:02 MST): passes all four checks (net −$12.77B, call wall 775 ≥ spot,
+    put wall 750 ≤ spot, flip 766.31);
+  - **served** `/api/market/gex` and every agent prompt: the 7/21 `flow_gex.db` row (net **+**$846M,
+    **call wall 748 < spot**, put wall 607, flip 752), which fails sign and call-wall side.
+- **Root cause.**
+  - `gex_overlay.get_gex_context_for_prompt()` never called `canonical_gex()`. It read the dead Polygon
+    intraday cache, then `latest_snapshot()` (flow_gex.db) with no age check.
+  - HM-GEX-ALPACA-REPOINT only repointed `canonical_gex()`. Its commit note that the prompt injection "used
+    Alpaca the whole time" was wrong for this block.
+  - The API path goes through `canonical_gex()`, but tier 0 needs an Alpaca row < 30 min old. Those rows
+    only land when `run_alpaca_gex_refresh` runs in RTH, and today the stall stopped it.
+- **Exposure.**
+  - The block is in 100% of logged McCoy prompts since 9/10 (2,112 + 1,067 + today's).
+  - On 9/10-9/11 the truncation cut it away before the model saw it.
+  - From the 9/11 12:40 num_ctx fix on, the model sees it: every McCoy decision today.
+- **Fix.**
+  - Per symbol via `canonical_gex_if_fresh()`: Alpaca under its 30-min bar, else the shared 1-day gate.
+  - Each level shown carries as-of, age and source.
+  - Stale/missing/degenerate prints `GEX UNAVAILABLE — … Do not assume any call wall, put wall, gamma flip
+    or gamma regime`.
+- **Test.** `tests/test_gex_prompt_freshness.py`: 4 tests, **all failed against the old builder**, all pass.
+- **Rendered read-only at 14:26 UTC:** both SPY and QQQ `GEX UNAVAILABLE`, correct at the time
+  (newest Alpaca row 2.4 h old). A fresh Alpaca row landed 14:27:16.
+- **Not live until the restart after 07:56 MST.** An earlier restart would re-fire McCoy's pre-open slot
+  again (see §11).
+
+## 10. Other stale-capable GEX consumers (inventory, NOT fixed yet)
+
+**Live decision paths with no freshness gate:**
+
+| consumer | reads | age of data | effect |
+|---|---|---|---|
+| `engine/battle_station.py` `_generate_signal` (via `gex_overlay.get_latest_gex`) | `gex_levels` | **last write 2026-05-30** | `CLOSE_NOW` on "broke below/above gamma flip" → `_auto_close` (paper orders via alpaca_options); `TIGHTEN` near walls; morning levels table. A stale row existing means it never recomputes. **Dormant today:** positions come from Alpaca and no "Battle Station: monitoring N" line today = no open option positions. Live the moment one opens. |
+| `engine/ollie_commander.py` `_get_gex_pts` | `gex_levels` | 2026-05-30 | 0-0.4 pts of crew scoring |
+| `engine/super_trader.py` `_gex_multiplier` | `gex_levels` | 2026-05-30 | 0.85-1.10× confidence |
+| `engine/scout_critic.py` | `gex_levels` | 2026-05-30 | flip/walls text in an LLM brief |
+| `engine/providers/base.py` → `gex_calculator.build_alpaca_gex_prompt_section` | Alpaca cache → `gex_snapshots` | any | per-symbol prompt block; labels `[Nm old]` but never refuses |
+| `engine/kirk_advisory.py` `_get_gex_context` | `gex_snapshots` | any | regime + put wall in Kirk's portfolio advisory |
+| `kirk_briefing.py` `gather_gex` (5 crontab lines) | `gex_snapshots` | any | Kirk daily briefing |
+| `engine/ready_room.py` fallback | `gex_snapshots` | any | only when live compute fails → briefing → bridge_vote |
+| `engine/signal_bridge.py` `_w3_context` | `flow_gex.db` | 2026-07-21 | shadow-signal context (observation-only) |
+| `dashboard/app.py` `_build_computer_context` (L20398) | `gex_snapshots` | any | Ship's Computer context text |
+
+**Already marked or harmless:**
+- `/api/market/gex[/{t}]`, gex-overlay levels/heatmap and chart-data carry `stale`/`age_days`, but still
+  serve the 7/21 levels as the payload.
+- `/api/gex-snapshot` has no marker (observation-only).
+- `risk_manager` GEX gate: gated (30 min).
+- `screener_engine` / `daily_enrichment` read `autonomous_trader.db`, which has no `gex_levels` table,
+  so they return nothing.
+- `gex_engine.get_latest_gex_for_uhura`: no live caller found.
+
+**`battle_station` is dormant by accident, not by design.** Nothing gates it:
+- It auto-closes positions when price crosses a gamma flip read from `gex_levels`, last written
+  2026-05-30.
+- It hasn't fired only because Alpaca has had no open option positions.
+- The first option position opened would be judged against a level from another season.
+
+**Approved (Admiral, 2026-09-14): one batch after the close.**
+- `battle_station` first.
+- Each consumer moves onto `canonical_gex_if_fresh()` or the tier-0 30-min bar.
+- Each fix gets a test that fails on today's code.
+
+Per-job scheduler timeout: spec requested, not built. See `drafts/SPEC_SCHED_JOB_TIMEOUT.md`.
+
+## 11. Restart side effects (07:18)
+
+- **McCoy's pre-open slot re-fired at startup.**
+  - The done-today set is in memory, and the late-recovery window (to 10:55 ET) was still open.
+  - `Session: MARKET` at 07:18:04, a second full screened scan on post-bell data.
+  - It finished 07:52:58 (`fired_late`, **100 symbols**, ~35 min, 103 `signal_emit` rows vs 21 at the
+    real 9:35 slot).
+  - The restart for HM-GEX-PROMPT-FRESHNESS was held until after 07:56 MST (window end 10:55 ET) so it
+    could not re-fire a third time.
+  - The old code had the same behavior.
+  - Fix later: persist done-today in `data/screened_scan_heartbeat_<player>.json`.
+- **`[SCREENED-HB]` works but rich wraps the body onto continuation lines.** grep with `-A3`, or read the
+  JSON files (qwen3: `pre-open=skipped_seat:no_provider_built` every tick, seat gate confirmed live).
+- **McCoy's heartbeat file shows `tick 0` for the whole re-fire:** a tick is recorded only after the fired
+  slot returns, so the runbook's ">2 min stale = dead" rule false-alarms during a long scan. Needs a
+  `firing` status written before the scan.
+
+## 12. Today's McCoy decisions were made on stale GEX (flagged, not rewritten)
+
+`data/reports/relay/flag_stale_gex_decision_audit_2026-09-14.json` lists every affected row: flag
+`STALE_GEX_IN_PROMPT`, evidence query, reason. **No decision_audit row was modified.** Final counts
+(regenerated 07:53 MST, after the re-fire ended and before the GEX-fix restart):
+- **124 `signal_emit`**:
+  - 21 at the 9:35 ET slot;
+  - **103 in the restart re-fire** of the pre-open slot (07:18-07:52 MST, `fired_late`, 100 symbols);
+  - 71 BUY / 53 HOLD;
+  - last flagged emit 14:50:32 UTC;
+  - every McCoy emit today carries the block (0 without it).
+- 70 `gate_reject` linked by `signal_id` and 61 regime_router rejects matched by player+symbol within 60 s.
+- **0 trades.**
+- The restart re-fire produced 5× the real slot's rows, so it is most of today's stale-GEX exposure.
+  That is one more reason to persist done-today across restarts (§11).
+
+The 9/10-9/11 rows also contain the block, but truncated away before the model; not flagged.
+
 ## 7. Open
 
-- Restart to activate HM-SCREENED-SCAN-HB (question filed).
+- ~~Restart to activate HM-SCREENED-SCAN-HB~~ live since 07:18 (seat gate + heartbeat verified).
+- Restart after 07:56 MST to activate HM-GEX-PROMPT-FRESHNESS; verify on McCoy's 12:30 ET slot prompt
+  (`source alpaca`, no `20:05`).
+- Item-3 consumer batch (§10), battle_station first, awaiting go.
+- Persist done-today across restarts; `firing` heartbeat status (§11).
+- DOCTRINE open decision: per-job timeout for the shared scheduler queue.
 - Screen design (Admiral's call, nothing changed): slot timing vs Volume Radar's first
   regular-session batch; what the $1M floor should mean at 9:35.
 - Truncated vs untruncated replay experiment (§4), after close.

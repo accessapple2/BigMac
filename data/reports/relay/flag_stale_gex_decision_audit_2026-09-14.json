@@ -1,0 +1,2003 @@
+{
+  "flag": "STALE_GEX_IN_PROMPT",
+  "created_utc": "2026-09-14T14:53:27+00:00",
+  "rows_rewritten": false,
+  "reason": "Prompt carried '=== GEX OVERLAY (updated 20:05) ===' -- flow_gex.db's frozen 2026-07-21 SPY/QQQ row (SPY Gamma Flip $752 / Put Wall $607 / Call Wall $748, net GEX +$846M) presented as current while SPY traded ~$759-760; live Alpaca snapshot and FlashAlpha 09:54 ET both had net GEX negative, flip ~766-768, call wall above spot. Source: engine/gex_overlay.get_gex_context_for_prompt bypassing canonical_gex (fixed e5f2dc7; live from the post-07:56 MST restart).",
+  "evidence_check": "instr(decision_audit.prompt_text, 'GEX OVERLAY (updated 20:05)') > 0 on every listed signal_emit row",
+  "gate_reject_linking": "linked = same signal_id; regime_router rejects carry no signal_id, matched by player+symbol within 60 s after the emit",
+  "note_on_9_10_9_11": "All 3,179 McCoy prompts on 9/10-9/11 also contain the block but carry prompt_truncation_flag='qwen3_8b_default_ctx': the leading ~10k chars holding it were cut before the model saw them. Not flagged here.",
+  "decision_audit_signal_emit": [
+    {
+      "id": 140663,
+      "created_at": "2026-09-14 13:37:14",
+      "symbol": "GDXU",
+      "signal_id": 110981,
+      "confidence": 0.45,
+      "signal": "HOLD",
+      "slot": "9:35 ET slot (06:35 MST)"
+    },
+    {
+      "id": 140664,
+      "created_at": "2026-09-14 13:37:36",
+      "symbol": "EROC",
+      "signal_id": 110982,
+      "confidence": 0.65,
+      "signal": "BUY",
+      "slot": "9:35 ET slot (06:35 MST)"
+    },
+    {
+      "id": 140666,
+      "created_at": "2026-09-14 13:37:45",
+      "symbol": "LGN",
+      "signal_id": 110983,
+      "confidence": 0.82,
+      "signal": "BUY",
+      "slot": "9:35 ET slot (06:35 MST)"
+    },
+    {
+      "id": 140669,
+      "created_at": "2026-09-14 13:37:58",
+      "symbol": "COAG",
+      "signal_id": 110984,
+      "confidence": 0.82,
+      "signal": "BUY",
+      "slot": "9:35 ET slot (06:35 MST)"
+    },
+    {
+      "id": 140672,
+      "created_at": "2026-09-14 13:38:07",
+      "symbol": "ADBG",
+      "signal_id": 110985,
+      "confidence": 0.75,
+      "signal": "BUY",
+      "slot": "9:35 ET slot (06:35 MST)"
+    },
+    {
+      "id": 140674,
+      "created_at": "2026-09-14 13:38:17",
+      "symbol": "APLS",
+      "signal_id": 110986,
+      "confidence": 0.88,
+      "signal": "BUY",
+      "slot": "9:35 ET slot (06:35 MST)"
+    },
+    {
+      "id": 140677,
+      "created_at": "2026-09-14 13:38:27",
+      "symbol": "MRVL",
+      "signal_id": 110987,
+      "confidence": 0.85,
+      "signal": "BUY",
+      "slot": "9:35 ET slot (06:35 MST)"
+    },
+    {
+      "id": 140680,
+      "created_at": "2026-09-14 13:38:37",
+      "symbol": "KORU",
+      "signal_id": 110988,
+      "confidence": 0.65,
+      "signal": "BUY",
+      "slot": "9:35 ET slot (06:35 MST)"
+    },
+    {
+      "id": 140682,
+      "created_at": "2026-09-14 13:38:42",
+      "symbol": "COHU",
+      "signal_id": 110989,
+      "confidence": 0.65,
+      "signal": "BUY",
+      "slot": "9:35 ET slot (06:35 MST)"
+    },
+    {
+      "id": 140684,
+      "created_at": "2026-09-14 13:38:47",
+      "symbol": "ORCX",
+      "signal_id": 110990,
+      "confidence": 0.45,
+      "signal": "HOLD",
+      "slot": "9:35 ET slot (06:35 MST)"
+    },
+    {
+      "id": 140685,
+      "created_at": "2026-09-14 13:38:50",
+      "symbol": "SNAP",
+      "signal_id": 110991,
+      "confidence": 0.82,
+      "signal": "BUY",
+      "slot": "9:35 ET slot (06:35 MST)"
+    },
+    {
+      "id": 140688,
+      "created_at": "2026-09-14 13:39:01",
+      "symbol": "ATEC",
+      "signal_id": 110992,
+      "confidence": 0.82,
+      "signal": "BUY",
+      "slot": "9:35 ET slot (06:35 MST)"
+    },
+    {
+      "id": 140691,
+      "created_at": "2026-09-14 13:39:10",
+      "symbol": "CNTA",
+      "signal_id": 110993,
+      "confidence": 0.58,
+      "signal": "HOLD",
+      "slot": "9:35 ET slot (06:35 MST)"
+    },
+    {
+      "id": 140692,
+      "created_at": "2026-09-14 13:39:19",
+      "symbol": "AVTX",
+      "signal_id": 110994,
+      "confidence": 0.82,
+      "signal": "BUY",
+      "slot": "9:35 ET slot (06:35 MST)"
+    },
+    {
+      "id": 140695,
+      "created_at": "2026-09-14 13:39:29",
+      "symbol": "ORCL",
+      "signal_id": 110995,
+      "confidence": 0.85,
+      "signal": "BUY",
+      "slot": "9:35 ET slot (06:35 MST)"
+    },
+    {
+      "id": 140698,
+      "created_at": "2026-09-14 13:39:39",
+      "symbol": "SMR",
+      "signal_id": 110996,
+      "confidence": 0.55,
+      "signal": "HOLD",
+      "slot": "9:35 ET slot (06:35 MST)"
+    },
+    {
+      "id": 140699,
+      "created_at": "2026-09-14 13:39:44",
+      "symbol": "ORCU",
+      "signal_id": 110997,
+      "confidence": 0.65,
+      "signal": "BUY",
+      "slot": "9:35 ET slot (06:35 MST)"
+    },
+    {
+      "id": 140701,
+      "created_at": "2026-09-14 13:39:51",
+      "symbol": "TNON",
+      "signal_id": 110998,
+      "confidence": 0.75,
+      "signal": "BUY",
+      "slot": "9:35 ET slot (06:35 MST)"
+    },
+    {
+      "id": 140703,
+      "created_at": "2026-09-14 13:39:56",
+      "symbol": "ACVA",
+      "signal_id": 110999,
+      "confidence": 0.78,
+      "signal": "BUY",
+      "slot": "9:35 ET slot (06:35 MST)"
+    },
+    {
+      "id": 140705,
+      "created_at": "2026-09-14 13:40:01",
+      "symbol": "HIMS",
+      "signal_id": 111000,
+      "confidence": 0.85,
+      "signal": "BUY",
+      "slot": "9:35 ET slot (06:35 MST)"
+    },
+    {
+      "id": 140708,
+      "created_at": "2026-09-14 13:40:11",
+      "symbol": "NAIL",
+      "signal_id": 111001,
+      "confidence": 0.55,
+      "signal": "HOLD",
+      "slot": "9:35 ET slot (06:35 MST)"
+    },
+    {
+      "id": 140709,
+      "created_at": "2026-09-14 14:18:37",
+      "symbol": "EXR",
+      "signal_id": 111002,
+      "confidence": 0.88,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140712,
+      "created_at": "2026-09-14 14:18:50",
+      "symbol": "DSGX",
+      "signal_id": 111003,
+      "confidence": 0.92,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140715,
+      "created_at": "2026-09-14 14:19:01",
+      "symbol": "CADL",
+      "signal_id": 111004,
+      "confidence": 0.82,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140725,
+      "created_at": "2026-09-14 14:19:13",
+      "symbol": "IJT",
+      "signal_id": 111005,
+      "confidence": 0.85,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140728,
+      "created_at": "2026-09-14 14:19:27",
+      "symbol": "NYF",
+      "signal_id": 111006,
+      "confidence": 0.82,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140732,
+      "created_at": "2026-09-14 14:19:47",
+      "symbol": "SCHP",
+      "signal_id": 111007,
+      "confidence": 0.82,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140735,
+      "created_at": "2026-09-14 14:19:58",
+      "symbol": "IXC",
+      "signal_id": 111008,
+      "confidence": 0.85,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140738,
+      "created_at": "2026-09-14 14:20:08",
+      "symbol": "TROW",
+      "signal_id": 111009,
+      "confidence": 0.85,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140741,
+      "created_at": "2026-09-14 14:20:20",
+      "symbol": "ETHW",
+      "signal_id": 111010,
+      "confidence": 0.45,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140742,
+      "created_at": "2026-09-14 14:20:29",
+      "symbol": "JPIE",
+      "signal_id": 111011,
+      "confidence": 0.55,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140743,
+      "created_at": "2026-09-14 14:20:34",
+      "symbol": "FALN",
+      "signal_id": 111012,
+      "confidence": 0.55,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140744,
+      "created_at": "2026-09-14 14:20:39",
+      "symbol": "PZA",
+      "signal_id": 111013,
+      "confidence": 0.55,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140745,
+      "created_at": "2026-09-14 14:20:45",
+      "symbol": "AXSM",
+      "signal_id": 111014,
+      "confidence": 0.85,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140748,
+      "created_at": "2026-09-14 14:20:56",
+      "symbol": "SR",
+      "signal_id": 111015,
+      "confidence": 0.82,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140751,
+      "created_at": "2026-09-14 14:22:09",
+      "symbol": "BIIB",
+      "signal_id": 111016,
+      "confidence": 0.85,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140754,
+      "created_at": "2026-09-14 14:22:42",
+      "symbol": "LCLN",
+      "signal_id": 111017,
+      "confidence": 0.45,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140755,
+      "created_at": "2026-09-14 14:22:48",
+      "symbol": "LMUB",
+      "signal_id": 111018,
+      "confidence": 0.55,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140756,
+      "created_at": "2026-09-14 14:22:54",
+      "symbol": "CGXU",
+      "signal_id": 111019,
+      "confidence": 0.55,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140757,
+      "created_at": "2026-09-14 14:22:59",
+      "symbol": "NVST",
+      "signal_id": 111020,
+      "confidence": 0.45,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140758,
+      "created_at": "2026-09-14 14:23:06",
+      "symbol": "VSS",
+      "signal_id": 111021,
+      "confidence": 0.55,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140759,
+      "created_at": "2026-09-14 14:23:14",
+      "symbol": "IJS",
+      "signal_id": 111022,
+      "confidence": 0.55,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140760,
+      "created_at": "2026-09-14 14:23:19",
+      "symbol": "GSG",
+      "signal_id": 111023,
+      "confidence": 0.85,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140763,
+      "created_at": "2026-09-14 14:23:29",
+      "symbol": "CMC",
+      "signal_id": 111024,
+      "confidence": 0.55,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140764,
+      "created_at": "2026-09-14 14:23:35",
+      "symbol": "REMX",
+      "signal_id": 111025,
+      "confidence": 0.85,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140767,
+      "created_at": "2026-09-14 14:23:45",
+      "symbol": "ELS",
+      "signal_id": 111026,
+      "confidence": 0.85,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140770,
+      "created_at": "2026-09-14 14:23:56",
+      "symbol": "SON",
+      "signal_id": 111027,
+      "confidence": 0.55,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140771,
+      "created_at": "2026-09-14 14:24:01",
+      "symbol": "GRPN",
+      "signal_id": 111028,
+      "confidence": 0.45,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140772,
+      "created_at": "2026-09-14 14:24:09",
+      "symbol": "AVLV",
+      "signal_id": 111029,
+      "confidence": 0.85,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140775,
+      "created_at": "2026-09-14 14:24:26",
+      "symbol": "CGON",
+      "signal_id": 111030,
+      "confidence": 0.85,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140786,
+      "created_at": "2026-09-14 14:25:39",
+      "symbol": "DOG",
+      "signal_id": 111031,
+      "confidence": 0.55,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140787,
+      "created_at": "2026-09-14 14:26:33",
+      "symbol": "MTH",
+      "signal_id": 111032,
+      "confidence": 0.55,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140788,
+      "created_at": "2026-09-14 14:26:45",
+      "symbol": "TNL",
+      "signal_id": 111033,
+      "confidence": 0.55,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140789,
+      "created_at": "2026-09-14 14:26:52",
+      "symbol": "ADIG",
+      "signal_id": 111034,
+      "confidence": 0.45,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140790,
+      "created_at": "2026-09-14 14:27:00",
+      "symbol": "ATMU",
+      "signal_id": 111035,
+      "confidence": 0.55,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140791,
+      "created_at": "2026-09-14 14:27:08",
+      "symbol": "TFLO",
+      "signal_id": 111036,
+      "confidence": 0.45,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140792,
+      "created_at": "2026-09-14 14:27:16",
+      "symbol": "ESNT",
+      "signal_id": 111037,
+      "confidence": 0.82,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140795,
+      "created_at": "2026-09-14 14:27:34",
+      "symbol": "MMM",
+      "signal_id": 111038,
+      "confidence": 0.85,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140798,
+      "created_at": "2026-09-14 14:27:57",
+      "symbol": "BKH",
+      "signal_id": 111039,
+      "confidence": 0.88,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140801,
+      "created_at": "2026-09-14 14:28:16",
+      "symbol": "SCMB",
+      "signal_id": 111040,
+      "confidence": 0.55,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140802,
+      "created_at": "2026-09-14 14:28:41",
+      "symbol": "DFAR",
+      "signal_id": 111041,
+      "confidence": 0.55,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140803,
+      "created_at": "2026-09-14 14:28:49",
+      "symbol": "GNL",
+      "signal_id": 111042,
+      "confidence": 0.45,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140804,
+      "created_at": "2026-09-14 14:29:02",
+      "symbol": "CRC",
+      "signal_id": 111043,
+      "confidence": 0.88,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140808,
+      "created_at": "2026-09-14 14:29:37",
+      "symbol": "CNR",
+      "signal_id": 111044,
+      "confidence": 0.45,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140809,
+      "created_at": "2026-09-14 14:29:46",
+      "symbol": "OMDA",
+      "signal_id": 111045,
+      "confidence": 0.88,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140812,
+      "created_at": "2026-09-14 14:30:08",
+      "symbol": "TPG",
+      "signal_id": 111046,
+      "confidence": 0.85,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140815,
+      "created_at": "2026-09-14 14:30:27",
+      "symbol": "BWIN",
+      "signal_id": 111047,
+      "confidence": 0.85,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140818,
+      "created_at": "2026-09-14 14:30:45",
+      "symbol": "CAE",
+      "signal_id": 111048,
+      "confidence": 0.55,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140819,
+      "created_at": "2026-09-14 14:30:51",
+      "symbol": "PENN",
+      "signal_id": 111049,
+      "confidence": 0.45,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140820,
+      "created_at": "2026-09-14 14:30:59",
+      "symbol": "OHI",
+      "signal_id": 111050,
+      "confidence": 0.85,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140823,
+      "created_at": "2026-09-14 14:31:26",
+      "symbol": "CGCB",
+      "signal_id": 111051,
+      "confidence": 0.55,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140824,
+      "created_at": "2026-09-14 14:31:34",
+      "symbol": "WK",
+      "signal_id": 111052,
+      "confidence": 0.85,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140827,
+      "created_at": "2026-09-14 14:31:52",
+      "symbol": "BITB",
+      "signal_id": 111053,
+      "confidence": 0.82,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140830,
+      "created_at": "2026-09-14 14:32:10",
+      "symbol": "ENSG",
+      "signal_id": 111054,
+      "confidence": 0.85,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140833,
+      "created_at": "2026-09-14 14:32:32",
+      "symbol": "WBI",
+      "signal_id": 111055,
+      "confidence": 0.45,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140834,
+      "created_at": "2026-09-14 14:32:39",
+      "symbol": "DAN",
+      "signal_id": 111056,
+      "confidence": 0.45,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140835,
+      "created_at": "2026-09-14 14:32:47",
+      "symbol": "CGGO",
+      "signal_id": 111057,
+      "confidence": 0.55,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140836,
+      "created_at": "2026-09-14 14:32:55",
+      "symbol": "UUP",
+      "signal_id": 111058,
+      "confidence": 0.85,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140839,
+      "created_at": "2026-09-14 14:33:15",
+      "symbol": "AOS",
+      "signal_id": 111059,
+      "confidence": 0.85,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140842,
+      "created_at": "2026-09-14 14:33:37",
+      "symbol": "CAR",
+      "signal_id": 111060,
+      "confidence": 0.85,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140845,
+      "created_at": "2026-09-14 14:33:54",
+      "symbol": "INDV",
+      "signal_id": 111061,
+      "confidence": 0.55,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140846,
+      "created_at": "2026-09-14 14:34:02",
+      "symbol": "MWH",
+      "signal_id": 111062,
+      "confidence": 0.85,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140849,
+      "created_at": "2026-09-14 14:34:26",
+      "symbol": "DNLI",
+      "signal_id": 111063,
+      "confidence": 0.45,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140850,
+      "created_at": "2026-09-14 14:34:38",
+      "symbol": "GIL",
+      "signal_id": 111064,
+      "confidence": 0.45,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140851,
+      "created_at": "2026-09-14 14:34:47",
+      "symbol": "BHF",
+      "signal_id": 111065,
+      "confidence": 0.82,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140854,
+      "created_at": "2026-09-14 14:35:04",
+      "symbol": "CINF",
+      "signal_id": 111066,
+      "confidence": 0.88,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140857,
+      "created_at": "2026-09-14 14:35:22",
+      "symbol": "MINT",
+      "signal_id": 111067,
+      "confidence": 0.85,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140860,
+      "created_at": "2026-09-14 14:35:44",
+      "symbol": "OSK",
+      "signal_id": 111068,
+      "confidence": 0.88,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140863,
+      "created_at": "2026-09-14 14:36:02",
+      "symbol": "ATRC",
+      "signal_id": 111069,
+      "confidence": 0.85,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140866,
+      "created_at": "2026-09-14 14:36:20",
+      "symbol": "BSOL",
+      "signal_id": 111070,
+      "confidence": 0.45,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140867,
+      "created_at": "2026-09-14 14:36:27",
+      "symbol": "GBIL",
+      "signal_id": 111071,
+      "confidence": 0.85,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140877,
+      "created_at": "2026-09-14 14:37:32",
+      "symbol": "NKTR",
+      "signal_id": 111072,
+      "confidence": 0.85,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140881,
+      "created_at": "2026-09-14 14:37:46",
+      "symbol": "L",
+      "signal_id": 111073,
+      "confidence": 0.92,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140882,
+      "created_at": "2026-09-14 14:41:37",
+      "symbol": "HXL",
+      "signal_id": 111074,
+      "confidence": 0.45,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140883,
+      "created_at": "2026-09-14 14:41:59",
+      "symbol": "SPDN",
+      "signal_id": 111075,
+      "confidence": 0.85,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140886,
+      "created_at": "2026-09-14 14:43:19",
+      "symbol": "ALKS",
+      "signal_id": 111076,
+      "confidence": 0.88,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140898,
+      "created_at": "2026-09-14 14:43:32",
+      "symbol": "CRUS",
+      "signal_id": 111077,
+      "confidence": 0.88,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140901,
+      "created_at": "2026-09-14 14:43:43",
+      "symbol": "GXO",
+      "signal_id": 111078,
+      "confidence": 0.82,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140904,
+      "created_at": "2026-09-14 14:45:05",
+      "symbol": "JMST",
+      "signal_id": 111079,
+      "confidence": 0.45,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140905,
+      "created_at": "2026-09-14 14:45:26",
+      "symbol": "YPF",
+      "signal_id": 111080,
+      "confidence": 0.85,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140908,
+      "created_at": "2026-09-14 14:45:37",
+      "symbol": "YSS",
+      "signal_id": 111081,
+      "confidence": 0.85,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140911,
+      "created_at": "2026-09-14 14:45:49",
+      "symbol": "TTC",
+      "signal_id": 111082,
+      "confidence": 0.88,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140914,
+      "created_at": "2026-09-14 14:46:00",
+      "symbol": "PRM",
+      "signal_id": 111083,
+      "confidence": 0.45,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140915,
+      "created_at": "2026-09-14 14:46:09",
+      "symbol": "ITW",
+      "signal_id": 111084,
+      "confidence": 0.85,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140918,
+      "created_at": "2026-09-14 14:46:19",
+      "symbol": "FNDF",
+      "signal_id": 111085,
+      "confidence": 0.55,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140919,
+      "created_at": "2026-09-14 14:46:25",
+      "symbol": "EWS",
+      "signal_id": 111086,
+      "confidence": 0.55,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140920,
+      "created_at": "2026-09-14 14:46:31",
+      "symbol": "ACYN",
+      "signal_id": 111087,
+      "confidence": 0.55,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140921,
+      "created_at": "2026-09-14 14:46:35",
+      "symbol": "FTSM",
+      "signal_id": 111088,
+      "confidence": 0.55,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140922,
+      "created_at": "2026-09-14 14:46:41",
+      "symbol": "CECO",
+      "signal_id": 111089,
+      "confidence": 0.65,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140923,
+      "created_at": "2026-09-14 14:46:46",
+      "symbol": "PRKS",
+      "signal_id": 111090,
+      "confidence": 0.45,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140924,
+      "created_at": "2026-09-14 14:46:54",
+      "symbol": "WRB",
+      "signal_id": 111091,
+      "confidence": 0.85,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140927,
+      "created_at": "2026-09-14 14:47:04",
+      "symbol": "VVV",
+      "signal_id": 111092,
+      "confidence": 0.45,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140928,
+      "created_at": "2026-09-14 14:47:12",
+      "symbol": "PDFS",
+      "signal_id": 111093,
+      "confidence": 0.55,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140929,
+      "created_at": "2026-09-14 14:47:18",
+      "symbol": "SNDR",
+      "signal_id": 111094,
+      "confidence": 0.45,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140930,
+      "created_at": "2026-09-14 14:47:23",
+      "symbol": "FFBC",
+      "signal_id": 111095,
+      "confidence": 0.85,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140933,
+      "created_at": "2026-09-14 14:47:34",
+      "symbol": "MDU",
+      "signal_id": 111096,
+      "confidence": 0.55,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140934,
+      "created_at": "2026-09-14 14:47:40",
+      "symbol": "HIMS",
+      "signal_id": 111097,
+      "confidence": 0.88,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140937,
+      "created_at": "2026-09-14 14:47:50",
+      "symbol": "LTM",
+      "signal_id": 111098,
+      "confidence": 0.55,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140938,
+      "created_at": "2026-09-14 14:47:56",
+      "symbol": "SEIC",
+      "signal_id": 111099,
+      "confidence": 0.45,
+      "signal": "HOLD",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140939,
+      "created_at": "2026-09-14 14:48:02",
+      "symbol": "HR",
+      "signal_id": 111100,
+      "confidence": 0.82,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140950,
+      "created_at": "2026-09-14 14:48:17",
+      "symbol": "SNAP",
+      "signal_id": 111101,
+      "confidence": 0.82,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140953,
+      "created_at": "2026-09-14 14:49:05",
+      "symbol": "MRVL",
+      "signal_id": 111102,
+      "confidence": 0.88,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140972,
+      "created_at": "2026-09-14 14:50:21",
+      "symbol": "APLS",
+      "signal_id": 111103,
+      "confidence": 0.85,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    },
+    {
+      "id": 140975,
+      "created_at": "2026-09-14 14:50:32",
+      "symbol": "CNTA",
+      "signal_id": 111104,
+      "confidence": 0.78,
+      "signal": "BUY",
+      "slot": "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)"
+    }
+  ],
+  "decision_audit_gate_reject_linked_by_signal_id": [
+    {
+      "id": 140665,
+      "created_at": "2026-09-14 13:37:37",
+      "symbol": "EROC",
+      "signal_id": 110982,
+      "gate_verdict": "LOW_CONVICTION: 52% below 65% minimum"
+    },
+    {
+      "id": 140668,
+      "created_at": "2026-09-14 13:37:54",
+      "symbol": "LGN",
+      "signal_id": 110983,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140671,
+      "created_at": "2026-09-14 13:38:02",
+      "symbol": "COAG",
+      "signal_id": 110984,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140673,
+      "created_at": "2026-09-14 13:38:08",
+      "symbol": "ADBG",
+      "signal_id": 110985,
+      "gate_verdict": "LOW_CONVICTION: 60% below 65% minimum"
+    },
+    {
+      "id": 140676,
+      "created_at": "2026-09-14 13:38:21",
+      "symbol": "APLS",
+      "signal_id": 110986,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140679,
+      "created_at": "2026-09-14 13:38:31",
+      "symbol": "MRVL",
+      "signal_id": 110987,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140681,
+      "created_at": "2026-09-14 13:38:37",
+      "symbol": "KORU",
+      "signal_id": 110988,
+      "gate_verdict": "LOW_CONVICTION: 52% below 65% minimum"
+    },
+    {
+      "id": 140683,
+      "created_at": "2026-09-14 13:38:43",
+      "symbol": "COHU",
+      "signal_id": 110989,
+      "gate_verdict": "LOW_CONVICTION: 52% below 65% minimum"
+    },
+    {
+      "id": 140687,
+      "created_at": "2026-09-14 13:38:54",
+      "symbol": "SNAP",
+      "signal_id": 110991,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140690,
+      "created_at": "2026-09-14 13:39:05",
+      "symbol": "ATEC",
+      "signal_id": 110992,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140694,
+      "created_at": "2026-09-14 13:39:23",
+      "symbol": "AVTX",
+      "signal_id": 110994,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140697,
+      "created_at": "2026-09-14 13:39:33",
+      "symbol": "ORCL",
+      "signal_id": 110995,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140700,
+      "created_at": "2026-09-14 13:39:46",
+      "symbol": "ORCU",
+      "signal_id": 110997,
+      "gate_verdict": "LOW_CONVICTION: 52% below 65% minimum"
+    },
+    {
+      "id": 140702,
+      "created_at": "2026-09-14 13:39:51",
+      "symbol": "TNON",
+      "signal_id": 110998,
+      "gate_verdict": "LOW_CONVICTION: 60% below 65% minimum"
+    },
+    {
+      "id": 140704,
+      "created_at": "2026-09-14 13:39:56",
+      "symbol": "ACVA",
+      "signal_id": 110999,
+      "gate_verdict": "LOW_CONVICTION: 62% below 65% minimum"
+    },
+    {
+      "id": 140707,
+      "created_at": "2026-09-14 13:40:06",
+      "symbol": "HIMS",
+      "signal_id": 111000,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140711,
+      "created_at": "2026-09-14 14:18:45",
+      "symbol": "EXR",
+      "signal_id": 111002,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140714,
+      "created_at": "2026-09-14 14:18:55",
+      "symbol": "DSGX",
+      "signal_id": 111003,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140724,
+      "created_at": "2026-09-14 14:19:05",
+      "symbol": "CADL",
+      "signal_id": 111004,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140727,
+      "created_at": "2026-09-14 14:19:17",
+      "symbol": "IJT",
+      "signal_id": 111005,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140730,
+      "created_at": "2026-09-14 14:19:31",
+      "symbol": "NYF",
+      "signal_id": 111006,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140734,
+      "created_at": "2026-09-14 14:19:52",
+      "symbol": "SCHP",
+      "signal_id": 111007,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140737,
+      "created_at": "2026-09-14 14:20:02",
+      "symbol": "IXC",
+      "signal_id": 111008,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140740,
+      "created_at": "2026-09-14 14:20:13",
+      "symbol": "TROW",
+      "signal_id": 111009,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140747,
+      "created_at": "2026-09-14 14:20:49",
+      "symbol": "AXSM",
+      "signal_id": 111014,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140750,
+      "created_at": "2026-09-14 14:21:42",
+      "symbol": "SR",
+      "signal_id": 111015,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140753,
+      "created_at": "2026-09-14 14:22:36",
+      "symbol": "BIIB",
+      "signal_id": 111016,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140762,
+      "created_at": "2026-09-14 14:23:24",
+      "symbol": "GSG",
+      "signal_id": 111023,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140766,
+      "created_at": "2026-09-14 14:23:39",
+      "symbol": "REMX",
+      "signal_id": 111025,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140769,
+      "created_at": "2026-09-14 14:23:50",
+      "symbol": "ELS",
+      "signal_id": 111026,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140774,
+      "created_at": "2026-09-14 14:24:13",
+      "symbol": "AVLV",
+      "signal_id": 111029,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140785,
+      "created_at": "2026-09-14 14:24:49",
+      "symbol": "CGON",
+      "signal_id": 111030,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140794,
+      "created_at": "2026-09-14 14:27:25",
+      "symbol": "ESNT",
+      "signal_id": 111037,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140797,
+      "created_at": "2026-09-14 14:27:43",
+      "symbol": "MMM",
+      "signal_id": 111038,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140800,
+      "created_at": "2026-09-14 14:28:06",
+      "symbol": "BKH",
+      "signal_id": 111039,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140806,
+      "created_at": "2026-09-14 14:29:11",
+      "symbol": "CRC",
+      "signal_id": 111043,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140811,
+      "created_at": "2026-09-14 14:29:55",
+      "symbol": "OMDA",
+      "signal_id": 111045,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140814,
+      "created_at": "2026-09-14 14:30:18",
+      "symbol": "TPG",
+      "signal_id": 111046,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140817,
+      "created_at": "2026-09-14 14:30:37",
+      "symbol": "BWIN",
+      "signal_id": 111047,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140822,
+      "created_at": "2026-09-14 14:31:13",
+      "symbol": "OHI",
+      "signal_id": 111050,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140826,
+      "created_at": "2026-09-14 14:31:44",
+      "symbol": "WK",
+      "signal_id": 111052,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140829,
+      "created_at": "2026-09-14 14:32:02",
+      "symbol": "BITB",
+      "signal_id": 111053,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140832,
+      "created_at": "2026-09-14 14:32:20",
+      "symbol": "ENSG",
+      "signal_id": 111054,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140838,
+      "created_at": "2026-09-14 14:33:04",
+      "symbol": "UUP",
+      "signal_id": 111058,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140841,
+      "created_at": "2026-09-14 14:33:24",
+      "symbol": "AOS",
+      "signal_id": 111059,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140844,
+      "created_at": "2026-09-14 14:33:47",
+      "symbol": "CAR",
+      "signal_id": 111060,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140848,
+      "created_at": "2026-09-14 14:34:18",
+      "symbol": "MWH",
+      "signal_id": 111062,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140853,
+      "created_at": "2026-09-14 14:34:56",
+      "symbol": "BHF",
+      "signal_id": 111065,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140856,
+      "created_at": "2026-09-14 14:35:14",
+      "symbol": "CINF",
+      "signal_id": 111066,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140859,
+      "created_at": "2026-09-14 14:35:31",
+      "symbol": "MINT",
+      "signal_id": 111067,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140862,
+      "created_at": "2026-09-14 14:35:54",
+      "symbol": "OSK",
+      "signal_id": 111068,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140865,
+      "created_at": "2026-09-14 14:36:12",
+      "symbol": "ATRC",
+      "signal_id": 111069,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140869,
+      "created_at": "2026-09-14 14:36:37",
+      "symbol": "GBIL",
+      "signal_id": 111071,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140880,
+      "created_at": "2026-09-14 14:37:39",
+      "symbol": "NKTR",
+      "signal_id": 111072,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140885,
+      "created_at": "2026-09-14 14:42:51",
+      "symbol": "SPDN",
+      "signal_id": 111075,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140888,
+      "created_at": "2026-09-14 14:43:25",
+      "symbol": "ALKS",
+      "signal_id": 111076,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140900,
+      "created_at": "2026-09-14 14:43:37",
+      "symbol": "CRUS",
+      "signal_id": 111077,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140903,
+      "created_at": "2026-09-14 14:44:39",
+      "symbol": "GXO",
+      "signal_id": 111078,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140907,
+      "created_at": "2026-09-14 14:45:31",
+      "symbol": "YPF",
+      "signal_id": 111080,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140910,
+      "created_at": "2026-09-14 14:45:41",
+      "symbol": "YSS",
+      "signal_id": 111081,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140913,
+      "created_at": "2026-09-14 14:45:54",
+      "symbol": "TTC",
+      "signal_id": 111082,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140917,
+      "created_at": "2026-09-14 14:46:13",
+      "symbol": "ITW",
+      "signal_id": 111084,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140926,
+      "created_at": "2026-09-14 14:46:58",
+      "symbol": "WRB",
+      "signal_id": 111091,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140932,
+      "created_at": "2026-09-14 14:47:27",
+      "symbol": "FFBC",
+      "signal_id": 111095,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140936,
+      "created_at": "2026-09-14 14:47:44",
+      "symbol": "HIMS",
+      "signal_id": 111097,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140941,
+      "created_at": "2026-09-14 14:48:07",
+      "symbol": "HR",
+      "signal_id": 111100,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140952,
+      "created_at": "2026-09-14 14:48:38",
+      "symbol": "SNAP",
+      "signal_id": 111101,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140963,
+      "created_at": "2026-09-14 14:50:10",
+      "symbol": "MRVL",
+      "signal_id": 111102,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140974,
+      "created_at": "2026-09-14 14:50:25",
+      "symbol": "APLS",
+      "signal_id": 111103,
+      "gate_verdict": "REGIME-ROUTER: long_equity not approved in BEAR_CROSS (avoid-list)"
+    },
+    {
+      "id": 140976,
+      "created_at": "2026-09-14 14:50:32",
+      "symbol": "CNTA",
+      "signal_id": 111104,
+      "gate_verdict": "LOW_CONVICTION: 62% below 65% minimum"
+    }
+  ],
+  "decision_audit_gate_reject_regime_router_matched_by_symbol_within_60s": [
+    {
+      "id": 140667,
+      "created_at": "2026-09-14 13:37:54",
+      "symbol": "LGN",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140670,
+      "created_at": "2026-09-14 13:38:02",
+      "symbol": "COAG",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140675,
+      "created_at": "2026-09-14 13:38:21",
+      "symbol": "APLS",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140678,
+      "created_at": "2026-09-14 13:38:31",
+      "symbol": "MRVL",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140686,
+      "created_at": "2026-09-14 13:38:54",
+      "symbol": "SNAP",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140689,
+      "created_at": "2026-09-14 13:39:05",
+      "symbol": "ATEC",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140693,
+      "created_at": "2026-09-14 13:39:23",
+      "symbol": "AVTX",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140696,
+      "created_at": "2026-09-14 13:39:33",
+      "symbol": "ORCL",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140706,
+      "created_at": "2026-09-14 13:40:06",
+      "symbol": "HIMS",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140710,
+      "created_at": "2026-09-14 14:18:45",
+      "symbol": "EXR",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140713,
+      "created_at": "2026-09-14 14:18:55",
+      "symbol": "DSGX",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140723,
+      "created_at": "2026-09-14 14:19:05",
+      "symbol": "CADL",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140726,
+      "created_at": "2026-09-14 14:19:17",
+      "symbol": "IJT",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140729,
+      "created_at": "2026-09-14 14:19:31",
+      "symbol": "NYF",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140733,
+      "created_at": "2026-09-14 14:19:52",
+      "symbol": "SCHP",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140736,
+      "created_at": "2026-09-14 14:20:02",
+      "symbol": "IXC",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140739,
+      "created_at": "2026-09-14 14:20:13",
+      "symbol": "TROW",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140746,
+      "created_at": "2026-09-14 14:20:49",
+      "symbol": "AXSM",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140749,
+      "created_at": "2026-09-14 14:21:42",
+      "symbol": "SR",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140752,
+      "created_at": "2026-09-14 14:22:36",
+      "symbol": "BIIB",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140761,
+      "created_at": "2026-09-14 14:23:24",
+      "symbol": "GSG",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140765,
+      "created_at": "2026-09-14 14:23:39",
+      "symbol": "REMX",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140768,
+      "created_at": "2026-09-14 14:23:50",
+      "symbol": "ELS",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140773,
+      "created_at": "2026-09-14 14:24:13",
+      "symbol": "AVLV",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140784,
+      "created_at": "2026-09-14 14:24:49",
+      "symbol": "CGON",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140793,
+      "created_at": "2026-09-14 14:27:25",
+      "symbol": "ESNT",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140796,
+      "created_at": "2026-09-14 14:27:43",
+      "symbol": "MMM",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140799,
+      "created_at": "2026-09-14 14:28:06",
+      "symbol": "BKH",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140805,
+      "created_at": "2026-09-14 14:29:11",
+      "symbol": "CRC",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140810,
+      "created_at": "2026-09-14 14:29:55",
+      "symbol": "OMDA",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140813,
+      "created_at": "2026-09-14 14:30:18",
+      "symbol": "TPG",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140816,
+      "created_at": "2026-09-14 14:30:37",
+      "symbol": "BWIN",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140821,
+      "created_at": "2026-09-14 14:31:13",
+      "symbol": "OHI",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140825,
+      "created_at": "2026-09-14 14:31:44",
+      "symbol": "WK",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140828,
+      "created_at": "2026-09-14 14:32:02",
+      "symbol": "BITB",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140831,
+      "created_at": "2026-09-14 14:32:20",
+      "symbol": "ENSG",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140837,
+      "created_at": "2026-09-14 14:33:04",
+      "symbol": "UUP",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140840,
+      "created_at": "2026-09-14 14:33:24",
+      "symbol": "AOS",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140843,
+      "created_at": "2026-09-14 14:33:47",
+      "symbol": "CAR",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140847,
+      "created_at": "2026-09-14 14:34:18",
+      "symbol": "MWH",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140852,
+      "created_at": "2026-09-14 14:34:56",
+      "symbol": "BHF",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140855,
+      "created_at": "2026-09-14 14:35:14",
+      "symbol": "CINF",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140858,
+      "created_at": "2026-09-14 14:35:31",
+      "symbol": "MINT",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140861,
+      "created_at": "2026-09-14 14:35:54",
+      "symbol": "OSK",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140864,
+      "created_at": "2026-09-14 14:36:12",
+      "symbol": "ATRC",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140868,
+      "created_at": "2026-09-14 14:36:37",
+      "symbol": "GBIL",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140879,
+      "created_at": "2026-09-14 14:37:39",
+      "symbol": "NKTR",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140884,
+      "created_at": "2026-09-14 14:42:51",
+      "symbol": "SPDN",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140887,
+      "created_at": "2026-09-14 14:43:25",
+      "symbol": "ALKS",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140899,
+      "created_at": "2026-09-14 14:43:37",
+      "symbol": "CRUS",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140902,
+      "created_at": "2026-09-14 14:44:39",
+      "symbol": "GXO",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140906,
+      "created_at": "2026-09-14 14:45:31",
+      "symbol": "YPF",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140909,
+      "created_at": "2026-09-14 14:45:41",
+      "symbol": "YSS",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140912,
+      "created_at": "2026-09-14 14:45:54",
+      "symbol": "TTC",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140916,
+      "created_at": "2026-09-14 14:46:13",
+      "symbol": "ITW",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140925,
+      "created_at": "2026-09-14 14:46:58",
+      "symbol": "WRB",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140931,
+      "created_at": "2026-09-14 14:47:27",
+      "symbol": "FFBC",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140935,
+      "created_at": "2026-09-14 14:47:44",
+      "symbol": "HIMS",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140940,
+      "created_at": "2026-09-14 14:48:07",
+      "symbol": "HR",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140951,
+      "created_at": "2026-09-14 14:48:38",
+      "symbol": "SNAP",
+      "gate_verdict": "regime_mismatch"
+    },
+    {
+      "id": 140973,
+      "created_at": "2026-09-14 14:50:25",
+      "symbol": "APLS",
+      "gate_verdict": "regime_mismatch"
+    }
+  ],
+  "counts": {
+    "signal_emit": 124,
+    "gate_reject_linked": 70,
+    "gate_reject_regime_router": 61,
+    "mccoy_emits_today_without_the_block": 0,
+    "by_slot": {
+      "9:35 ET slot (06:35 MST)": 21,
+      "restart re-fire of pre-open slot (07:18-07:52 MST, fired_late, 100 symbols)": 103
+    },
+    "by_signal": {
+      "BUY": 71,
+      "HOLD": 53
+    },
+    "trades_fired_today": 0,
+    "last_flagged_emit_utc": "2026-09-14 14:50:32"
+  }
+}
