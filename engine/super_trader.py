@@ -60,19 +60,27 @@ def ensure_tables() -> None:
 # ── GEX multiplier ────────────────────────────────────────────────────────────
 
 def _gex_multiplier(symbol: str, action: str = "BUY") -> float:
-    """GEX alignment → confidence multiplier."""
+    """GEX alignment → confidence multiplier. 1.0 if no fresh gex_levels row.
+
+    HM-GEX-CONSUMER-BATCH-2026-09-14: the row must pass the tier-0 30-min bar
+    (canonical_gex.gex_levels_row_is_fresh). gex_levels was last written
+    2026-05-30, and a newest row saying BULLISH scored 1.10x ever since.
+    canonical_gex has no composite score to route to, so a stale row is
+    treated exactly like no row.
+    """
     if action != "BUY":
         return 1.0
     try:
+        from engine.canonical_gex import gex_levels_row_is_fresh
         c = sqlite3.connect(TRADER_DB, check_same_thread=False, timeout=10)
         c.row_factory = sqlite3.Row
         row = c.execute(
-            "SELECT composite_score, composite_signal "
+            "SELECT composite_score, composite_signal, calc_time "
             "FROM gex_levels WHERE symbol=? ORDER BY calc_time DESC LIMIT 1",
             (symbol,),
         ).fetchone()
         c.close()
-        if not row or row["composite_score"] is None:
+        if not row or row["composite_score"] is None or not gex_levels_row_is_fresh(row["calc_time"]):
             return 1.0
         score  = float(row["composite_score"])
         signal = str(row["composite_signal"] or "").lower()
