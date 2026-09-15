@@ -386,9 +386,16 @@ def gather_fred() -> dict:
 
 
 def gather_gex() -> dict:
-    """Best-effort GEX regime for SPY. Degrades to {} on any failure."""
-    from gex_calculator import get_latest_snapshot
-    gex = get_latest_snapshot("SPY") or {}
+    """Best-effort GEX regime for SPY. Degrades to {} on any failure, or when
+    no fresh snapshot exists.
+
+    HM-GEX-CONSUMER-BATCH-2026-09-14: canonical_gex_if_fresh("SPY"). This read
+    gex_calculator.get_latest_snapshot() with no age check, so a briefing run
+    outside the 15-min RTH refresh window reported the last snapshot's regime
+    and walls as current.
+    """
+    from engine.canonical_gex import canonical_gex_if_fresh
+    gex = canonical_gex_if_fresh("SPY") or {}
     if not gex:
         return {}
     total = gex.get("total_gex", 0) or 0
