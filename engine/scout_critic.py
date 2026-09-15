@@ -56,24 +56,36 @@ def _gather_scout_brief(symbol: str, market_ctx: dict[str, Any]) -> str:
     parts: list[str] = []
 
     # GEX level from DB
+    # HM-GEX-CONSUMER-BATCH-2026-09-14: the row must pass the tier-0 30-min bar
+    # (canonical_gex.gex_levels_row_is_fresh). gex_levels was last written
+    # 2026-05-30 and this brief handed May's flip/walls to the Critic as current.
+    # Stale or missing -> an explicit UNAVAILABLE line, same wording as the
+    # fleet prompt block (gex_overlay.get_gex_context_for_prompt).
+    gex_line = (
+        f"GEX: UNAVAILABLE — no fresh gamma snapshot. Do not assume any call wall, "
+        f"put wall, gamma flip or gamma regime for {symbol}."
+    )
     try:
+        from engine.canonical_gex import gex_levels_row_is_fresh
         c = sqlite3.connect(TRADER_DB, check_same_thread=False, timeout=10)
         c.row_factory = sqlite3.Row
         row = c.execute(
-            "SELECT composite_score, composite_signal, gamma_flip, call_wall, put_wall "
+            "SELECT composite_score, composite_signal, gamma_flip, call_wall, put_wall, calc_time "
             "FROM gex_levels WHERE symbol=? ORDER BY calc_time DESC LIMIT 1",
             (symbol,),
         ).fetchone()
         c.close()
-        if row:
-            parts.append(
+        if row and row["composite_score"] is not None and gex_levels_row_is_fresh(row["calc_time"]):
+            gex_line = (
                 f"GEX: score={row['composite_score']:.2f} "
                 f"signal={row['composite_signal']} "
                 f"gamma_flip={row['gamma_flip']} "
-                f"call_wall={row['call_wall']} put_wall={row['put_wall']}"
+                f"call_wall={row['call_wall']} put_wall={row['put_wall']} "
+                f"(as of {row['calc_time']})"
             )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Scout GEX read failed for {symbol}: {type(e).__name__}: {e}")
+    parts.append(gex_line)
 
     # Market context from market_ctx (already fetched by crew_scanner)
     vix     = market_ctx.get("vix", "?")
