@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  com.trademinds.ot-mcp — read-only MCP observer on 127.0.0.1:8765
+  (ot-mcp.ollietrades.com via the cloudflared tunnel, behind Cloudflare Access).
+
+  System LaunchDaemon, same pattern as com.trademinds.statuspage: starts at boot with no
+  GUI login (a gui/501 LaunchAgent does not start after an SSH-only reboot), and KeepAlive
+  respawns it. Runs as bigmac, as its own process -- never inside main.py, which replaces
+  sqlite3.connect globally. No secrets in this plist.
+
+  Kill switch: touch data/ot_observer.disabled -- every tool then answers "disabled"
+  (the process stays up; remove the file to re-enable, no restart needed).
+  Audit log: logs/ot_observer.log (one JSON line per call).
+
+  STAGED, NOT INSTALLED. Install (sudo, Captain):
+    sudo cp /Users/bigmac/autonomous-trader/infra/launchd/com.trademinds.ot-mcp.plist /Library/LaunchDaemons/
+    sudo chown root:wheel /Library/LaunchDaemons/com.trademinds.ot-mcp.plist
+    sudo chmod 644 /Library/LaunchDaemons/com.trademinds.ot-mcp.plist
+    sudo launchctl bootstrap system /Library/LaunchDaemons/com.trademinds.ot-mcp.plist
+  Verify:
+    sudo launchctl print system/com.trademinds.ot-mcp | grep -E 'state|pid'
+    /usr/sbin/lsof -nP -iTCP:8765 -sTCP:LISTEN     (expect Python on 127.0.0.1:8765 only)
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.trademinds.ot-mcp</string>
+
+  <key>UserName</key>
+  <string>bigmac</string>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/bigmac/autonomous-trader</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-lc</string>
+    <string>cd /Users/bigmac/autonomous-trader &amp;&amp; exec ./.venv/bin/python3 scripts/ot_mcp_observer.py</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+
+  <key>StandardOutPath</key>
+  <string>/Users/bigmac/autonomous-trader/logs/ot_mcp_observer_stdout.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/Users/bigmac/autonomous-trader/logs/ot_mcp_observer_error.log</string>
+</dict>
+</plist>
