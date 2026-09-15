@@ -399,18 +399,36 @@ def _get_live_cash(fallback: float = 0.0) -> float:
 
 
 def _get_gex_context():
-    """Return (gex_regime, put_wall) — safe, never raises."""
+    """Return (gex_regime, put_wall) — safe, never raises.
+
+    HM-GEX-CONSUMER-BATCH-2026-09-14: canonical_gex_if_fresh("SPY"). This read
+    gex_calculator.get_latest_snapshot() with no age check, so whenever the
+    15-min RTH refresh was not running (after the close, weekends, a stalled
+    refresh) the advisory carried the last snapshot's regime and put wall as
+    current. No fresh snapshot -> ("unknown", 0), same as no data.
+    """
     try:
-        from gex_calculator import get_latest_snapshot
-        gex = get_latest_snapshot("SPY")
+        from engine.canonical_gex import canonical_gex_if_fresh
+        gex = canonical_gex_if_fresh("SPY")
         if not gex:
             return "unknown", 0
         total_gex = gex.get("total_gex", 0) or 0
         regime = "pinned" if total_gex > 0 else "volatile"
         put_wall = gex.get("put_wall", 0) or 0
         return regime, put_wall
-    except Exception:
+    except Exception as e:
+        logger.warning("Kirk GEX context read failed: %s: %s", type(e).__name__, e)
         return "unknown", 0
+
+
+def _cash_deploy_reasoning(fg_score, vix, put_wall) -> str:
+    """DEPLOY reasoning line. HM-GEX-CONSUMER-BATCH-2026-09-14: names the put
+    wall only when a fresh one exists -- with no fresh GEX _get_gex_context()
+    returns put_wall=0, which rendered as "near put wall $0"."""
+    base = f"F&G {fg_score} + VIX {vix:.0f} = extreme fear. "
+    if put_wall:
+        return base + f"Consider buying SPY near put wall ${put_wall:.0f}."
+    return base + "Consider buying SPY (no fresh GEX put wall to anchor the entry)."
 
 
 def _get_live_webull_portfolio():
@@ -719,10 +737,7 @@ def generate_kirk_advisory():
         # Cash deployment recommendation
         if fg_score < 35 and vix > 28:
             cash_action = "DEPLOY"
-            cash_reasoning = (
-                f"F&G {fg_score} + VIX {vix:.0f} = extreme fear. "
-                f"Consider buying SPY near put wall ${put_wall:.0f}."
-            )
+            cash_reasoning = _cash_deploy_reasoning(fg_score, vix, put_wall)
         elif fg_score < 45:
             cash_action = "WAIT"
             cash_reasoning = f"F&G {fg_score} = mild fear. Wait for F&G < 35 to deploy."
