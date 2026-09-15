@@ -251,21 +251,30 @@ def _post_signal(symbol: str, setup: str, conf01: float, entry, stop, target, re
 
 
 def _w3_context(underlying: str) -> dict:
-    """SUPER_MAX W3 — latest GEX snapshot + flow lean for an underlying.
-    Reads data/flow_gex.db (gex_snapshots has NO king_node/lean; lean lives in
-    flow_aggregates). Returns Nones/'neutral' gracefully when no data (e.g. only
-    QQQ/SPY are covered today)."""
+    """SUPER_MAX W3 — GEX levels + flow lean for an underlying.
+    Returns Nones/'neutral' gracefully when no data.
+
+    HM-GEX-CONSUMER-BATCH-2026-09-14: GEX levels now come from canonical_gex
+    tier 0 under its 30-min bar (alpaca_gex_if_fresh). This read flow_gex.db's
+    newest gex_snapshots row at any age -- frozen at 2026-07-21 since the
+    Polygon collector died -- into every shadow signal's context. Not
+    canonical_gex_if_fresh(): this runs per emitted row every 30 min, and its
+    tier 3 would make a Polygon call per symbol. Lean still reads flow_gex.db
+    flow_aggregates (not GEX; not changed here)."""
     ctx = {"gamma_flip": None, "call_wall": None, "put_wall": None,
            "regime": None, "lean": "neutral"}
+    try:
+        from engine.canonical_gex import alpaca_gex_if_fresh
+        g = alpaca_gex_if_fresh(underlying)
+        if g:
+            ctx["gamma_flip"], ctx["call_wall"], ctx["put_wall"], ctx["regime"] = (
+                g.get("gamma_flip"), g.get("call_wall"), g.get("put_wall"), g.get("regime"))
+    except Exception as e:
+        logger.warning("[W3] GEX context lookup failed for %s: %s", underlying, e)
     if not os.path.exists(FLOW_GEX_DB):
         return ctx
     try:
         gconn = sqlite3.connect(FLOW_GEX_DB, timeout=10)
-        grow = gconn.execute(
-            "SELECT gamma_flip, call_wall, put_wall, regime FROM gex_snapshots "
-            "WHERE underlying=? ORDER BY asof DESC LIMIT 1", (underlying,)).fetchone()
-        if grow:
-            ctx["gamma_flip"], ctx["call_wall"], ctx["put_wall"], ctx["regime"] = grow
         lrow = gconn.execute(
             "SELECT lean FROM flow_aggregates WHERE underlying=? ORDER BY asof DESC LIMIT 1",
             (underlying,)).fetchone()
@@ -273,7 +282,7 @@ def _w3_context(underlying: str) -> dict:
             ctx["lean"] = lrow[0]
         gconn.close()
     except Exception as e:
-        logger.warning("[W3] GEX context lookup failed for %s: %s", underlying, e)
+        logger.warning("[W3] flow lean lookup failed for %s: %s", underlying, e)
     return ctx
 
 
