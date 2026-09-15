@@ -111,6 +111,33 @@ def alpaca_gex_if_fresh(symbol: str) -> Optional[dict]:
     return _alpaca_snapshot_fresh((symbol or "").upper())
 
 
+def gex_levels_row_is_fresh(calc_time) -> bool:
+    """True if a gex_overlay `gex_levels` row's calc_time is inside the tier-0
+    ALPACA_GEX_MAX_AGE_DAYS (30-min) bar.
+
+    HM-GEX-CONSUMER-BATCH-2026-09-14: for consumers that score off gex_levels'
+    composite_score/composite_signal, which canonical_gex() does not produce --
+    there is no canonical source to route them to, so the row itself is gated.
+
+    calc_time is written by gex_overlay._save_gex_levels() as naive
+    datetime.now().isoformat() -- LOCAL time (Arizona, UTC-7), not UTC.
+    snapshot_age_days() assumes naive = UTC and would read every row 7h
+    younger than it is, passing a row up to ~7.5h old under a 30-min bar.
+    Parsed here as local. Missing/unparseable -> not fresh.
+    """
+    if not calc_time:
+        return False
+    try:
+        from datetime import datetime, timezone
+        dt = datetime.fromisoformat(str(calc_time).replace(" ", "T"))
+        if dt.tzinfo is None:
+            dt = dt.astimezone()  # naive -> this process's local zone, same as the writer
+        age_days = (datetime.now(timezone.utc) - dt).total_seconds() / 86400.0
+        return age_days < ALPACA_GEX_MAX_AGE_DAYS
+    except Exception:
+        return False
+
+
 def latest_snapshot(symbol: str) -> Optional[dict]:
     """Latest durable data/flow_gex.db row for `symbol`, or None if none exists.
 

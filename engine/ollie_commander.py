@@ -173,17 +173,25 @@ def _get_regime_pts(strategy: str | None, regime: str) -> float:
 
 
 def _get_gex_pts(symbol: str, action: str = "BUY") -> float:
-    """GEX alignment from gex_levels → 0-0.4 pts. Neutral (0.2) if no data."""
+    """GEX alignment from gex_levels → 0-0.4 pts. Neutral (0.2) if no fresh data.
+
+    HM-GEX-CONSUMER-BATCH-2026-09-14: the row must pass the tier-0 30-min bar
+    (canonical_gex.gex_levels_row_is_fresh). gex_levels was last written
+    2026-05-30 and every approve_or_reject() since scored against it.
+    canonical_gex has no composite score to route to instead, so a stale row
+    scores exactly like no row.
+    """
     try:
+        from engine.canonical_gex import gex_levels_row_is_fresh
         c = _conn_trader()
         row = c.execute(
-            "SELECT composite_score, composite_signal FROM gex_levels "
+            "SELECT composite_score, composite_signal, calc_time FROM gex_levels "
             "WHERE symbol=? ORDER BY calc_time DESC LIMIT 1",
             (symbol,)
         ).fetchone()
         c.close()
-        if not row or row[0] is None:
-            return 0.2   # neutral — no GEX data for this ticker
+        if not row or row[0] is None or not gex_levels_row_is_fresh(row[2]):
+            return 0.2   # neutral — no fresh GEX data for this ticker
         score  = float(row[0])
         signal = str(row[1] or "").lower()
         is_bullish = "bull" in signal or "positive" in signal
