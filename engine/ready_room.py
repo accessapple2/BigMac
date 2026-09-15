@@ -440,6 +440,31 @@ def _generate_gameplan(
 # ── Main Briefing Function ────────────────────────────────────────────────────
 
 
+def _fresh_snapshot_profile(symbol: str):
+    """GEXProfile from the newest gex_snapshots row, or None if there is none,
+    it is past the tier-0 30-min bar, or it can't be read.
+
+    HM-GEX-CONSUMER-BATCH-2026-09-14: age is judged on created_at (SQLite
+    datetime('now'), genuine UTC) -- the same basis canonical_gex tier 0 and
+    risk_manager use, not the naive-local `timestamp` field.
+    """
+    try:
+        from gex_calculator import get_latest_snapshot, _profile_from_snapshot
+        from engine.canonical_gex import snapshot_age_days, ALPACA_GEX_MAX_AGE_DAYS
+        snap = get_latest_snapshot(symbol)
+        if not snap:
+            return None
+        age = snapshot_age_days(snap.get("created_at"))
+        if age is None or age >= ALPACA_GEX_MAX_AGE_DAYS:
+            console.log(f"[yellow]ReadyRoom: DB snapshot for {symbol} is stale "
+                        f"(created_at {snap.get('created_at')}); not used")
+            return None
+        return _profile_from_snapshot(snap)
+    except Exception as e:
+        console.log(f"[yellow]ReadyRoom: DB snapshot fallback failed: {e}")
+        return None
+
+
 def generate_ready_room_briefing(force: bool = False) -> dict:
     """
     Generate a complete Ready Room session briefing for SPY.
@@ -474,14 +499,12 @@ def generate_ready_room_briefing(force: bool = False) -> dict:
         console.log(f"[yellow]ReadyRoom: live GEX unavailable ({e}), trying DB snapshot")
 
     if profile is None:
-        # Fall back to cached DB snapshot
-        try:
-            from gex_calculator import get_latest_snapshot, _profile_from_snapshot
-            snap = get_latest_snapshot("SPY")
-            if snap:
-                profile = _profile_from_snapshot(snap)
-        except Exception as e2:
-            console.log(f"[yellow]ReadyRoom: DB snapshot fallback failed: {e2}")
+        # Fall back to cached DB snapshot -- HM-GEX-CONSUMER-BATCH-2026-09-14: only
+        # inside the tier-0 30-min bar. This took the newest row at any age, and the
+        # canonical overlay below replaces walls only when canonical is fresh, so a
+        # stale snapshot's spot/walls/flip reached Troi and bridge_vote as current.
+        # Stale -> the existing "GEX data unavailable" result below.
+        profile = _fresh_snapshot_profile("SPY")
 
     if profile is None:
         return {"error": "GEX data unavailable — Alpaca API required", "briefing": None}
