@@ -20240,6 +20240,22 @@ def _save_chat_exchange(user_msg: str, bot_reply: str) -> None:
 
 # ─── CAPTAIN ARCHER: LIVE SHIP STATUS CONTEXT ────────────────────────────────
 
+def _computer_context_gex_line() -> str:
+    """SPY GEX line for Archer's ship-status context.
+
+    HM-GEX-CONSUMER-BATCH-2026-09-14: canonical_gex tier 0 under its 30-min bar
+    (alpaca_gex_if_fresh -- local read, no Polygon call). This read
+    gex_calculator.get_latest_snapshot() at any age and printed
+    gex.get('regime', '?') from a table with no regime column, so it always
+    said "GEX: ? | $xB" with an unaged total.
+    """
+    from engine.canonical_gex import alpaca_gex_if_fresh
+    gex = alpaca_gex_if_fresh("SPY")
+    if not gex:
+        return "GEX: UNAVAILABLE — no fresh gamma snapshot"
+    return f"GEX: {gex.get('regime') or '?'} | ${(gex.get('total_gex') or 0) / 1e9:.1f}B"
+
+
 def _build_computer_context() -> str:
     """Gather live ship status for Captain Archer's system prompt."""
     lines = ["=== CURRENT SHIP STATUS ==="]
@@ -20394,10 +20410,7 @@ def _build_computer_context() -> str:
 
     # GEX
     try:
-        from gex_calculator import get_latest_snapshot
-        gex = get_latest_snapshot("SPY")
-        if gex:
-            lines.append(f"GEX: {gex.get('regime','?')} | ${(gex.get('total_gex',0) or 0)/1e9:.1f}B")
+        lines.append(_computer_context_gex_line())
     except Exception:
         pass
 
