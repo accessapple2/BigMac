@@ -606,19 +606,28 @@ def build_alpaca_gex_prompt_section(symbol: str) -> str:
     if profile is None or not profile.levels:
         return ""
 
+    # HM-GEX-CONSUMER-BATCH-2026-09-14: refuse a profile past the tier-0 30-min
+    # bar (canonical_gex.ALPACA_GEX_MAX_AGE_DAYS). This labelled the age
+    # "[Nm old]" but served the levels regardless, and both the in-memory cache
+    # and the DB row outlive the 15-min RTH refresh (overnight, weekends, a
+    # stall). profile.timestamp is naive local (datetime.now().isoformat()) and
+    # is compared to naive local now, so no UTC conversion. Stale or unparseable
+    # -> "", same as a symbol never computed (keeps base.py's "GEX" source honest).
+    from engine.canonical_gex import ALPACA_GEX_MAX_AGE_DAYS
+    try:
+        age_m = (datetime.now() - datetime.fromisoformat(profile.timestamp)).total_seconds() / 60
+    except Exception:
+        return ""
+    if age_m >= ALPACA_GEX_MAX_AGE_DAYS * 24 * 60:
+        return ""
+
     regime = (
         "PINNED (mean-reverting — fade extremes)"
         if profile.total_gex > 0
         else "VOLATILE (trending — ride momentum)"
     )
 
-    age_note = ""
-    try:
-        snap_dt = datetime.fromisoformat(profile.timestamp)
-        age_m = int((datetime.now() - snap_dt).total_seconds() / 60)
-        age_note = f" [{age_m}m old]"
-    except Exception:
-        pass
+    age_note = f" [{int(age_m)}m old]"
 
     return "\n".join([
         f"=== ALPACA GEX — {profile.symbol}{age_note} ===",
