@@ -359,15 +359,16 @@ def generate_morning_briefing(symbols: list[str] | None = None) -> dict:
         bars = _get_prior_day_bars(sym)
 
         # GEX key levels
+        # HM-GEX-CONSUMER-BATCH-2026-09-14: canonical_gex_if_fresh(), not gex_levels.
+        # The old path recomputed only when gex_levels had NO row for the symbol; a
+        # row existed (last written 2026-05-30), so every morning stored May's levels
+        # as today's. Pre-market today the tier-0 snapshot is past its 30-min bar and
+        # the daily store is frozen, so this writes NULL GEX columns -- the OR War Room
+        # post and get_morning_levels_for_prompt() already omit GEX lines when NULL.
         gex: dict = {}
         try:
-            from engine.gex_overlay import get_latest_gex, calculate_gex, _save_gex_levels
-            gex = get_latest_gex(sym) or {}
-            if not gex:
-                fresh = calculate_gex(sym)
-                if fresh:
-                    _save_gex_levels(sym, fresh)
-                    gex = get_latest_gex(sym) or {}
+            from engine.canonical_gex import canonical_gex_if_fresh
+            gex = canonical_gex_if_fresh(sym) or {}
         except Exception as e:
             logger.warning(f"GEX fetch failed for {sym}: {e}")
 
@@ -812,11 +813,19 @@ def monitor_active_options() -> None:
         greeks = _bs_greeks(spot, strike, T, iv, is_call=(option_type == "call"))
 
         # GEX for underlying
+        # HM-GEX-CONSUMER-BATCH-2026-09-14: tier-0 Alpaca snapshot under its 30-min
+        # bar only. This read gex_overlay.get_latest_gex() -> gex_levels, last written
+        # 2026-05-30, so the first option position opened would have been auto-closed
+        # against a gamma flip from another season. A flip-cross CLOSE_NOW acts within
+        # the minute: the 1-day canonical gate is too loose for it, and a Polygon live
+        # compute must not run inside this 60s job. No fresh snapshot -> {} -> rules 4
+        # and 6 are skipped; the P&L and 0DTE rules still apply.
         if underlying not in gex_cache:
             try:
-                from engine.gex_overlay import get_latest_gex
-                gex_cache[underlying] = get_latest_gex(underlying) or {}
-            except Exception:
+                from engine.canonical_gex import alpaca_gex_if_fresh
+                gex_cache[underlying] = alpaca_gex_if_fresh(underlying) or {}
+            except Exception as e:
+                logger.warning(f"Battle Station GEX read failed for {underlying}: {type(e).__name__}: {e}")
                 gex_cache[underlying] = {}
         gex = gex_cache[underlying]
 
@@ -909,14 +918,16 @@ def get_battle_station_status() -> dict:
     qqq_levels = _get_morning_levels_db("QQQ")
 
     # GEX regime
+    # HM-GEX-CONSUMER-BATCH-2026-09-14: tier-0 only (pure local read on a polled
+    # endpoint). Was gex_levels' 2026-05-30 regime, reported as current.
     gex_regime = "unknown"
     try:
-        from engine.gex_overlay import get_latest_gex
-        spy_gex = get_latest_gex("SPY")
+        from engine.canonical_gex import alpaca_gex_if_fresh
+        spy_gex = alpaca_gex_if_fresh("SPY")
         if spy_gex:
-            gex_regime = spy_gex.get("regime", "unknown")
-    except Exception:
-        pass
+            gex_regime = spy_gex.get("regime") or "unknown"
+    except Exception as e:
+        logger.warning(f"Battle Station status GEX read failed: {type(e).__name__}: {e}")
 
     return {
         "status": "ONLINE" if (market_open or len(positions) > 0) else "OFFLINE",

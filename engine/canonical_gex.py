@@ -97,6 +97,20 @@ def canonical_gex_if_fresh(symbol: str) -> Optional[dict]:
     return c
 
 
+def alpaca_gex_if_fresh(symbol: str) -> Optional[dict]:
+    """Tier 0 only: the Alpaca snapshot under its own ALPACA_GEX_MAX_AGE_DAYS
+    (30-min) bar, else None. Pure local read -- no Polygon cache, no
+    flow_gex.db, no live compute.
+
+    HM-GEX-CONSUMER-BATCH-2026-09-14: for intraday paths that act on a level
+    within the minute (battle_station's gamma-flip auto-close) and for polled
+    status reads. canonical_gex_if_fresh() accepts a daily row up to
+    CANONICAL_GEX_MAX_AGE_DAYS old and can fall through to a Polygon live
+    compute, neither of which belongs inside a 60s scheduler job.
+    """
+    return _alpaca_snapshot_fresh((symbol or "").upper())
+
+
 def latest_snapshot(symbol: str) -> Optional[dict]:
     """Latest durable data/flow_gex.db row for `symbol`, or None if none exists.
 
